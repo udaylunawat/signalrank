@@ -1,0 +1,52 @@
+default_weight: 0.5
+
+tiers:
+  tier_a:
+    weight: 1.0
+    companies:
+      - walmart
+      - optum
+      - unitedhealth
+      - jpmorgan
+      - jp morgan
+      - eli lilly
+      - siemens
+      - philips
+      - ge healthcare
+      - msci
+      - visa
+      - mastercard
+      - capital one
+      - intuit
+      - workday
+      - sap
+      - oracle
+
+  tier_b:
+    weight: 0.85
+    companies:
+      - salesforce
+      - adobe
+      - microsoft
+      - google
+      - apple
+      - atlassian
+      - blackrock
+      - goldman
+
+  tier_d:
+    weight: 0.4
+    companies:
+      - accenture
+      - epam
+      - globallogic
+      - nagarro
+      - citiustech
+      - hcl
+
+  tier_e:
+    weight: 0.35
+    companies:
+      - wipro
+      - infosys
+      - tcs
