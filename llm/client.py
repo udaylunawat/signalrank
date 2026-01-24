@@ -13,14 +13,15 @@ BASE_URL = "https://openrouter.ai/api/v1"
 CACHE_DIR = Path("cache/llm")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_MODEL = "mistralai/mistral-7b-instruct"
+DEFAULT_MODEL = "google/gemini-2.5-flash-lite" #"mistralai/mistral-7b-instruct"
 
 _client = OpenAI(api_key=OPENROUTER_API_KEY, base_url=BASE_URL)
 
 
 def llm_json(prompt: str, *, model: str = DEFAULT_MODEL, max_tokens: int = 512) -> dict:
     """
-    Cached, deterministic JSON-only LLM call.
+    Robust, cached JSON LLM call.
+    Never raises due to formatting.
     """
     key = hashlib.md5((model + prompt).encode()).hexdigest()
     path = CACHE_DIR / f"{key}.json"
@@ -35,12 +36,23 @@ def llm_json(prompt: str, *, model: str = DEFAULT_MODEL, max_tokens: int = 512) 
         max_tokens=max_tokens,
     )
 
-    text = resp.choices[0].message.content
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end < 0:
-        raise ValueError("LLM did not return JSON")
+    raw = resp.choices[0].message.content.strip()
 
-    data = json.loads(text[start:end + 1])
+    # ---------- robust JSON extraction ----------
+    start = raw.find("{")
+    end = raw.rfind("}")
+
+    if start == -1 or end == -1 or end <= start:
+        # hard fallback
+        data = {"_error": "no_json", "_raw": raw[:500]}
+        path.write_text(json.dumps(data, indent=2))
+        return data
+
+    try:
+        data = json.loads(raw[start : end + 1])
+    except Exception:
+        data = {"_error": "invalid_json", "_raw": raw[start : start + 500]}
+
     path.write_text(json.dumps(data, indent=2))
     return data
 

@@ -1,7 +1,11 @@
-default_weight: 0.5
+default_weight: 0.4
 
 tiers:
-  tier_a:
+
+  enterprise_calm:
+    description: >
+      Large, stable enterprises with long system lifecycles,
+      strong IC/architect tracks, and predictable work.
     weight: 1.0
     companies:
       - walmart
@@ -19,37 +23,48 @@ tiers:
       - capital one
       - intuit
       - workday
-      - sap
-      - netflix
-      - uber
-      - airbnb
-      - linkedin
-      - twitter
+      - atlassian
+      - salesfoce
 
-  tier_b:
-    weight: 0.85
+  enterprise_saas_finance:
+    description: >
+      Strong product or finance firms with good pay
+      and solid IC ladders, slightly higher expectations.
+    weight: 0.95
     companies:
       - salesforce
       - adobe
-      - microsoft
-      - google
-      - apple
-      - atlassian
       - blackrock
       - goldman
 
-  tier_d:
-    weight: 0.4
+  big_tech_controlled:
+    description: >
+      Big Tech with high bar and high upside.
+      Calm depends heavily on team and scope.
+    weight: 0.92
     companies:
-      - accenture
+      - microsoft
+      - google
+      - apple
+      # amazon intentionally excluded (too high variance)
+
+  delivery_ai_services:
+    description: >
+      AI-heavy service firms with variable calm depending on client.
+      Good learning, weaker long-term calm.
+    weight: 0.5
+    companies:
+      - fractal
       - epam
       - globallogic
       - nagarro
       - citiustech
-      - fractal analytics
 
-  tier_e:
-    weight: 0.35
+  legacy_it_services:
+    description: >
+      Traditional IT services with lower leverage,
+      slower growth, and weaker long-term satisfaction.
+    weight: 0.3
     companies:
       - wipro
       - infosys
@@ -57,12 +72,5 @@ tiers:
       - hcl
       - tech mahindra
       - cognizant
-      - ibm
-      - dell
       - capgemini
-      - l&t infotech
-      - mindtree
-      - birlasoft
-      - sonata software
-      - persistent systems
-      - hexaware
+      - ibm

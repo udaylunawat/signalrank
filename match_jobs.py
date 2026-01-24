@@ -6,6 +6,7 @@ from scrape_jobs import fetch_jobs
 from match_engine import rank_jobs
 from profiles import PROFILES
 from logger import setup_logger
+from config import DEFAULT_COUNTRY, DEFAULT_HOURS_OLD
 
 
 def build_parser():
@@ -15,11 +16,16 @@ def build_parser():
 
     parser.add_argument("--resume", required=True)
     parser.add_argument("--search", required=True)
-    parser.add_argument("--country", default="India")
-    parser.add_argument("--hours-old", type=int, default=48)
+    parser.add_argument("--country", default=DEFAULT_COUNTRY)
+    parser.add_argument("--hours-old", type=int, default=DEFAULT_HOURS_OLD)
     parser.add_argument("--remote-only", action="store_true")
     parser.add_argument("--profile", choices=PROFILES.keys(), default="senior_ic")
     parser.add_argument("--force-refresh", action="store_true")
+    parser.add_argument(
+        "--user",
+        required=True,
+        help="User workspace name (e.g. example)",
+    )
 
     # 👇 NEW
     parser.add_argument(
@@ -36,6 +42,7 @@ def main():
     logger = setup_logger()
 
     profile = PROFILES[args.profile]
+    profile.workspace_dir = f"workspaces/{args.user}/{profile.name}"
     logger.info(f"Using profile: {profile.name}")
 
     resume_text = load_resume(args.resume)
