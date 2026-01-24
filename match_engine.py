@@ -1,3 +1,9 @@
+# match_engine.py
+import json
+import re
+from pathlib import Path
+from typing import List
+
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -5,13 +11,66 @@ from sklearn.metrics.pairwise import cosine_similarity
 from company_scoring import CompanyScorer
 from profiles import Profile
 from skill_normalizer import normalize_text
-
 from llm.normalize_skills import normalize_skills_batch
-from llm.explain_mathc import explain_match, explain_no_match
+from llm.explain_match import explain_match
+from llm.distill_resume import distill_resume
 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-TOP_K_EXPLAIN = 5
+from config import (
+    MIN_SEMANTIC_SCORE,
+    UNKNOWN_COMPANY_PENALTY,
+    YOE_MISMATCH_PENALTY,
+    TOP_K_EXPLAIN,
+)
 
+
+# ---------------- Utilities ----------------
+
+def normalize_title(title: str) -> str:
+    t = title.lower()
+    t = re.sub(r"[^a-z ]+", " ", t)
+    t = re.sub(r"\b(sr|senior|lead|principal|staff)\b", "", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def extract_max_yoe(text: str) -> int | None:
+    matches = re.findall(r"(\d+)\s*\+?\s*years", text.lower())
+    return max(map(int, matches)) if matches else None
+
+
+def binary_job_quality(row: pd.Series) -> float:
+    if len(row["description"]) < 800:
+        return 0.85
+    if any(x in row["title"].lower() for x in ["intern", "junior", "trainee"]):
+        return 0.0
+    return 1.0
+
+
+def _align_skills_length(
+    skills: List[List[str]],
+    target_len: int,
+    logger,
+) -> List[List[str]]:
+    """
+    HARD INVARIANT:
+    len(skills) MUST equal target_len.
+    """
+    if len(skills) == target_len:
+        return skills
+
+    logger.warning(
+        f"Skill normalization length mismatch: "
+        f"{len(skills)} vs {target_len}. Applying fallback."
+    )
+
+    if len(skills) > target_len:
+        return skills[:target_len]
+
+    # pad with empty skill lists
+    return skills + [[] for _ in range(target_len - len(skills))]
+
+
+# ---------------- Main ----------------
 
 def rank_jobs(
     resume_text: str,
@@ -21,89 +80,108 @@ def rank_jobs(
     logger,
 ):
     if jobs_df.empty:
-        logger.warning("No jobs to rank")
         return jobs_df
 
-    logger.info(f"Ranking with profile: {profile.name}")
+    jobs_df = jobs_df.copy()
 
-    # --------------------------------------------------
-    # 1. Skill normalization (batched, cached)
-    # --------------------------------------------------
-    if profile.use_llm_skill_norm:
-        logger.info("Normalizing resume skills (LLM, cached)")
-        resume_skills = normalize_skills_batch([resume_text])[0]
+    # ---------- Resume distillation ----------
+    workspace = Path(profile.workspace_dir)
+    workspace.mkdir(parents=True, exist_ok=True)
+    distilled_path = workspace / "resume_distilled.json"
 
-        logger.info("Normalizing job skills (batched LLM)")
-        job_skills = normalize_skills_batch(
-            jobs_df["description"].fillna("").tolist(),
-            batch_size=8,
-            logger=logger,
-        )
-
-        jobs_df["__skills"] = job_skills
-        resume_embed_text = " ".join(resume_skills)
-        job_texts = [" ".join(s) for s in job_skills]
+    if distilled_path.exists():
+        distilled = json.loads(distilled_path.read_text())
     else:
-        resume_embed_text = normalize_text(resume_text)
-        job_texts = jobs_df["description"].apply(normalize_text).tolist()
-        jobs_df["__skills"] = [[] for _ in range(len(jobs_df))]
-        resume_skills = []
+        distilled = distill_resume(resume_text)
+        distilled_path.write_text(json.dumps(distilled, indent=2))
 
-    # --------------------------------------------------
-    # 2. Embedding + deterministic scoring
-    # --------------------------------------------------
+    resume_caps = distilled.get("core_capabilities", [])
+    resume_embed_text = (
+        f"Senior individual contributor. Core strengths: {', '.join(resume_caps)}"
+        if resume_caps else normalize_text(resume_text)
+    )
+
+    # ---------- Job skill normalization (SAFE) ----------
+    descriptions = jobs_df["description"].fillna("").tolist()
+
+    raw_skills = normalize_skills_batch(
+        descriptions,
+        batch_size=8,
+        logger=logger,
+    )
+
+    job_skills = _align_skills_length(
+        raw_skills,
+        target_len=len(jobs_df),
+        logger=logger,
+    )
+
+    jobs_df["__skills"] = job_skills
+
+    job_texts = [
+        " ".join(s) if s else normalize_text(d)
+        for s, d in zip(job_skills, descriptions)
+    ]
+
+    # ---------- Embeddings ----------
     model = SentenceTransformer(MODEL_NAME)
-
     r_emb = model.encode([resume_embed_text], normalize_embeddings=True)
     j_emb = model.encode(job_texts, normalize_embeddings=True)
 
     jobs_df["semantic_score"] = cosine_similarity(r_emb, j_emb)[0]
+    jobs_df = jobs_df[jobs_df["semantic_score"] >= MIN_SEMANTIC_SCORE]
 
+    if jobs_df.empty:
+        return jobs_df
+
+    # ---------- Company scoring ----------
     scorer = CompanyScorer(
         preferred=preferences.get("preferred", []),
         deprioritized=preferences.get("deprioritized", []),
     )
+
     jobs_df["company_weight"] = jobs_df["company"].apply(scorer.score)
 
+    jobs_df.loc[
+        (jobs_df["company_weight"] == scorer.default_weight)
+        & (jobs_df["semantic_score"] < 0.30),
+        "company_weight",
+    ] *= UNKNOWN_COMPANY_PENALTY
+
+    # ---------- YoE mismatch ----------
+    jobs_df["max_yoe"] = jobs_df["description"].apply(extract_max_yoe)
+    jobs_df.loc[
+        jobs_df["max_yoe"].fillna(0) >= 12,
+        "semantic_score",
+    ] *= YOE_MISMATCH_PENALTY
+
+    # ---------- Title normalization ----------
+    jobs_df["title_norm"] = jobs_df["title"].apply(normalize_title)
+    jobs_df = jobs_df.drop_duplicates(subset=["company", "title_norm"])
+
+    # ---------- Job quality ----------
+    jobs_df["quality_score"] = jobs_df.apply(binary_job_quality, axis=1)
+
+    # ---------- Final score ----------
     jobs_df["final_score"] = (
-        jobs_df["semantic_score"] * jobs_df["company_weight"]
+        jobs_df["semantic_score"]
+        * jobs_df["company_weight"]
+        * jobs_df["quality_score"]
     )
 
     ranked = jobs_df.sort_values("final_score", ascending=False).reset_index(drop=True)
 
-    # --------------------------------------------------
-    # 3. Deterministic explanations (always available)
-    # --------------------------------------------------
+    # ---------- Explanations ----------
     ranked["explanation"] = ranked.apply(
-        lambda r: f"Skill similarity {r.semantic_score:.2f}, company weight {r.company_weight:.2f}",
+        lambda r: f"Semantic {r.semantic_score:.2f}, company {r.company_weight:.2f}",
         axis=1,
     )
     ranked["why_not_matched"] = ""
 
-    # --------------------------------------------------
-    # 4. LLM explanations (top + bottom only)
-    # --------------------------------------------------
-    if profile.use_llm_explanations:
-        logger.info("Generating LLM explanations (top/bottom only)")
-
-        # top-K matches
+    if profile.use_llm_explanations and resume_caps:
         for i in range(min(TOP_K_EXPLAIN, len(ranked))):
-            row = ranked.iloc[i]
-            try:
-                ranked.at[i, "explanation"] = explain_match(
-                    resume_skills, row["__skills"]
-                )
-            except Exception as e:
-                logger.debug(f"LLM match explain failed: {e}")
-
-        # bottom-K non-matches
-        for i in range(max(0, len(ranked) - TOP_K_EXPLAIN), len(ranked)):
-            row = ranked.iloc[i]
-            try:
-                ranked.at[i, "why_not_matched"] = explain_no_match(
-                    resume_skills, row["__skills"]
-                )
-            except Exception as e:
-                logger.debug(f"LLM no-match explain failed: {e}")
+            ranked.at[i, "explanation"] = explain_match(
+                resume_caps, ranked.at[i, "__skills"]
+            )
 
     return ranked

@@ -167,7 +167,7 @@ def fetch_jobs(
                 for col in ["title", "description", "company", "job_url"]:
                     df[col] = df.get(col, "").astype(str)
 
-                df = df[df["description"].str.len() > 30]
+                df = df[df["description"].str.len() >= 500]
 
                 if df.empty:
                     logger.warning(f"[FILTERED EMPTY] {q}")
@@ -209,11 +209,17 @@ def fetch_jobs(
     # ROLE CLASSIFICATION
     # --------------------------------------------------
     logger.info("Classifying role intent (batched LLM)")
-    df["role"] = classify_roles_batch(
+    roles = classify_roles_batch(
         df["title"].tolist(),
         batch_size=10,
         logger=logger,
     )
+
+    if len(roles) != len(df):
+        logger.error("Role classification length mismatch after fallback. Forcing IC.")
+        roles = ["individual_contributor"] * len(df)
+
+    df["role"] = roles
 
     if profile.skip_junior_roles:
         df = df[df["role"] != "junior"]
@@ -223,9 +229,13 @@ def fetch_jobs(
     # --------------------------------------------------
     # KEYWORD EXCLUSIONS
     # --------------------------------------------------
-    text = (df["title"] + " " + df["description"]).str.lower()
     for k in profile.exclude_keywords:
-        df = df[~text.str.contains(re.escape(k))]
+        mask = (
+            (df["title"] + " " + df["description"])
+            .str.lower()
+            .str.contains(re.escape(k), na=False)
+        )
+        df = df.loc[~mask]
 
     logger.info(f"Final job count after filtering: {len(df)}")
     return df

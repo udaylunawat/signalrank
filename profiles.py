@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import List, Dict
+from pathlib import Path
 
 
 @dataclass
@@ -7,22 +8,21 @@ class Profile:
     name: str
     description: str
 
-    # filtering
     skip_junior_roles: bool
     skip_manager_roles: bool
     exclude_keywords: List[str]
 
-    # ranking
     preferred_companies: List[str]
     deprioritized_companies: List[str]
 
-    # LLM feature flags
     use_llm_search: bool
     use_llm_skill_norm: bool
     use_llm_explanations: bool
 
+    workspace_dir: str  # 👈 NEW
 
-PROFILES: Dict[str, Profile] = {
+
+PROFILES = {
     "senior_ic": Profile(
         name="Senior IC",
         description="Senior individual contributor roles. Calm, IC-only.",
@@ -38,5 +38,6 @@ PROFILES: Dict[str, Profile] = {
         use_llm_search=True,
         use_llm_skill_norm=True,
         use_llm_explanations=True,
-    ),
+        workspace_dir="",  # set dynamically
+    )
 }

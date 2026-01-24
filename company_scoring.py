@@ -1,6 +1,18 @@
+# company_scoring.py
 from typing import List, Dict
-import yaml
 from pathlib import Path
+import yaml
+import re
+
+
+def normalize_company(name: str) -> str:
+    """
+    Normalize company names for robust substring matching.
+    """
+    name = name.lower()
+    name = re.sub(r"[^a-z0-9 ]+", " ", name)
+    name = re.sub(r"\s+", " ", name)
+    return name.strip()
 
 
 class CompanyScorer:
@@ -10,10 +22,10 @@ class CompanyScorer:
         deprioritized: List[str] | None = None,
         config_path: str = "config/company_tiers.yaml",
     ):
-        self.preferred = [c.lower() for c in (preferred or [])]
-        self.deprioritized = [c.lower() for c in (deprioritized or [])]
+        self.preferred = [normalize_company(c) for c in (preferred or [])]
+        self.deprioritized = [normalize_company(c) for c in (deprioritized or [])]
 
-        self.default_weight = 0.5
+        self.default_weight = 0.4
         self.rules: Dict[str, float] = {}
 
         if Path(config_path).exists():
@@ -21,17 +33,17 @@ class CompanyScorer:
 
     def _load_defaults(self, path: str):
         data = yaml.safe_load(Path(path).read_text())
-        self.default_weight = data.get("default_weight", 0.5)
+        self.default_weight = data.get("default_weight", self.default_weight)
 
         for tier in data.get("tiers", {}).values():
             for c in tier.get("companies", []):
-                self.rules[c.lower()] = tier["weight"]
+                self.rules[normalize_company(c)] = tier["weight"]
 
     def score(self, company: str) -> float:
         if not isinstance(company, str):
             return self.default_weight
 
-        name = company.lower()
+        name = normalize_company(company)
 
         for c in self.preferred:
             if c in name:
@@ -39,7 +51,7 @@ class CompanyScorer:
 
         for c in self.deprioritized:
             if c in name:
-                return 0.3
+                return 0.25
 
         for key, weight in self.rules.items():
             if key in name:
