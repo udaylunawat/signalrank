@@ -6,3 +6,5 @@ pandas
 numpy<2.0
 PyPDF2
 tqdm
+openai
+python-dotenv

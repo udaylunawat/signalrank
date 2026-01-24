@@ -1,8 +1,9 @@
 import logging
+from typing import Callable, Optional
 
 
 class StreamlitLogHandler(logging.Handler):
-    def __init__(self, callback):
+    def __init__(self, callback: Callable[[str], None]):
         super().__init__()
         self.callback = callback
 
@@ -11,10 +12,18 @@ class StreamlitLogHandler(logging.Handler):
         self.callback(msg)
 
 
-def setup_logger(streamlit_callback=None):
+def setup_logger(
+    streamlit_callback: Optional[Callable[[str], None]] = None,
+    debug: bool = False,
+):
+    """
+    Canonical logger factory.
+    NEVER redefine this elsewhere.
+    """
     logger = logging.getLogger("jobs")
-    logger.setLevel(logging.INFO)
     logger.handlers.clear()
+
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
 
     formatter = logging.Formatter("[%(levelname)s] %(message)s")
 
@@ -23,8 +32,8 @@ def setup_logger(streamlit_callback=None):
     logger.addHandler(console)
 
     if streamlit_callback:
-        st_handler = StreamlitLogHandler(streamlit_callback)
-        st_handler.setFormatter(formatter)
-        logger.addHandler(st_handler)
+        handler = StreamlitLogHandler(streamlit_callback)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
     return logger
