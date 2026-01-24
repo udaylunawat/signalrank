@@ -20,7 +20,11 @@ tiers:
       - intuit
       - workday
       - sap
-      - oracle
+      - netflix
+      - uber
+      - airbnb
+      - linkedin
+      - twitter
 
   tier_b:
     weight: 0.85
@@ -42,7 +46,7 @@ tiers:
       - globallogic
       - nagarro
       - citiustech
-      - hcl
+      - fractal analytics
 
   tier_e:
     weight: 0.35
@@ -50,3 +54,15 @@ tiers:
       - wipro
       - infosys
       - tcs
+      - hcl
+      - tech mahindra
+      - cognizant
+      - ibm
+      - dell
+      - capgemini
+      - l&t infotech
+      - mindtree
+      - birlasoft
+      - sonata software
+      - persistent systems
+      - hexaware

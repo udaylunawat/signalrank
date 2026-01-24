@@ -1,37 +1,48 @@
-from pathlib import Path
+from typing import List, Dict
 import yaml
+from pathlib import Path
 
 
 class CompanyScorer:
-    def __init__(self, config_path: str):
-        self.config = self._load_config(config_path)
-        self.default_weight = self.config.get("default_weight", 0.5)
-        self.rules = self._build_rules(self.config.get("tiers", {}))
+    def __init__(
+        self,
+        preferred: List[str] | None = None,
+        deprioritized: List[str] | None = None,
+        config_path: str = "config/company_tiers.yaml",
+    ):
+        self.preferred = [c.lower() for c in (preferred or [])]
+        self.deprioritized = [c.lower() for c in (deprioritized or [])]
 
-    def _load_config(self, path: str) -> dict:
-        config_file = Path(path)
-        if not config_file.exists():
-            raise FileNotFoundError(f"Company tier config not found: {path}")
+        self.default_weight = 0.5
+        self.rules: Dict[str, float] = {}
 
-        with open(config_file, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+        if Path(config_path).exists():
+            self._load_defaults(config_path)
 
-    def _build_rules(self, tiers: dict):
-        rules = []
-        for tier_name, tier_data in tiers.items():
-            weight = tier_data["weight"]
-            companies = tier_data.get("companies", [])
-            for c in companies:
-                rules.append((c.lower(), weight))
-        return rules
+    def _load_defaults(self, path: str):
+        data = yaml.safe_load(Path(path).read_text())
+        self.default_weight = data.get("default_weight", 0.5)
 
-    def score(self, company_name: str) -> float:
-        if not isinstance(company_name, str):
+        for tier in data.get("tiers", {}).values():
+            for c in tier.get("companies", []):
+                self.rules[c.lower()] = tier["weight"]
+
+    def score(self, company: str) -> float:
+        if not isinstance(company, str):
             return self.default_weight
 
-        name = company_name.lower()
-        for keyword, weight in self.rules:
-            if keyword in name:
+        name = company.lower()
+
+        for c in self.preferred:
+            if c in name:
+                return 1.0
+
+        for c in self.deprioritized:
+            if c in name:
+                return 0.3
+
+        for key, weight in self.rules.items():
+            if key in name:
                 return weight
 
         return self.default_weight
