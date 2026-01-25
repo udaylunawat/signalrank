@@ -1,3 +1,4 @@
+# scrape_jobs.py
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -7,6 +8,7 @@ import re
 import time
 import random
 import requests
+import os
 
 from jobspy import scrape_jobs
 from profiles import Profile
@@ -21,11 +23,9 @@ CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
 CACHE_TTL_HOURS = 6
-
 MAX_RETRIES = 3
-BASE_BACKOFF = 2.0        # seconds
-JITTER_RANGE = (0.3, 1.5) # seconds
-
+BASE_BACKOFF = 2.0
+JITTER_RANGE = (0.3, 1.5)
 
 # --------------------------------------------------
 # HELPERS
@@ -33,16 +33,20 @@ JITTER_RANGE = (0.3, 1.5) # seconds
 def _key(**k):
     return hashlib.md5(json.dumps(k, sort_keys=True).encode()).hexdigest()
 
-
 def _now():
     return datetime.now().isoformat()
-
 
 def _sleep_with_jitter(attempt: int, logger):
     delay = BASE_BACKOFF ** attempt + random.uniform(*JITTER_RANGE)
     logger.warning(f"Retrying after {delay:.2f}s (attempt {attempt})")
     time.sleep(delay)
 
+def _allow_multiprocessing() -> bool:
+    """
+    Multiprocessing is allowed ONLY in batch/CLI mode.
+    Streamlit must never use multiprocessing.
+    """
+    return os.environ.get("JOBSCRAPER_MODE") == "batch"
 
 # --------------------------------------------------
 # MAIN
@@ -59,13 +63,6 @@ def fetch_jobs(
     logger=None,
     view_mode: bool = False,
 ) -> pd.DataFrame:
-    """
-    Robust job fetch with:
-    - per-query retries
-    - jittered backoff
-    - per-query caching
-    - partial failure tolerance
-    """
 
     # --------------------------------------------------
     # VIEW MODE
@@ -99,7 +96,15 @@ def fetch_jobs(
         sites, country_indeed = ["indeed", "linkedin"], None
 
     # --------------------------------------------------
-    # SCRAPE PER QUERY (ISOLATED)
+    # MULTIPROCESSING DECISION
+    # --------------------------------------------------
+    use_mp = _allow_multiprocessing()
+    logger.info(
+        f"JobSpy multiprocessing: {'ENABLED' if use_mp else 'DISABLED'}"
+    )
+
+    # --------------------------------------------------
+    # SCRAPE PER QUERY
     # --------------------------------------------------
     all_dfs = []
 
@@ -142,9 +147,9 @@ def fetch_jobs(
                     results_wanted=results_wanted,
                     country_indeed=country_indeed,
                     verbose=0,
+                    use_multiprocessing=use_mp,
                 )
 
-                # normalize JobSpy return
                 if jobs is None:
                     raise ValueError("JobSpy returned None")
 
@@ -153,17 +158,14 @@ def fetch_jobs(
                         logger.warning(f"[EMPTY] {q}")
                         break
                     df = pd.DataFrame(jobs)
-
                 elif isinstance(jobs, pd.DataFrame):
                     if jobs.empty:
                         logger.warning(f"[EMPTY] {q}")
                         break
                     df = jobs.copy()
-
                 else:
                     raise TypeError(f"Unknown JobSpy return type: {type(jobs)}")
 
-                # minimal sanity
                 for col in ["title", "description", "company", "job_url"]:
                     df[col] = df.get(col, "").astype(str)
 
@@ -173,13 +175,12 @@ def fetch_jobs(
                     logger.warning(f"[FILTERED EMPTY] {q}")
                     break
 
-                # save per-query cache immediately
                 q_csv.write_text(df.to_csv(index=False))
                 q_meta.write_text(json.dumps({"ts": _now()}))
 
                 logger.info(f"[SUCCESS] {q} → {len(df)} jobs")
                 all_dfs.append(df)
-                break  # success, exit retry loop
+                break
 
             except (requests.exceptions.RequestException, TimeoutError) as e:
                 logger.warning(f"[TIMEOUT] {q}: {e}")
@@ -190,11 +191,8 @@ def fetch_jobs(
 
             except Exception as e:
                 logger.error(f"[ERROR] {q}: {e}")
-                break  # non-retryable
+                break
 
-    # --------------------------------------------------
-    # MERGE RESULTS
-    # --------------------------------------------------
     if not all_dfs:
         logger.error("All queries failed; returning empty result")
         return pd.DataFrame()
@@ -208,15 +206,11 @@ def fetch_jobs(
     # --------------------------------------------------
     # ROLE CLASSIFICATION
     # --------------------------------------------------
-    logger.info("Classifying role intent (batched LLM)")
-    roles = classify_roles_batch(
-        df["title"].tolist(),
-        batch_size=10,
-        logger=logger,
-    )
+    logger.info("Classifying role intent (heuristic + cached LLM)")
+    roles = classify_roles_batch(df["title"].tolist(), logger=logger)
 
     if len(roles) != len(df):
-        logger.error("Role classification length mismatch after fallback. Forcing IC.")
+        logger.error("Role classification length mismatch; forcing IC")
         roles = ["individual_contributor"] * len(df)
 
     df["role"] = roles
@@ -226,9 +220,6 @@ def fetch_jobs(
     if profile.skip_manager_roles:
         df = df[df["role"] != "manager"]
 
-    # --------------------------------------------------
-    # KEYWORD EXCLUSIONS
-    # --------------------------------------------------
     for k in profile.exclude_keywords:
         mask = (
             (df["title"] + " " + df["description"])
@@ -236,6 +227,9 @@ def fetch_jobs(
             .str.contains(re.escape(k), na=False)
         )
         df = df.loc[~mask]
+    logger.info(
+        f"Excluded keywords applied: {profile.exclude_keywords}"
+    )
 
     logger.info(f"Final job count after filtering: {len(df)}")
     return df
