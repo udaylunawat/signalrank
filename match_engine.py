@@ -14,6 +14,7 @@ from skill_normalizer import normalize_text
 from llm.normalize_skills import normalize_skills_batch
 from llm.explain_match import explain_match
 from llm.distill_resume import distill_resume
+from llm.classify_functional_role import classify_functional_roles_batch
 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 from config import (
@@ -23,6 +24,16 @@ from config import (
     TOP_K_EXPLAIN,
 )
 
+ROLE_WEIGHT = {
+    "ai_ml_core": 1.0,
+    "agentic_systems": 1.0,
+    "mlops_llmops": 0.95,
+    "data_science": 0.85,
+    "software_general": 0.65,
+    "platform_devops": 0.4,
+    "sre": 0.35,
+    "security": 0.25,
+}
 
 # ---------------- Utilities ----------------
 
@@ -69,6 +80,23 @@ def _align_skills_length(
     # pad with empty skill lists
     return skills + [[] for _ in range(target_len - len(skills))]
 
+AI_TERMS = {
+    "llm", "agent", "rag", "embedding",
+    "prompt", "inference", "evaluation",
+    "retrieval", "orchestration",
+}
+
+def ai_density_penalty(text: str) -> float:
+    tokens = text.lower().split()
+    if not tokens:
+        return 0.7
+    hits = sum(1 for t in tokens if t in AI_TERMS)
+    density = hits / len(tokens)
+    if density < 0.002:
+        return 0.6
+    if density < 0.005:
+        return 0.8
+    return 1.0
 
 # ---------------- Main ----------------
 
@@ -96,12 +124,14 @@ def rank_jobs(
         distilled_path.write_text(json.dumps(distilled, indent=2))
 
     resume_caps = distilled.get("core_capabilities", [])
+    non_focus = set(distilled.get("non_focus", []))
+
     resume_embed_text = (
-        f"Senior individual contributor. Core strengths: {', '.join(resume_caps)}"
-        if resume_caps else normalize_text(resume_text)
+        "AI agentic systems, LLM pipelines, ML lifecycle ownership, inference, evaluation, orchestration. "
+        + ", ".join(resume_caps)
     )
 
-    # ---------- Job skill normalization (SAFE) ----------
+    # ---------- Skill normalization ----------
     descriptions = jobs_df["description"].fillna("").tolist()
 
     raw_skills = normalize_skills_batch(
@@ -134,6 +164,16 @@ def rank_jobs(
     if jobs_df.empty:
         return jobs_df
 
+    # ---------- Functional role classification ----------
+    jobs_df["functional_role"] = classify_functional_roles_batch(
+        jobs_df["title"].fillna("").tolist(),
+        logger=logger,
+    )
+
+    jobs_df["role_weight"] = jobs_df["functional_role"].map(
+        ROLE_WEIGHT
+    ).fillna(0.5)
+
     # ---------- Company scoring ----------
     scorer = CompanyScorer(
         preferred=preferences.get("preferred", []),
@@ -142,12 +182,6 @@ def rank_jobs(
 
     jobs_df["company_weight"] = jobs_df["company"].apply(scorer.score)
 
-    jobs_df.loc[
-        (jobs_df["company_weight"] == scorer.default_weight)
-        & (jobs_df["semantic_score"] < 0.30),
-        "company_weight",
-    ] *= UNKNOWN_COMPANY_PENALTY
-
     # ---------- YoE mismatch ----------
     jobs_df["max_yoe"] = jobs_df["description"].apply(extract_max_yoe)
     jobs_df.loc[
@@ -155,9 +189,16 @@ def rank_jobs(
         "semantic_score",
     ] *= YOE_MISMATCH_PENALTY
 
-    # ---------- Title normalization ----------
-    jobs_df["title_norm"] = jobs_df["title"].apply(normalize_title)
-    jobs_df = jobs_df.drop_duplicates(subset=["company", "title_norm"])
+    # ---------- Non-focus penalty ----------
+    def non_focus_penalty(job_skills):
+        overlap = set(job_skills or []) & non_focus
+        if len(overlap) >= 3:
+            return 0.6
+        if len(overlap) >= 1:
+            return 0.8
+        return 1.0
+
+    jobs_df["non_focus_penalty"] = jobs_df["__skills"].apply(non_focus_penalty)
 
     # ---------- Job quality ----------
     jobs_df["quality_score"] = jobs_df.apply(binary_job_quality, axis=1)
@@ -167,16 +208,25 @@ def rank_jobs(
         jobs_df["semantic_score"]
         * jobs_df["company_weight"]
         * jobs_df["quality_score"]
+        * jobs_df["role_weight"]
+        * jobs_df["non_focus_penalty"]
     )
+
+    # ---------- AI density penalty (kills infra-only roles) ----------
+    jobs_df["ai_density_penalty"] = jobs_df["description"].apply(ai_density_penalty)
+    jobs_df["final_score"] *= jobs_df["ai_density_penalty"]
 
     ranked = jobs_df.sort_values("final_score", ascending=False).reset_index(drop=True)
 
     # ---------- Explanations ----------
     ranked["explanation"] = ranked.apply(
-        lambda r: f"Semantic {r.semantic_score:.2f}, company {r.company_weight:.2f}",
+        lambda r: (
+            f"Role={r.functional_role}, "
+            f"semantic={r.semantic_score:.2f}, "
+            f"role_wt={r.role_weight:.2f}"
+        ),
         axis=1,
     )
-    ranked["why_not_matched"] = ""
 
     if profile.use_llm_explanations and resume_caps:
         for i in range(min(TOP_K_EXPLAIN, len(ranked))):
