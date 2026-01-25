@@ -13,7 +13,7 @@ BASE_URL = "https://openrouter.ai/api/v1"
 CACHE_DIR = Path("cache/llm")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_MODEL = "google/gemini-2.5-flash-lite" #"mistralai/mistral-7b-instruct"
+DEFAULT_MODEL = "mistralai/mistral-small-3.1-24b-instruct:free" # "google/gemini-2.5-flash-lite" #"mistralai/mistral-7b-instruct"
 
 _client = OpenAI(api_key=OPENROUTER_API_KEY, base_url=BASE_URL)
 
