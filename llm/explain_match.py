@@ -1,47 +1,37 @@
 # llm/explain_match.py
 from llm.client import llm_json
 
-MATCH_PROMPT = """
+BATCH_PROMPT = """
+You are explaining job matches.
+
 Resume skills:
 {resume}
 
-Job skills:
-{job}
+For EACH job below, produce ONE sentence explanation.
 
-Explain in ONE sentence why this job is a good fit.
+Return JSON exactly:
+{{ "explanations": [ "...", "..." ] }}
 
-Return JSON exactly in this form:
-{{ "explanation": "..." }}
+JOBS:
+{jobs}
 """
 
-NO_MATCH_PROMPT = """
-Resume skills:
-{resume}
+def explain_matches_batch(resume_skills, jobs_skills):
+    job_blocks = []
+    for i, skills in enumerate(jobs_skills):
+        job_blocks.append(
+            f"Job {i+1}: {', '.join(skills)}"
+        )
 
-Job skills:
-{job}
-
-Explain in ONE sentence why this job is NOT a good fit.
-Be honest but neutral.
-
-Return JSON exactly in this form:
-{{ "explanation": "..." }}
-"""
-
-
-def explain_match(resume_skills, job_skills):
-    prompt = MATCH_PROMPT.format(
+    prompt = BATCH_PROMPT.format(
         resume=", ".join(resume_skills),
-        job=", ".join(job_skills),
+        jobs="\n".join(job_blocks),
     )
-    data = llm_json(prompt)
-    return data.get("explanation", "")
 
+    data = llm_json(prompt, max_tokens=300)
+    exps = data.get("explanations", [])
 
-def explain_no_match(resume_skills, job_skills):
-    prompt = NO_MATCH_PROMPT.format(
-        resume=", ".join(resume_skills),
-        job=", ".join(job_skills),
-    )
-    data = llm_json(prompt)
-    return data.get("explanation", "")
+    if not isinstance(exps, list):
+        return [""] * len(jobs_skills)
+
+    return exps

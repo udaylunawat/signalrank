@@ -1,6 +1,6 @@
 streamlit
 python-jobspy
-sentence-transformers
+sentence-transformers==5.2.0
 scikit-learn
 pandas
 numpy<2.0
@@ -8,3 +8,5 @@ PyPDF2
 tqdm
 openai
 python-dotenv
+faiss-cpu
+aiohttp

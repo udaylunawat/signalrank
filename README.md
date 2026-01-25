@@ -1,162 +1,210 @@
-
 # Calm-First Job Ranker
 
-A **calm-first, senior IC–oriented job discovery tool** that surfaces
-high-signal enterprise AI/ML roles instead of overwhelming you with noise.
+A **batch-first, deterministic job discovery and ranking system** designed for senior IC roles in AI, MLOps, and platform engineering.
 
-This project combines:
-- Deterministic quality filters
-- Semantic matching
-- Company-tier intelligence
-- Minimal, well-bounded LLM usage
-- A clean Streamlit decision interface
+This project deliberately separates **data collection and ranking (CLI + cron)** from **presentation (Streamlit viewer)** to achieve:
 
-The goal is not to find *more* jobs.
-The goal is to find **fewer, better jobs**.
+- Stability on macOS (no OpenMP / multiprocessing crashes)
+- Reproducible daily runs
+- Low cognitive and operational complexity
+- Clear ownership of side effects (scraping, caching, embeddings)
 
 ---
 
-## ✨ Key Features
+## High-Level Architecture
 
-### 1. Calm-First Ranking Philosophy
-Jobs are ranked based on:
-- Enterprise stability
-- Senior IC suitability
-- Predictable work cadence
-- Platform / infrastructure focus
-- Clear role ownership
 
-Delivery-heavy, chaotic, or low-signal roles are aggressively filtered out.
 
-### 2. Deterministic-First Architecture
-The system is intentionally designed so that:
+**CRON / MANUAL CLI** │  
+▼  
+**jobs fetch / jobs run** │  
+▼  
+**cache/** (query CSVs + metadata)  
+│  
+▼  
+**jobs rank** │  
+▼  
+**outputs/ranked_jobs.csv** │  
+▼  
+**Streamlit (read-only viewer)**
 
-- **Deterministic filters do 70–80% of the work**
-- **Company tiers do most of the remaining work**
-- **Embeddings resolve ambiguity**
-- **LLMs never decide ranking**
-
-LLMs are used only for:
-- Skill normalization
-- Resume distillation
-- Human-readable explanations
-
-If an LLM fails, the system **degrades gracefully**.
-
-### 3. Enterprise-Aware Company Scoring
-
-Companies are scored via a YAML-driven tier system:
-
-- `enterprise_calm` – stable, long-lifecycle organizations
-- `enterprise_saas_finance` – strong product / finance firms
-- `big_tech_controlled` – high upside, team-dependent calm
-- `delivery_ai_services` – client-driven, lower calm
-- `legacy_it_services` – low leverage, deprioritized
-
-Company names are normalized to ensure robust matching.
-
-### 4. Strong Quality Gates (By Design)
-
-Before ranking, jobs must pass:
-- Minimum description length (default ≥ 500 chars)
-- Role classification (no junior / no manager for Senior IC profile)
-- Keyword exclusions
-- Deduplication
-- Semantic similarity floor
-- Experience mismatch penalties (e.g. 12+ years roles)
-
-This is why result sets are small — **selectivity is intentional**.
-
-### 5. Streamlit Decision UI
-
-The Streamlit app is built as a **decision cockpit**, not a dashboard.
-
-You get:
-- Clear sidebar controls
-- Result limit and minimum score sliders
-- Apply-ready table with:
-  - Clickable job links
-  - Visual score bars
-  - Company + location clarity
-- Expandable job detail sections
-- CSV export
-
-The UI is calm, minimal, and optimized for shortlisting.
+**Key principle:** Streamlit never scrapes, embeds, or calls LLMs. It only reads a CSV.
 
 ---
 
-## 🗂 Project Structure
+## Core Concepts
 
-```text
-scrape_jobs/
-├── app.py                 # Streamlit UI
-├── config.py              # Centralized tunable defaults
-├── match_engine.py        # Ranking logic
-├── scrape_jobs.py         # Scraping + filtering
-├── company_scoring.py     # Company tier logic
-├── profiles.py            # Role profiles
-├── cache_loader.py        # Cached job loading
-├── resume_parser.py       # Resume parsing
-├── logger.py              # Unified logging
-├── skill_normalizer.py    # Deterministic skill normalization
-├── llm/
-│   ├── client.py
-│   ├── distill_resume.py
-│   ├── normalize_skills.py
-│   ├── explain_match.py
-│   ├── classify_role.py
-│   └── plan_search.py
-├── config/
-│   └── company_tiers.yaml
-└── workspaces/
+### Batch-First
+All expensive and failure-prone work (scraping, LLM calls, embeddings, FAISS) happens in the CLI.  
+The UI is a thin, safe consumer.
 
+### Deterministic
+- Cached queries
+- Cached role classification
+- Cached embeddings
+- Bounded cache eviction
 
+You can re-run the pipeline and understand *why* results changed.
 
-⚙️ Configuration
-All system-wide tunables live in config.py:
-Semantic thresholds
-Penalty weights
-LLM usage toggles
-Scraping limits
-Defaults for CLI and UI
-CLI arguments and Streamlit controls override config defaults
-when explicitly set.
-This keeps behavior centralized and predictable.
+### macOS-Safe
+- No multiprocessing in Streamlit
+- Controlled multiprocessing in CLI only
+- OpenMP hard-limited via `sitecustomize.py`
 
-🚀 How to Run
-1. Install dependencies
+---
+
+## Installation
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
 ```
 
-2. Set environment variables
+Set your OpenRouter key (for optional LLM features):
+
 ```bash
 export OPENROUTER_API_KEY=your_key_here
+
 ```
 
-3. Run Streamlit app
+---
+
+## CLI Usage (Primary Interface)
+
+All commands are exposed via `cli.py` under the jobs program.
+
+### 1. Fetch jobs only
+
+Scrapes and caches jobs. No ranking.
+
 ```bash
-python -m streamlit run app.py
+python cli.py fetch \
+  --search "mlops engineer|genai engineer|llmops engineer" \
+  --country India \
+  --profile senior_ic
+
 ```
 
+**Output:** `cache/query_*.csv`, `cache/query_*.json`
 
-# 🧠 Design Principles
-- Calm > Compensation: Prioritize peace of mind over raw salary maximization.
-- Signal > Volume: Better to see 3 perfect jobs than 300 "okay" ones.
-- Determinism > Cleverness: Use regex and logic before reaching for an LLM.
-- Transparency: Always explain why a job was ranked high or low.
-- Fewer knobs, stronger defaults.
-- If the tool returns only 2–5 jobs, that’s a success, not a failure.
+### 2. Rank cached jobs
 
-# 📌 Known Tradeoffs
-- This tool intentionally filters out many “okay” roles.
-- Startup / hustle environments are deprioritized by default.
-- Big Tech roles are treated as team-dependent, not universally calm.
-- LLM usage is constrained to avoid instability and cost blowups.
+Ranks only from cache for a given resume.
 
-# 🧾 License
-Internal / personal tooling.
-Use, fork, or adapt freely.
+```bash
+python cli.py rank \
+  --resume path/to/resume.pdf \
+  --user uday \
+  --profile senior_ic
 
+```
+
+**Output:** `outputs/ranked_jobs.csv`
+
+### 3. One-shot run (recommended)
+
+Fetch + rank in a single command.
+
+```bash
+python cli.py run \
+  --resume path/to/resume.pdf \
+  --search "mlops engineer|genai engineer|llmops engineer" \
+  --user uday \
+  --profile senior_ic \
+  --country India
+
+```
+
+---
+
+## Daily Automation (Cron)
+
+The project is designed to be run daily via `run_daily.sh`. This script:
+
+* Sets all safety environment variables
+* Enables JobSpy multiprocessing (CLI only)
+* Writes a fresh `outputs/ranked_jobs.csv`
+
+**Add to crontab (example: 7 AM daily):**
+
+```cron
+0 7 * * * /absolute/path/to/run_daily.sh >> ~/job_ranker.log 2>&1
+
+```
+
+---
+
+## Streamlit UI (Read-Only)
+
+The Streamlit app is intentionally minimal:
+
+```bash
+streamlit run app.py
+
+```
+
+* **What it does:** Reads `outputs/ranked_jobs.csv` and displays a sortable table.
+* **What it does NOT do:** Scraping, Embedding, FAISS, or LLM calls.
+
+---
+
+## Cache Strategy
+
+### What is cached
+
+* Scraped job results (per query)
+* Role classification results
+* LLM outputs
+* FAISS embeddings
+
+### Automatic pruning
+
+Implemented in `cache_loader.py`:
+
+* **Max age:** 72 hours
+* **Max query files:** 50
+* Old or excess entries are removed automatically.
+
+---
+
+## Profiles
+
+Profiles live in `profiles.py` and define role filters (junior / manager), keyword exclusions, preferred companies, and LLM usage toggles. The `senior_ic` profile is the default optimization.
+
+---
+
+## LLM Usage Philosophy
+
+LLMs are used surgically, never as a primary dependency:
+
+* Search query planning (guarded + normalized)
+* Resume distillation (cached)
+* Role classification (heuristic first, cached fallback)
+* Explanations for top matches only
+
+---
+
+## Repository Structure (Intentional)
+
+* `cli.py`: Single source of truth (batch)
+* `run_daily.sh`: Cron entrypoint
+* `app.py`: Read-only Streamlit viewer
+* `scrape_jobs.py`: Scraping + caching
+* `match_engine.py`: Ranking logic
+* `cache_loader.py`: Bounded cache management
+* `embeddings/`: FAISS + embedding cache
+* `llm/`: Guarded LLM utilities
+* `profiles.py`: Role profiles
+* `sitecustomization.py`: macOS / OpenMP safety
+
+---
+
+## Operating Principles
+
+* Batch first
+* Cache aggressively, prune deterministically
+* Heuristics before LLMs
+* UI reads data, never produces it
+* Fewer moving parts beat clever abstractions
