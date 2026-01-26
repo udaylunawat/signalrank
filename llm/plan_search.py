@@ -76,8 +76,33 @@ def _is_valid_query(q: str) -> bool:
 
     return True
 
+def is_google_style_query(q: str) -> bool:
+    """
+    Google Jobs requires literal UI-style queries.
+    Heuristics:
+    - No OR operators
+    - No pipe |
+    - Short, natural-language phrases
+    """
+    q = q.strip().lower()
+
+    if " or " in q:
+        return False
+
+    if "|" in q:
+        return False
+
+    # Google-style queries tend to be short phrases
+    if len(q.split()) < 3:
+        return False
+
+    return True
 
 def plan_search_queries(text: str) -> list[str]:
+    # If user already supplied a Google-style query, pass through
+    if is_google_style_query(text):
+        return [text]
+
     data = llm_json(PROMPT.replace("<<<TEXT>>>", text))
     raw = data.get("queries", [])
 
