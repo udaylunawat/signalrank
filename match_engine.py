@@ -2,86 +2,113 @@
 import json
 import re
 from pathlib import Path
-from typing import List
 import time
+import math
+from datetime import datetime, timezone
 
 import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
 
 from company_scoring import CompanyScorer
 from profiles import Profile
 from llm.normalize_skills import normalize_skills_batch
 from llm.distill_resume import distill_resume
 from llm.classify_functional_role import classify_functional_roles_batch
-from llm.explain_match import explain_matches_batch
-
 from embeddings.embedding_cache import EmbeddingCache
-from sentence_transformers import SentenceTransformer
-
-from config import (
-    MIN_SEMANTIC_SCORE,
-    YOE_MISMATCH_PENALTY,
-    TOP_K_EXPLAIN,
-)
+from config import MIN_SEMANTIC_SCORE, YOE_MISMATCH_PENALTY
 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 EMBED_DIM = 384
+RECENCY_HALF_LIFE_DAYS = 21
 
-ROLE_WEIGHT = {
-    "ai_ml_core": 1.0,
-    "agentic_systems": 1.0,
-    "mlops_llmops": 0.95,
-    "data_science": 0.85,
-    "software_general": 0.65,
-    "platform_devops": 0.4,
-    "sre": 0.35,
-    "security": 0.25,
+# --------------------------------------------------
+# HARD SENIORITY BLOCK (AUTHORITATIVE)
+# --------------------------------------------------
+TITLE_BLOCK_RE = re.compile(
+    r"\b(?:"
+    r"principal|"
+    r"manager|"
+    r"director|"
+    r"head|"
+    r"vp|vice president|"
+    r"lead"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# --------------------------------------------------
+# HARD FUNCTIONAL BLOCK
+# --------------------------------------------------
+BLOCKED_FUNCTIONAL_ROLES = {
+    "security",
+    "sre",
 }
 
-
-def _empty_with_score(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["final_score"] = []
-    return df
+# --------------------------------------------------
+# HELPERS
+# --------------------------------------------------
+def recency_weight(date_posted: str | None) -> float:
+    if not date_posted:
+        return 1.0
+    try:
+        posted = datetime.fromisoformat(date_posted.replace("Z", "+00:00"))
+        age_days = (datetime.now(timezone.utc) - posted).days
+        return math.exp(-age_days / RECENCY_HALF_LIFE_DAYS) if age_days >= 0 else 1.0
+    except Exception:
+        return 1.0
 
 
 def extract_max_yoe(text: str) -> int | None:
     matches = re.findall(r"(\d+)\s*\+?\s*years", text.lower())
     if not matches:
         return None
-
-    y = max(map(int, matches))
-
-    # hard cap: anything above 20 years is noise
-    if y > 20:
-        return 20
-
-    return y
+    return min(max(map(int, matches)), 20)
 
 
-def binary_job_quality(row: pd.Series) -> float:
-    return 0.85 if len(row["description"]) < 800 else 1.0
-
-
+# --------------------------------------------------
+# MAIN
+# --------------------------------------------------
 def rank_jobs(
+    *,
     resume_text: str,
     jobs_df: pd.DataFrame,
     preferences: dict,
     profile: Profile,
     logger,
+    allow_embedding: bool = True,
+    embedding_cache_dir: str | None = None,
 ):
     t0 = time.time()
 
     if jobs_df.empty:
-        logger.info("Ranking skipped: no jobs")
-        return _empty_with_score(jobs_df)
+        return jobs_df.assign(final_score=[])
 
     jobs_df = jobs_df.copy()
     logger.info(f"[RANK] Starting ranking on {len(jobs_df)} jobs")
 
-    # ---------- Resume distillation ----------
-    logger.info("[RANK] Resume distillation")
+    # --------------------------------------------------
+    # HARD TITLE FILTER (FIRST LINE OF DEFENSE)
+    # --------------------------------------------------
+    before = len(jobs_df)
+    jobs_df = jobs_df[
+        ~jobs_df["title"].fillna("").str.contains(TITLE_BLOCK_RE)
+    ]
+    dropped = before - len(jobs_df)
+
+    if dropped and logger:
+        logger.info(
+            f"[FILTER] Dropped {dropped} Principal/Manager/Director roles (hard block)"
+        )
+
+    if jobs_df.empty:
+        logger.warning("[RANK] All jobs filtered by title seniority")
+        return jobs_df.assign(final_score=[])
+
+    # --------------------------------------------------
+    # Resume distillation
+    # --------------------------------------------------
     workspace = Path(profile.workspace_dir)
     workspace.mkdir(parents=True, exist_ok=True)
 
@@ -95,86 +122,97 @@ def rank_jobs(
         distilled_path.write_text(json.dumps(distilled, indent=2))
 
     resume_caps = distilled.get("core_capabilities", [])
-    non_focus = set(distilled.get("non_focus", []))
 
-    resume_embed_text = (
+    resume_text_embed = (
         "Agentic AI, LLM systems, inference, evaluation, orchestration. "
         + ", ".join(resume_caps)
     )
 
-    logger.info("[RANK] Loading embedding model")
     embedder = SentenceTransformer(MODEL_NAME, device="cpu")
 
     if embed_path.exists():
         r_emb = np.load(embed_path)
     else:
-        logger.info("[RANK] Embedding resume")
         r_emb = embedder.encode(
-            [resume_embed_text],
+            [resume_text_embed],
             normalize_embeddings=True,
         ).astype("float32")
         np.save(embed_path, r_emb)
 
-    # ---------- Functional role ----------
-    logger.info("[RANK] Functional role classification")
+    # --------------------------------------------------
+    # FUNCTIONAL ROLE CLASSIFICATION (HARD FILTER)
+    # --------------------------------------------------
     role_texts = (
         jobs_df["title"].fillna("") + " " +
         jobs_df["description"].fillna("").str[:800]
     )
 
     jobs_df["functional_role"] = classify_functional_roles_batch(
-        role_texts.tolist(),
+        role_texts.tolist(), logger=logger
+    )
+
+    before = len(jobs_df)
+    jobs_df = jobs_df[
+        ~jobs_df["functional_role"].isin(BLOCKED_FUNCTIONAL_ROLES)
+    ]
+    dropped = before - len(jobs_df)
+
+    if dropped and logger:
+        logger.info(
+            f"[FILTER] Dropped {dropped} security/SRE roles (hard block)"
+        )
+
+    if jobs_df.empty:
+        logger.warning("[RANK] All jobs filtered by functional role")
+        return jobs_df.assign(final_score=[])
+
+    # --------------------------------------------------
+    # Skill extraction
+    # --------------------------------------------------
+    jobs_df["__skills"] = normalize_skills_batch(
+        jobs_df["description"].fillna("").tolist(),
         logger=logger,
     )
 
-    jobs_df = jobs_df[
-        ~jobs_df["functional_role"].isin({"security", "sre"})
-    ]
-    assert len(jobs_df["functional_role"]) == len(jobs_df)
-    logger.info(f"[RANK] After role filter: {len(jobs_df)} jobs")
+    job_texts = [" ".join(s) for s in jobs_df["__skills"]]
 
-    if jobs_df.empty:
-        return _empty_with_score(jobs_df)
+    # --------------------------------------------------
+    # Embedding lookup
+    # --------------------------------------------------
+    cache = EmbeddingCache(
+        dim=EMBED_DIM,
+        cache_dir=embedding_cache_dir or "cache/embeddings",
+        logger=logger,
+    )
 
-    # ---------- Skills ----------
-    logger.info("[RANK] Skill extraction")
-    descriptions = jobs_df["description"].fillna("").tolist()
-    job_skills = normalize_skills_batch(descriptions, logger=logger)
-    jobs_df["__skills"] = job_skills
+    found, missing = cache.lookup(job_texts)
 
-    job_texts = [" ".join(s) for s in job_skills]
-
-    # ---------- Embeddings ----------
-    logger.info(f"[RANK] FAISS lookup for {len(job_texts)} jobs")
-    cache = EmbeddingCache(dim=EMBED_DIM, logger=logger)
-    found_idx, missing_idx = cache.lookup(job_texts)
+    if missing and not allow_embedding:
+        raise RuntimeError(
+            f"[RANK] {len(missing)} embeddings missing in read-only mode."
+        )
 
     vectors = np.zeros((len(job_texts), EMBED_DIM), dtype="float32")
 
-    if found_idx:
-        vectors[found_idx] = cache.get_vectors(
-            [job_texts[i] for i in found_idx]
-        )
+    if found:
+        vectors[found] = cache.get_vectors([job_texts[i] for i in found])
 
-    if missing_idx:
-        logger.info(f"[RANK] Embedding {len(missing_idx)} new jobs")
-        new_texts = [job_texts[i] for i in missing_idx]
-        new_vecs = embedder.encode(
-            new_texts,
+    if missing:
+        logger.info(f"[RANK] Embedding {len(missing)} new jobs")
+        texts = [job_texts[i] for i in missing]
+        vecs = embedder.encode(
+            texts,
             normalize_embeddings=True,
         ).astype("float32")
-        vectors[missing_idx] = new_vecs
-        cache.add(new_texts, new_vecs)
+        vectors[missing] = vecs
+        cache.add(texts, vecs)
 
-    # ---------- Scoring ----------
-    logger.info("[RANK] Semantic scoring")
+    # --------------------------------------------------
+    # Scoring
+    # --------------------------------------------------
     jobs_df["semantic_score"] = cosine_similarity(r_emb, vectors)[0]
     jobs_df = jobs_df[jobs_df["semantic_score"] >= MIN_SEMANTIC_SCORE]
 
-    logger.info(f"[RANK] After semantic filter: {len(jobs_df)} jobs")
-
-    # ---------- Final score ----------
-    logger.info("[RANK] Final scoring")
     scorer = CompanyScorer(
         preferred=preferences.get("preferred", []),
         deprioritized=preferences.get("deprioritized", []),
@@ -182,58 +220,24 @@ def rank_jobs(
 
     jobs_df["company_weight"] = jobs_df["company"].apply(scorer.score)
     jobs_df["max_yoe"] = jobs_df["description"].apply(extract_max_yoe)
+
     jobs_df.loc[
         jobs_df["max_yoe"].fillna(0) >= 12,
         "semantic_score",
     ] *= YOE_MISMATCH_PENALTY
 
-    LOW_PRIORITY_SKILLS = {
-        "java", "spark", "hadoop", "scala", "kafka"
-    }
-
-    def low_priority_penalty(skills):
-        overlap = set(skills) & LOW_PRIORITY_SKILLS
-        return 0.85 if overlap else 1.0
-
-    jobs_df["low_priority_penalty"] = jobs_df["__skills"].apply(low_priority_penalty)
+    jobs_df["recency_weight"] = jobs_df["date_posted"].apply(recency_weight)
 
     jobs_df["final_score"] = (
         jobs_df["semantic_score"]
         * jobs_df["company_weight"]
-        * jobs_df["low_priority_penalty"]
+        * jobs_df["recency_weight"]
     )
 
-    # hard quality floor
-    jobs_df = jobs_df[
-        (jobs_df["semantic_score"] >= 0.22) &
-        (jobs_df["final_score"] >= 0.18)
-    ]
-    # ranked = jobs_df.sort_values("final_score", ascending=False).reset_index(drop=True)
-    # --------------------------------------------------
-    # HARD IC FILTER (SAFE)
-    # --------------------------------------------------
-    if "role" in jobs_df.columns:
-        jobs_df = jobs_df[jobs_df["role"] == "individual_contributor"]
-    else:
-        if logger:
-            logger.warning(
-                "[RANK] 'role' column missing; skipping IC-only filter"
-            )
-
-    ranked = (
-        jobs_df
-        .sort_values("final_score", ascending=False)
-        .reset_index(drop=True)
-    )
+    ranked = jobs_df.sort_values("final_score", ascending=False).reset_index(drop=True)
 
     logger.info(
         f"[RANK] Completed in {time.time() - t0:.1f}s → {len(ranked)} jobs"
     )
-    logger.info(
-        f"[RANK] Summary → "
-        f"total={len(jobs_df)}, "
-        f"returned={len(ranked)}, "
-        f"min_score={ranked['final_score'].min():.3f}, "
-        f"max_score={ranked['final_score'].max():.3f}"
-    )
+
     return ranked
