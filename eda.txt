@@ -1,0 +1,125 @@
+Title: Software Engineering LMTS/ SMTS - Big Data & Distributed Systems (Spark & Java)
+Company: Salesforce
+YOE: nan
+Score: 0.369473385810852
+================================================================================
+Title: Software Engineering PMTS
+Company: Salesforce
+YOE: nan
+Score: 0.369473385810852
+================================================================================
+Title: Senior Software Engineer I
+Company: Optum
+YOE: nan
+Score: 0.3678682148456573
+================================================================================
+Title: Data Scientist – AI & Cybersecurity
+Company: Siemens Healthineers
+YOE: 10.0
+Score: 0.3638054430484772
+================================================================================
+Title: Software Engineer
+Company: Microsoft
+YOE: 2.0
+Score: 0.3180478072166443
+================================================================================
+Title: Staff Data Scientist NLP
+Company: GE HealthCare
+YOE: nan
+Score: 0.3092131614685058
+================================================================================
+Title: Senior AI Engineer
+Company: MSCI
+YOE: 7.0
+Score: 0.289821982383728
+================================================================================
+Title: Engineering Lead - Extreme Retrieval
+Company: Microsoft
+YOE: nan
+Score: 0.2865911984443665
+================================================================================
+Title: Senior Service Engineer
+Company: Microsoft
+YOE: nan
+Score: 0.2806072998046875
+================================================================================
+Title: Senior Software Engineer
+Company: Microsoft
+YOE: nan
+Score: 0.2778410840034485
+================================================================================
+Title: Senior Python Developer
+Company: MSCI
+YOE: nan
+Score: 0.2625100910663605
+================================================================================
+Title: AI Engineer - Vice President
+Company: MSCI
+YOE: nan
+Score: 0.2610789537429809
+================================================================================
+Title: Lead Software Engineer - Backend Services
+Company: JPMorganChase
+YOE: nan
+Score: 0.2483285367488861
+================================================================================
+Title: Senior Reliability Engineer - Data Platforms
+Company: Apple
+YOE: nan
+Score: 0.2480711841583252
+================================================================================
+Title: Lead Software Engineer - AI ML Lead
+Company: JPMorganChase
+YOE: nan
+Score: 0.2316673099994659
+================================================================================
+Title: Consultant - Data & AI
+Company: Microsoft
+YOE: 10.0
+Score: 0.2240516901016235
+================================================================================
+Title: Full Stack Developer Python-Sr. Engineer 2-Hyderabad/Bengaluru
+Company: Deloitte
+YOE: 10.0
+Score: 0.2240222454071045
+================================================================================
+Title: Senior Product Manager
+Company: Microsoft
+YOE: nan
+Score: 0.2201068782806396
+================================================================================
+Title: Technical Program Manager, Geo Machine Intelligence, Geo Data Operations
+Company: Google
+YOE: 2.0
+Score: 0.2093034332990646
+================================================================================
+Title: Senior Machine Learning Engineer
+Company: Microsoft
+YOE: nan
+Score: 0.2055869048833847
+================================================================================
+Title: Machine Learning Engineer II
+Company: Microsoft
+YOE: nan
+Score: 0.2055869048833847
+================================================================================
+Title: Sr. Quality Assurance Engineer, Alexa Connections
+Company: Amazon.com
+YOE: nan
+Score: 0.20517578125
+================================================================================
+Title: Sr. Quality Assurance Engineer, Alexa Connections
+Company: Amazon.com
+YOE: nan
+Score: 0.20517578125
+================================================================================
+Title: Software Development Manager, Alexa Connections
+Company: Amazon.com
+YOE: nan
+Score: 0.2033518075942993
+================================================================================
+Title: Software Development Manager, Alexa Connections
+Company: Amazon.com
+YOE: nan
+Score: 0.2033518075942993
+================================================================================

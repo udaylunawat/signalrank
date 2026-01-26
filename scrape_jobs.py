@@ -1,4 +1,6 @@
-# scrape_jobs.py
+# ================================
+# FILE: scrape_jobs.py
+# ================================
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -6,9 +8,9 @@ import hashlib
 import json
 import re
 import time
-import random
-import requests
-import os
+import logging
+
+logging.getLogger("JobSpy").setLevel(logging.INFO)
 
 from jobspy import scrape_jobs
 from profiles import Profile
@@ -17,15 +19,25 @@ from llm.classify_role import classify_roles_batch
 from cache_loader import load_all_cached_jobs
 
 # --------------------------------------------------
-# CONFIG
+# SITE CONFIG
 # --------------------------------------------------
+LINKEDIN_SLEEP_SECONDS = 12
+LINKEDIN_MAX_PAGES = 8
+INDEED_HEARTBEAT_SECONDS = 15
+
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
-
 CACHE_TTL_HOURS = 6
-MAX_RETRIES = 3
-BASE_BACKOFF = 2.0
-JITTER_RANGE = (0.3, 1.5)
+
+# --------------------------------------------------
+# HARD TITLE BLOCKLIST (NON-NEGOTIABLE)
+# --------------------------------------------------
+TITLE_BLOCKLIST = [
+    r"\bmanager\b",
+    r"\bprincipal\b",
+]
+
+TITLE_BLOCK_RE = re.compile("|".join(TITLE_BLOCKLIST), re.IGNORECASE)
 
 # --------------------------------------------------
 # HELPERS
@@ -36,17 +48,52 @@ def _key(**k):
 def _now():
     return datetime.now().isoformat()
 
-def _sleep_with_jitter(attempt: int, logger):
-    delay = BASE_BACKOFF ** attempt + random.uniform(*JITTER_RANGE)
-    logger.warning(f"Retrying after {delay:.2f}s (attempt {attempt})")
-    time.sleep(delay)
+def _rate_limit_site(site: str, page: int, logger):
+    if site == "linkedin":
+        if page >= LINKEDIN_MAX_PAGES:
+            raise StopIteration("LinkedIn page cap reached")
+        logger.info(f"[RATE LIMIT] LinkedIn sleep {LINKEDIN_SLEEP_SECONDS}s (page {page})")
+        time.sleep(LINKEDIN_SLEEP_SECONDS)
 
-def _allow_multiprocessing() -> bool:
-    """
-    Multiprocessing is allowed ONLY in batch/CLI mode.
-    Streamlit must never use multiprocessing.
-    """
-    return os.environ.get("JOBSCRAPER_MODE") == "batch"
+def _build_site_query(raw_query: str, site: str) -> str | None:
+    raw_query = raw_query.strip()
+
+    if site == "google":
+        from llm.plan_search import is_google_style_query
+        return raw_query if is_google_style_query(raw_query) else None
+
+    if site == "linkedin":
+        return raw_query.replace('"', "").replace(" OR ", " ")
+
+    return raw_query
+
+def _coerce_jobs(jobs):
+    if jobs is None:
+        return None
+
+    if isinstance(jobs, pd.DataFrame):
+        return None if jobs.empty else jobs
+
+    if isinstance(jobs, list):
+        return None if not jobs else pd.DataFrame(jobs)
+
+    return None
+
+def _append_and_flush(df: pd.DataFrame, csv_path: Path, meta_path: Path, logger):
+    if df is None or df.empty:
+        return
+
+    if csv_path.exists():
+        existing = pd.read_csv(csv_path)
+        df = (
+            pd.concat([existing, df], ignore_index=True)
+            .drop_duplicates(subset=["job_url"])
+            .reset_index(drop=True)
+        )
+
+    csv_path.write_text(df.to_csv(index=False))
+    meta_path.write_text(json.dumps({"ts": _now()}))
+    logger.info(f"[FLUSH] cache updated → {len(df)} jobs")
 
 # --------------------------------------------------
 # MAIN
@@ -64,48 +111,29 @@ def fetch_jobs(
     view_mode: bool = False,
 ) -> pd.DataFrame:
 
-    # --------------------------------------------------
-    # VIEW MODE
-    # --------------------------------------------------
     if view_mode:
-        logger.info("VIEW MODE enabled: loading cached jobs only")
         return load_all_cached_jobs(logger)
 
-    # --------------------------------------------------
-    # SEARCH PLANNING
-    # --------------------------------------------------
     logger.info("Planning search queries")
+
     queries = (
         plan_search_queries(search_query)
         if profile.use_llm_search
         else [search_query]
     )
 
-    if not queries:
-        logger.warning("No queries planned; aborting fetch")
-        return pd.DataFrame()
-
     logger.info(f"Planned {len(queries)} queries")
 
-    # --------------------------------------------------
-    # SITE SELECTION
-    # --------------------------------------------------
+    if not queries:
+        return pd.DataFrame()
+
     if country.lower() == "india":
-        sites, country_indeed = ["indeed", "linkedin"], "India"
+        sites = ["indeed", "glassdoor", "linkedin"] # "glassdoor", "linkedin", "google"]
+        country_indeed = "India"
     else:
-        sites, country_indeed = ["indeed", "linkedin"], None
+        sites = ["indeed", "glassdoor", "linkedin", "google"]
+        country_indeed = None
 
-    # --------------------------------------------------
-    # MULTIPROCESSING DECISION
-    # --------------------------------------------------
-    use_mp = _allow_multiprocessing()
-    logger.info(
-        f"JobSpy multiprocessing: {'ENABLED' if use_mp else 'DISABLED'}"
-    )
-
-    # --------------------------------------------------
-    # SCRAPE PER QUERY
-    # --------------------------------------------------
     all_dfs = []
 
     for q in queries:
@@ -120,81 +148,38 @@ def fetch_jobs(
         q_csv = CACHE_DIR / f"query_{q_key}.csv"
         q_meta = CACHE_DIR / f"query_{q_key}.json"
 
-        # ---------- cache hit ----------
         if q_csv.exists() and q_meta.exists() and not force_refresh:
             ts = datetime.fromisoformat(json.loads(q_meta.read_text())["ts"])
             if datetime.now() - ts < timedelta(hours=CACHE_TTL_HOURS):
-                logger.info(f"[CACHE HIT] {q}")
-                try:
-                    df_cached = pd.read_csv(q_csv)
-                    if not df_cached.empty:
-                        all_dfs.append(df_cached)
-                        continue
-                except Exception as e:
-                    logger.debug(f"Cache read failed for {q}: {e}")
+                df = pd.read_csv(q_csv)
+                all_dfs.append(df)
+                continue
 
-        # ---------- scrape with retries ----------
         logger.info(f"[SCRAPE] {q}")
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                jobs = scrape_jobs(
-                    site_name=sites,
-                    search_term=q,
-                    location=country,
-                    hours_old=hours_old,
-                    is_remote=remote_only,
-                    results_wanted=results_wanted,
-                    country_indeed=country_indeed,
-                    verbose=0,
-                    use_multiprocessing=use_mp,
-                )
+        try:
+            jobs = scrape_jobs(
+                site_name=["indeed"],
+                search_term=q,
+                location=country,
+                hours_old=hours_old,
+                is_remote=remote_only,
+                results_wanted=results_wanted,
+                country_indeed=country_indeed,
+                use_multiprocessing=True,
+                verbose=1,
+            )
 
-                if jobs is None:
-                    raise ValueError("JobSpy returned None")
-
-                if isinstance(jobs, list):
-                    if not jobs:
-                        logger.warning(f"[EMPTY] {q}")
-                        break
-                    df = pd.DataFrame(jobs)
-                elif isinstance(jobs, pd.DataFrame):
-                    if jobs.empty:
-                        logger.warning(f"[EMPTY] {q}")
-                        break
-                    df = jobs.copy()
-                else:
-                    raise TypeError(f"Unknown JobSpy return type: {type(jobs)}")
-
-                for col in ["title", "description", "company", "job_url"]:
-                    df[col] = df.get(col, "").astype(str)
-
-                df = df[df["description"].str.len() >= 500]
-
-                if df.empty:
-                    logger.warning(f"[FILTERED EMPTY] {q}")
-                    break
-
-                q_csv.write_text(df.to_csv(index=False))
-                q_meta.write_text(json.dumps({"ts": _now()}))
-
-                logger.info(f"[SUCCESS] {q} → {len(df)} jobs")
+            df = _coerce_jobs(jobs)
+            if df is not None:
+                df = df[df["description"].astype(str).str.len() >= 500]
+                _append_and_flush(df, q_csv, q_meta, logger)
                 all_dfs.append(df)
-                break
 
-            except (requests.exceptions.RequestException, TimeoutError) as e:
-                logger.warning(f"[TIMEOUT] {q}: {e}")
-                if attempt < MAX_RETRIES:
-                    _sleep_with_jitter(attempt, logger)
-                else:
-                    logger.error(f"[GIVE UP] {q}")
-
-            except Exception as e:
-                logger.error(f"[ERROR] {q}: {e}")
-                break
+        except Exception as e:
+            logger.warning(f"[INDEED ERROR] {e}")
 
     if not all_dfs:
-        logger.error("All queries failed; returning empty result")
         return pd.DataFrame()
 
     df = (
@@ -204,15 +189,9 @@ def fetch_jobs(
     )
 
     # --------------------------------------------------
-    # ROLE CLASSIFICATION
+    # ROLE CLASSIFICATION (JUNIOR / MANAGER)
     # --------------------------------------------------
-    logger.info("Classifying role intent (heuristic + cached LLM)")
     roles = classify_roles_batch(df["title"].tolist(), logger=logger)
-
-    if len(roles) != len(df):
-        logger.error("Role classification length mismatch; forcing IC")
-        roles = ["individual_contributor"] * len(df)
-
     df["role"] = roles
 
     if profile.skip_junior_roles:
@@ -220,6 +199,21 @@ def fetch_jobs(
     if profile.skip_manager_roles:
         df = df[df["role"] != "manager"]
 
+    # --------------------------------------------------
+    # HARD TITLE BLOCK (MANAGER / PRINCIPAL)
+    # --------------------------------------------------
+    before = len(df)
+    df = df[~df["title"].astype(str).str.contains(TITLE_BLOCK_RE)]
+    after = len(df)
+
+    if logger and before != after:
+        logger.info(
+            f"[FILTER] Dropped {before - after} Manager/Principal roles (hard block)"
+        )
+
+    # --------------------------------------------------
+    # KEYWORD EXCLUSIONS
+    # --------------------------------------------------
     for k in profile.exclude_keywords:
         mask = (
             (df["title"] + " " + df["description"])
@@ -227,9 +221,6 @@ def fetch_jobs(
             .str.contains(re.escape(k), na=False)
         )
         df = df.loc[~mask]
-    logger.info(
-        f"Excluded keywords applied: {profile.exclude_keywords}"
-    )
 
-    logger.info(f"Final job count after filtering: {len(df)}")
     return df
+
