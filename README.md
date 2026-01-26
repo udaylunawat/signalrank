@@ -15,12 +15,23 @@ The data flows strictly one way:
 
 ```mermaid
 graph TD
-    A[launchd / crontab] -->|wake| B[run_daily.sh]
-    B --> C[python cli.py run]
-    C -->|Scrape| D[(cache/query_<hash>.csv)]
+    A[Cron / launchd] -->|Trigger| B[run_daily.sh]
+    B --> C[cli.py run]
+    C -->|Scrape| D[(Cache/Query CSVs)]
     C -->|Rank| E[match_engine.py]
     E -->|Write| F[outputs/ranked_jobs.csv]
-    F -->|Read‑only| G[Streamlit UI (app.py)]
+    F -->|Read-Only| G["Streamlit UI (app.py)"]
+    
+    subgraph "Batch Process (Heavy Lifting)"
+    B
+    C
+    D
+    E
+    end
+    
+    subgraph "Presentation Layer"
+    G
+    end
 ```
 
 *All heavy‑lifting* lives in the **batch layer** (`cli.py`, `run_daily.sh`).  
@@ -210,9 +221,9 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    A[outputs/ranked_jobs.csv] --> B[Drops heavy columns]
-    B --> C[Writes ranked_jobs_head.csv (clean 5‑row preview)]
-    C --> D[Runs gitingest with exclusions]
+    A["Ranked Jobs CSV"] --> B["Strip Heavy Columns"]
+    B --> C["Preview CSV (clean 5-row preview)"]
+    C --> D["Git Ingest"]
 ```
 
 **When to use it**
