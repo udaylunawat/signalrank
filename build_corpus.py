@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
-import sys
+# ================================
+# FILE: build_corpus.py
+# ================================
+import argparse
 from pathlib import Path
-
-# --------------------------------------------------
-# Ensure project root is on PYTHONPATH
-# --------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
 import pandas as pd
-import json
-from datetime import datetime
+import re
+
 from logger import setup_logger
+from config_loader import settings, load_effective_settings
+from user_context import resolve_user_context
+from profiles import PROFILES
+from llm.classify_role import classify_roles_batch
 
 logger = setup_logger()
 
-CACHE_DIR = PROJECT_ROOT / "cache"
-CORPUS_DIR = PROJECT_ROOT / "corpus"
-CORPUS_DIR.mkdir(exist_ok=True)
-
-OUTPUT_PATH = CORPUS_DIR / "jobs_corpus.csv"
-
+# --------------------------------------------------
+# CONFIG
+# --------------------------------------------------
 FALLBACK_COLS = ["company", "title", "location"]
 DROP_IF_NULL = ["title", "company", "description"]
 
@@ -35,21 +32,134 @@ def normalize_date(val):
 def row_key(row):
     if pd.notna(row.get("job_url")) and row.get("job_url"):
         return row["job_url"].strip().lower()
-
     return "|".join(
         str(row.get(c, "")).strip().lower()
         for c in FALLBACK_COLS
     )
 
 
-def main():
-    csvs = list(CACHE_DIR.glob("query_*.csv"))
+def apply_profile_filters(df: pd.DataFrame, profile, logger) -> pd.DataFrame:
+    """
+    Apply corpus-level filters with DEBUG COUNTERS.
 
+    Practical corpus policy:
+    - Enforce IC-only
+    - Enforce no managers
+    - DO NOT keyword-filter descriptions
+    - Only title-based exclusions apply
+    """
+
+    total_before = len(df)
+
+    # ---------------------------------
+    # Role classification
+    # ---------------------------------
+    roles = classify_roles_batch(df["title"].tolist(), logger=logger)
+    df = df.copy()
+    df["role"] = roles
+
+    # ---------------------------------
+    # Drop junior roles
+    # ---------------------------------
+    before = len(df)
+    if profile.skip_junior_roles:
+        df = df[df["role"] != "junior"]
+    dropped_junior = before - len(df)
+
+    # ---------------------------------
+    # Drop manager roles
+    # ---------------------------------
+    before = len(df)
+    if profile.skip_manager_roles:
+        df = df[df["role"] != "manager"]
+    dropped_manager = before - len(df)
+
+    # ---------------------------------
+    # TITLE-ONLY keyword exclusions (RELAXED)
+    # ---------------------------------
+    before = len(df)
+    title_exclude = set(k.lower() for k in profile.exclude_keywords)
+
+    def title_blocked(title: str) -> bool:
+        if not isinstance(title, str):
+            return False
+        t = title.lower()
+        return any(k in t for k in title_exclude)
+
+    df = df[~df["title"].apply(title_blocked)]
+    dropped_title_kw = before - len(df)
+
+    # ---------------------------------
+    # DEBUG SUMMARY (NO BEHAVIOR CHANGE)
+    # ---------------------------------
+    total_after = len(df)
+
+    logger.info(
+        "[CORPUS FILTER DEBUG] "
+        f"start={total_before} | "
+        f"junior_dropped={dropped_junior} | "
+        f"manager_dropped={dropped_manager} | "
+        f"title_kw_dropped={dropped_title_kw} | "
+        f"final={total_after}"
+    )
+
+    return df
+
+
+def resolve_profile_name(effective_cfg: dict) -> str:
+    """
+    Single source of truth for profile selection.
+    """
+    profiles_cfg = effective_cfg.get("profiles", {})
+    if len(profiles_cfg) == 1:
+        return next(iter(profiles_cfg.keys()))
+    return "senior_ic"
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--user", required=True)
+    parser.add_argument("--use-case", help="Use case (optional)")
+    args = parser.parse_args()
+
+    # --------------------------------------------------
+    # USER-SCOPED ONLY
+    # --------------------------------------------------
+    ctx = resolve_user_context(
+        user=args.user,
+        use_case_override=args.use_case,
+        require_resume=False,
+    )
+
+    # --------------------------------------------------
+    # Load effective config (single source of truth)
+    # --------------------------------------------------
+    effective_cfg = load_effective_settings(ctx)
+
+    profile_name = resolve_profile_name(effective_cfg)
+    if profile_name not in PROFILES:
+        raise SystemExit(f"Unknown profile: {profile_name}")
+
+    profile = PROFILES[profile_name]
+
+    corpus_dir = ctx.corpus_dir
+    cache_dir = ctx.cache_dir
+    corpus_dir.mkdir(parents=True, exist_ok=True)
+
+    output_path = corpus_dir / "jobs_corpus.csv"
+
+    logger.info(
+        f"[CORPUS] User={ctx.user} use_case={ctx.use_case} profile={profile_name}"
+    )
+    logger.info(f"[CORPUS] Writing → {output_path}")
+
+    # --------------------------------------------------
+    # Load cached job CSVs
+    # --------------------------------------------------
+    csvs = list(cache_dir.glob("query_*.csv"))
     if not csvs:
         logger.error("No cached query CSVs found")
         return
-
-    logger.info(f"Loading {len(csvs)} cached CSVs")
 
     frames = []
     for p in csvs:
@@ -66,15 +176,21 @@ def main():
 
     df = pd.concat(frames, ignore_index=True)
 
-    # Drop broken rows
     for c in DROP_IF_NULL:
         df = df[df[c].notna()]
 
-    logger.info(f"Rows before dedupe: {len(df)}")
+    logger.info(f"[CORPUS] Rows before filtering: {len(df)}")
 
+    # --------------------------------------------------
+    # Apply profile filters
+    # --------------------------------------------------
+    df = apply_profile_filters(df, profile, logger)
+
+    # --------------------------------------------------
+    # Deduplication
+    # --------------------------------------------------
     df["_dedupe_key"] = df.apply(row_key, axis=1)
 
-    # Sort so newest scrape wins mutable fields
     if "date_posted" in df.columns:
         df["_date_norm"] = df["date_posted"].apply(normalize_date)
         df = df.sort_values("_date_norm", ascending=False)
@@ -86,11 +202,12 @@ def main():
         .reset_index(drop=True)
     )
 
-    # Normalize date_posted
     if "date_posted" in deduped.columns:
         deduped["date_posted"] = deduped["date_posted"].apply(normalize_date)
 
-    # Remove ranking-only columns
+    # --------------------------------------------------
+    # Strip ranking-only columns
+    # --------------------------------------------------
     for col in [
         "semantic_score",
         "company_weight",
@@ -99,12 +216,14 @@ def main():
     ]:
         if col in deduped.columns:
             deduped.drop(columns=[col], inplace=True)
+    # Ensure at least one apply URL exists
+    if "job_url" not in deduped.columns:
+        deduped["job_url"] = None
 
-    deduped.to_csv(OUTPUT_PATH, index=False)
-
-    logger.info(
-        f"Corpus built: {len(deduped)} jobs → {OUTPUT_PATH}"
-    )
+    if "job_url_direct" not in deduped.columns:
+        deduped["job_url_direct"] = None
+    deduped.to_csv(output_path, index=False)
+    logger.info(f"[CORPUS] Corpus built: {len(deduped)} jobs")
 
 
 if __name__ == "__main__":

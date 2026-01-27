@@ -14,13 +14,24 @@ from embeddings.telemetry import log_timer
 class EmbeddingCache:
     def __init__(
         self,
+        *,
         dim: int,
-        cache_dir: str = "cache/embeddings",
+        cache_dir: str,
+        cfg_fingerprint: str,
         logger=None,
     ):
         self.dim = dim
         self.logger = logger
-        self.cache_dir = Path(cache_dir)
+        self.cfg_fingerprint = cfg_fingerprint
+        self.cache_dir = Path(cache_dir).resolve()
+
+        # HARD SAFETY: forbid global embeddings
+        if "users" not in self.cache_dir.parts:
+            raise RuntimeError(
+                f"Global embedding cache is forbidden: {self.cache_dir}\n"
+                "Embeddings must live under users/<user>/<use_case>/embeddings"
+            )
+
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         self.index_path = self.cache_dir / "jobs.faiss"
@@ -32,6 +43,9 @@ class EmbeddingCache:
         if self.index_path.exists() and self.meta_path.exists():
             self._load()
 
+    # --------------------------------------------------
+    # INTERNALS
+    # --------------------------------------------------
     def _load(self):
         with log_timer(self.logger, "FAISS load"):
             self.index = faiss.read_index(str(self.index_path))
@@ -47,10 +61,23 @@ class EmbeddingCache:
             faiss.write_index(self.index, str(self.index_path))
             self.meta_path.write_text(json.dumps(self.meta))
 
-    @staticmethod
-    def _hash(text: str) -> str:
-        return hashlib.md5(text.encode("utf-8")).hexdigest()
+    def _hash(self, text: str) -> str:
+        """
+        Hash embedding input.
 
+        MUST include:
+        - embedding dimension
+        - config fingerprint
+        - canonical text
+
+        This prevents silent corruption when config changes.
+        """
+        payload = f"{self.dim}::{self.cfg_fingerprint}::{text}"
+        return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+    # --------------------------------------------------
+    # PUBLIC API
+    # --------------------------------------------------
     def lookup(self, texts: List[str]) -> Tuple[List[int], List[int]]:
         found, missing = [], []
 
