@@ -1,30 +1,73 @@
 #!/usr/bin/env python3
-import sys
+# ================================
+# FILE: rank_corpus.py
+# ================================
+import argparse
+import pandas as pd
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-import pandas as pd
 from logger import setup_logger
 from resume_parser import load_resume
-from match_engine import rank_jobs, EMBED_DIM
+from match_engine import rank_jobs
 from profiles import PROFILES
 from embeddings.embedding_cache import EmbeddingCache
+from llm.normalize_skills import normalize_skills_batch
+from config_loader import load_effective_settings
+from user_context import resolve_user_context
+from skills.canonicalizer import canonicalize_skills
+from config_loader import fingerprint_settings
 
 logger = setup_logger()
 
-CORPUS_PATH = PROJECT_ROOT / "corpus" / "jobs_corpus.csv"
-FAISS_DIR = PROJECT_ROOT / "corpus" / "faiss"   # 🔑 IMPORTANT
-OUTPUT_PATH = PROJECT_ROOT / "outputs" / "ranked_corpus.csv"
+
+def resolve_profile_name(effective_cfg) -> str:
+    """
+    Single source of truth for profile resolution.
+    """
+    profiles_cfg = effective_cfg.get("profiles", {})
+    if len(profiles_cfg) == 1:
+        return next(iter(profiles_cfg.keys()))
+    return "senior_ic"
 
 
 def main():
-    if not CORPUS_PATH.exists():
-        logger.error("jobs_corpus.csv not found. Run build_corpus.py first.")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--user", required=True)
+    parser.add_argument("--use-case", help="Use case (optional)")
+    args = parser.parse_args()
+
+    # --------------------------------------------------
+    # Resolve user context (USER-SCOPED ONLY)
+    # --------------------------------------------------
+    ctx = resolve_user_context(
+        user=args.user,
+        use_case_override=args.use_case,
+        require_resume=True,
+    )
+
+    effective_cfg = load_effective_settings(ctx)
+
+    profile_name = resolve_profile_name(effective_cfg)
+    if profile_name not in PROFILES:
+        raise SystemExit(f"Unknown profile: {profile_name}")
+
+    profile = PROFILES[profile_name]
+    profile.workspace_dir = str(ctx.base_dir / "workspace")
+
+    corpus_path = ctx.corpus_dir / "jobs_corpus.csv"
+    faiss_dir = ctx.base_dir / "embeddings"
+    output_dir = ctx.corpus_dir
+
+    faiss_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"[CORPUS RANK] User={ctx.user} use_case={ctx.use_case} profile={profile_name}")
+
+    if not corpus_path.exists():
+        logger.error(f"{corpus_path} not found. Run build_corpus.py first.")
         return
 
-    df = pd.read_csv(CORPUS_PATH)
+    df = pd.read_csv(corpus_path)
     if df.empty:
         logger.error("Corpus is empty")
         return
@@ -32,57 +75,61 @@ def main():
     logger.info(f"[CORPUS RANK] Ranking {len(df)} corpus jobs")
 
     # --------------------------------------------------
-    # SAFETY: ensure NO embedding happens here
+    # Load FAISS embeddings (read-only)
     # --------------------------------------------------
-    texts = (
-        df["title"].fillna("") + " "
-        + df["company"].fillna("") + " "
-        + df["description"].fillna("").str.slice(0, 2000)
-    ).tolist()
+
+    raw_skills = normalize_skills_batch(
+        df["description"].fillna("").tolist(),
+        effective_settings=effective_cfg,
+        logger=logger,
+    )
+
+    cfg_fp = fingerprint_settings(effective_cfg)
+
+    texts = [
+        " ".join(
+            sorted(
+                canonicalize_skills(
+                    skills,
+                    effective_settings=effective_cfg,
+                    cfg_fingerprint=cfg_fp,
+                )
+            )
+        )
+        for skills in raw_skills
+    ]
 
     cache = EmbeddingCache(
-        dim=EMBED_DIM,
-        cache_dir=str(FAISS_DIR),   # 🔑 SAME AS build_faiss_corpus.py
+        dim=effective_cfg["embeddings"]["embedding_dim"],
+        cache_dir=str(faiss_dir),
+        cfg_fingerprint=cfg_fp,
         logger=logger,
     )
 
     found, missing = cache.lookup(texts)
-
     if missing:
         logger.error(
             f"[CORPUS RANK] {len(missing)} embeddings missing.\n"
-            "Run this first:\n\n"
-            "  python build_faiss_corpus.py\n\n"
-            "Corpus ranking is read-only by design."
+            "Run build_faiss_corpus.py first."
         )
         return
 
-    # --------------------------------------------------
-    # Rank (read-only, no embedding)
-    # --------------------------------------------------
-    profile = PROFILES["senior_ic"]
-    profile.workspace_dir = "workspaces/example/Senior IC"
-
-    resume_path = PROJECT_ROOT / "users/Example_Candidate/resume.tex"
-    resume_text = load_resume(str(resume_path))
+    resume_text = load_resume(str(ctx.resume_path))
 
     ranked = rank_jobs(
         resume_text=resume_text,
         jobs_df=df,
-        preferences={
-            "preferred": profile.preferred_companies,
-            "deprioritized": profile.deprioritized_companies,
-        },
+        preferences={"preferred": [], "deprioritized": []},
         profile=profile,
         logger=logger,
+        effective_settings=effective_cfg,
         allow_embedding=False,
-        embedding_cache_dir=str(FAISS_DIR),   # ← CRITICAL
+        embedding_cache_dir=str(faiss_dir),
     )
 
-    OUTPUT_PATH.parent.mkdir(exist_ok=True)
-    ranked.to_csv(OUTPUT_PATH, index=False)
-
-    logger.info(f"[CORPUS RANK] Saved → {OUTPUT_PATH}")
+    output_path = output_dir / "ranked_corpus.csv"
+    ranked.to_csv(output_path, index=False)
+    logger.info(f"[CORPUS RANK] Saved → {output_path}")
 
 
 if __name__ == "__main__":

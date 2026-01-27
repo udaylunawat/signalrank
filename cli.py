@@ -1,4 +1,7 @@
-# cli.py
+# ================================
+# FILE: cli.py
+# ================================
+import os
 import sitecustomize
 import argparse
 from pathlib import Path
@@ -9,187 +12,156 @@ from resume_parser import load_resume
 from scrape_jobs import fetch_jobs
 from match_engine import rank_jobs
 from cache_loader import load_all_cached_jobs
-from config import DEFAULT_COUNTRY, DEFAULT_HOURS_OLD
+from config_loader import load_effective_settings
+from user_context import resolve_user_context
 
 
 def parse_list(s: str) -> list[str]:
     return [x.strip().lower() for x in s.split(",") if x.strip()]
 
 
+def resolve_profile_name(effective_cfg: dict) -> str:
+    """
+    Single source of truth for profile resolution.
+    """
+    profiles_cfg = effective_cfg.get("profiles", {})
+    if len(profiles_cfg) == 1:
+        return next(iter(profiles_cfg.keys()))
+    return "senior_ic"
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="jobs")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    # ---------- fetch ----------
-    f = sub.add_parser("fetch", help="Fetch and cache jobs")
-    f.add_argument("--search", required=True)
-    f.add_argument("--country", default=DEFAULT_COUNTRY)
-    f.add_argument("--hours-old", type=int, default=DEFAULT_HOURS_OLD)
-    f.add_argument("--remote-only", action="store_true")
-    f.add_argument("--profile", choices=PROFILES.keys(), default="senior_ic")
-    f.add_argument("--force-refresh", action="store_true")
-
-    f.add_argument("--exclude", default="")
-    f.add_argument("--max-results", type=int, default=300)
-
-    f.add_argument("--prefer-companies", default="")
-    f.add_argument("--skip-companies", default="")
-
-    # ---------- rank ----------
-    r = sub.add_parser("rank", help="Rank cached jobs")
-    r.add_argument("--resume", required=True)
-    r.add_argument("--user", required=True)
-    r.add_argument("--profile", choices=PROFILES.keys(), default="senior_ic")
-    r.add_argument("--min-score", type=float, default=0.25)
-    r.add_argument("--max-results", type=int, default=30)
-
-    r.add_argument("--prefer-companies", default="")
-    r.add_argument("--skip-companies", default="")
-
-    # ---------- run ----------
     run = sub.add_parser("run", help="Fetch then rank")
-    run.add_argument("--resume", required=True)
+
+    run.add_argument("--resume", required=False)
     run.add_argument("--search", required=True)
     run.add_argument("--user", required=True)
-    run.add_argument("--profile", choices=PROFILES.keys(), default="senior_ic")
-    run.add_argument("--country", default=DEFAULT_COUNTRY)
-    run.add_argument("--hours-old", type=int, default=DEFAULT_HOURS_OLD)
+    run.add_argument("--use-case", help="Use case (optional)")
+
+    # backward-compatible but NOT authoritative
+    run.add_argument(
+        "--profile",
+        help="(Ignored) Profile is resolved from settings.override.yaml",
+    )
+
+    run.add_argument("--country", default="India")
+    run.add_argument("--hours-old", type=int, default=24)
     run.add_argument("--remote-only", action="store_true")
     run.add_argument("--force-refresh", action="store_true")
-
     run.add_argument("--exclude", default="")
     run.add_argument("--max-results", type=int, default=100)
-
     run.add_argument("--prefer-companies", default="")
     run.add_argument("--skip-companies", default="")
-    run.add_argument(
-        "--rank-corpus",
-        action="store_true",
-        help="Rank against consolidated corpus instead of cache",
-    )
+
+    run.add_argument("--rank-corpus", action="store_true")
+    run.add_argument("--scratch", action="store_true")
+    run.add_argument("--scratch-hours", type=int, default=24)
+
     return p
-
-
-def apply_company_overrides(profile, args, logger):
-    preferred = parse_list(getattr(args, "prefer_companies", ""))
-    skipped = parse_list(getattr(args, "skip_companies", ""))
-
-    profile.preferred_companies = list(
-        set(profile.preferred_companies + preferred)
-    )
-    profile.deprioritized_companies = list(
-        set(profile.deprioritized_companies + skipped)
-    )
-
-    logger.info(f"Preferred companies: {profile.preferred_companies}")
-    logger.info(f"Skipped companies: {profile.deprioritized_companies}")
 
 
 def main():
     args = build_parser().parse_args()
     logger = setup_logger()
 
-    if args.cmd == "fetch":
-        profile = PROFILES[args.profile]
-        apply_company_overrides(profile, args, logger)
+    if args.scratch and args.rank_corpus:
+        raise ValueError("--rank-corpus not allowed with --scratch")
 
-        profile.exclude_keywords = parse_list(args.exclude)
+    # --------------------------------------------------
+    # USER CONTEXT
+    # --------------------------------------------------
+    ctx = resolve_user_context(
+        user=args.user,
+        use_case_override=args.use_case,
+        require_resume=True,
+    )
 
-        search_terms = [s.strip() for s in args.search.split("|") if s.strip()]
-        query = " OR ".join(f'"{t}"' for t in search_terms)
+    os.environ["JOBRANKER_ROLE_CACHE_DIR"] = str(ctx.base_dir / "role_cache")
 
-        df = fetch_jobs(
-            search_query=query,
-            country=args.country,
-            hours_old=args.hours_old,
-            remote_only=args.remote_only,
-            profile=profile,
-            force_refresh=args.force_refresh,
-            results_wanted=args.max_results,
-            logger=logger,
-        )
-        logger.info(f"Fetched {len(df)} jobs")
+    # --------------------------------------------------
+    # LOAD EFFECTIVE CONFIG
+    # --------------------------------------------------
+    effective_cfg = load_effective_settings(ctx)
+    profile_name = resolve_profile_name(effective_cfg)
 
-    elif args.cmd == "rank":
-        profile = PROFILES[args.profile]
-        profile.workspace_dir = f"workspaces/{args.user}/{profile.name}"
-        apply_company_overrides(profile, args, logger)
+    if profile_name not in PROFILES:
+        raise SystemExit(f"Unknown profile: {profile_name}")
 
-        resume_text = load_resume(args.resume)
-        jobs_df = load_all_cached_jobs(logger)
+    profile = PROFILES[profile_name]
+    profile.workspace_dir = str(ctx.base_dir / "workspace")
+    Path(profile.workspace_dir).mkdir(parents=True, exist_ok=True)
 
-        ranked = rank_jobs(
-            resume_text=resume_text,
-            jobs_df=jobs_df,
-            preferences={
-                "preferred": profile.preferred_companies,
-                "deprioritized": profile.deprioritized_companies,
-            },
-            profile=profile,
-            logger=logger,
-        )
+    logger.info(
+        f"[CLI] Using profile={profile_name} (resolved from config)"
+    )
 
-        ranked = ranked.query("final_score >= @args.min_score").head(args.max_results)
+    # --------------------------------------------------
+    # CLI OVERRIDES (SCORING ONLY)
+    # --------------------------------------------------
+    prefer_override = parse_list(args.prefer_companies)
+    skip_override = parse_list(args.skip_companies)
+    profile.exclude_keywords = parse_list(args.exclude)
 
-        out = Path("outputs")
-        out.mkdir(exist_ok=True)
-        path = out / "ranked_jobs.csv"
-        ranked.to_csv(path, index=False)
-        logger.info(f"Saved {path}")
+    # --------------------------------------------------
+    # FETCH
+    # --------------------------------------------------
+    search_terms = [s.strip() for s in args.search.split("|") if s.strip()]
+    query = " OR ".join(f'"{t}"' for t in search_terms)
+    hours = args.scratch_hours if args.scratch else args.hours_old
 
-    elif args.cmd == "run":
-        profile = PROFILES[args.profile]
-        profile.workspace_dir = f"workspaces/{args.user}/{profile.name}"
-        apply_company_overrides(profile, args, logger)
+    fetch_jobs(
+        search_query=query,
+        country=args.country,
+        hours_old=hours,
+        remote_only=args.remote_only,
+        profile=profile,
+        effective_settings=effective_cfg,
+        force_refresh=args.force_refresh,
+        results_wanted=args.max_results,
+        logger=logger,
+    )
 
-        profile.exclude_keywords = parse_list(args.exclude)
+    # --------------------------------------------------
+    # LOAD JOBS
+    # --------------------------------------------------
+    os.environ["JOBRANKER_CACHE_DIR"] = str(ctx.cache_dir)
+    jobs_df = load_all_cached_jobs(logger)
 
-        if args.rank_corpus:
-            logger.info("=== CORPUS RANK PHASE ===")
-            corpus_path = Path("corpus/jobs_corpus.csv")
-            if not corpus_path.exists():
-                logger.error("Corpus not found. Run build_corpus.py first.")
-                return
+    # --------------------------------------------------
+    # RANK
+    # --------------------------------------------------
+    resume_text = load_resume(str(ctx.resume_path))
 
-            jobs_df = pd.read_csv(corpus_path)
+    ranked = rank_jobs(
+        resume_text=resume_text,
+        jobs_df=jobs_df,
+        preferences={
+            "preferred": prefer_override,
+            "deprioritized": skip_override,
+        },
+        profile=profile,
+        logger=logger,
+        effective_settings=effective_cfg,
+        embedding_cache_dir=str(ctx.base_dir / "embeddings"),
+    )
 
-        else:
-            logger.info("=== FETCH PHASE ===")
-            search_terms = [s.strip() for s in args.search.split("|") if s.strip()]
-            query = " OR ".join(f'"{t}"' for t in search_terms)
+    # --------------------------------------------------
+    # OUTPUT
+    # --------------------------------------------------
+    if args.scratch:
+        out_dir = ctx.base_dir / "scratch"
+        out_dir.mkdir(exist_ok=True)
+    else:
+        out_dir = ctx.outputs_dir
 
-            fetch_jobs(
-                search_query=query,
-                country=args.country,
-                hours_old=args.hours_old,
-                remote_only=args.remote_only,
-                profile=profile,
-                force_refresh=args.force_refresh,
-                results_wanted=args.max_results,
-                logger=logger,
-            )
-
-            jobs_df = load_all_cached_jobs(logger)
-
-        logger.info("=== RANK PHASE ===")
-        resume_text = load_resume(args.resume)
-
-        ranked = rank_jobs(
-            resume_text=resume_text,
-            jobs_df=jobs_df,
-            preferences={
-                "preferred": profile.preferred_companies,
-                "deprioritized": profile.deprioritized_companies,
-            },
-            profile=profile,
-            logger=logger,
-        )
-
-        out = Path("outputs")
-        out.mkdir(exist_ok=True)
-        path = out / "ranked_jobs.csv"
-        ranked.to_csv(path, index=False)
-        logger.info(f"Saved {path}")
+    output_path = out_dir / "ranked_jobs.csv"
+    ranked.to_csv(output_path, index=False)
+    state_path = ctx.outputs_dir / ".last_seen_jobs.csv"
+    ranked[["job_url"]].dropna().to_csv(state_path, index=False)
+    logger.info(f"Saved {output_path}")
 
 
 if __name__ == "__main__":

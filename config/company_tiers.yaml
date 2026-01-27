@@ -24,7 +24,7 @@ tiers:
       - intuit
       - workday
       - atlassian
-      - salesfoce
+      - salesforce
 
   enterprise_saas_finance:
     description: >

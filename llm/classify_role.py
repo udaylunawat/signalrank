@@ -3,13 +3,20 @@ import hashlib
 import json
 from pathlib import Path
 from typing import List
-
+import os
 from llm.client import llm_json
 
 # --------------------------------------------------
 # CACHE
 # --------------------------------------------------
-CACHE_DIR = Path("cache/role_classification")
+def get_role_cache_dir():
+    return Path(
+        os.environ.get(
+            "JOBRANKER_ROLE_CACHE_DIR",
+            "cache/role_classification",
+        )
+    )
+CACHE_DIR = get_role_cache_dir()
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 CACHE_TTL = 7 * 24 * 3600  # 7 days

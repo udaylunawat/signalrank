@@ -1,20 +1,37 @@
+#!/usr/bin/env python3
+import argparse
 import pandas as pd
+from user_context import resolve_user_context
+from config_loader import settings
 
-# Load the CSV
-df = pd.read_csv("outputs/ranked_jobs.csv")
 
-# Sort by final_score descending and select top 5
-top5 = df.sort_values("final_score", ascending=False) #.head(5)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--user", required=True)
+    parser.add_argument("--use-case", help="Use case (optional)")
+    args = parser.parse_args()
 
-# Extract job descriptions
-descriptions = top5[["title", "company", "final_score", "description", "max_yoe"]] #.head(5)
+    ctx = resolve_user_context(
+        user=args.user,
+        use_case_override=args.use_case,
+        require_resume=False,
+    )
 
-# Print or save the descriptions
-for idx, row in descriptions.iterrows():
-    print(f"Title: {row['title']}")
-    print(f"Company: {row['company']}")
-    print(f"YOE: {row['max_yoe']}")
-    print(f"Score: {row['final_score']}")
-    # print("Description:")
-    # print(row['description'])
-    print("="*80)
+    path = ctx.outputs_dir / settings.outputs.ranked_jobs_file
+    df = pd.read_csv(path)
+
+    df["norm_title"] = df["title"].str.lower().str.strip()
+    df["norm_company"] = df["company"].str.lower().str.strip()
+
+    grouped = df.loc[
+        df.groupby(["norm_title", "norm_company"])["final_score"].idxmax()
+    ]
+
+    top5 = grouped.sort_values("final_score", ascending=False).head(5)
+
+    for _, row in top5.iterrows():
+        print(f"{row['company']} | {row['title']} | {row['final_score']:.3f}")
+
+
+if __name__ == "__main__":
+    main()
