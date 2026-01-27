@@ -49,6 +49,21 @@ graph TD
 | **Deterministic** | Cached queries, role classifications, and embeddings enable reproducible outputs. |
 | **One‑Writer, Many‑Readers** | `outputs/ranked_jobs.csv` is overwritten atomically with a lockfile (`outputs/.run.lock`). |
 
+### Skill Extraction (Tier 1.2 – Intentional Tradeoff)
+
+The system uses **high-precision, config-driven phrase matching**
+based on `skills.equivalence_groups`.
+Remove token cap; recall controlled by config breadth
+Properties:
+- Only skills explicitly listed in configuration are extracted
+- Unknown or long-tail tools are intentionally ignored
+- Canonicalization happens *before* deduplication
+- This guarantees deterministic behavior across runs
+
+Implication:
+- Skill recall is conservative by design
+- Semantic embeddings remain the primary signal
+- Skill overlap is used only as a secondary refinement
 ---
 
 ## 📂 Repository Layout
@@ -153,6 +168,11 @@ python build_corpus.py
 
 Creates `corpus/jobs_corpus.csv` – a deduplicated, stable set of jobs from all tracked sources.
 
+```bash
+python build_corpus.py --user uday
+python build_faiss_corpus.py --user uday
+python rank_corpus.py --user uday --use-case default
+```
 ---
 
 ## ⚙️ macOS Automation (launchd)
@@ -314,6 +334,36 @@ SENIOR_IC = {
 * **Google Jobs rule** – copy queries verbatim; avoid Boolean `OR`; LLM query expansion is disabled for these sources.  
   </details>
 
+## 🔒 Design Invariants (Do Not Violate)
+
+This system relies on a small number of hard invariants to remain
+deterministic, debuggable, and safe to evolve.
+
+### Architectural
+- Batch-first only (UI is read-only)
+- One writer, many readers
+- All state is user-scoped
+
+### Skills & Matching
+- Skill extraction is config-driven
+- Canonicalization happens before deduplication
+- LLMs may propose mappings, never apply them
+- Semantic similarity remains the primary signal
+
+### Embeddings
+- Canonical text only
+- Config fingerprint included in cache key
+- Read-only modes must fail on missing embeddings
+
+Skill extraction is phrase-based and bounded by
+`skills.equivalence_groups`.
+
+There is intentionally no token cap.
+Recall is controlled by configuration, not heuristics.
+
+Note: Glassdoor and LinkedIn scrapers are best-effort.
+Failures are expected and safely ignored.
+Indeed remains the primary reliable source.
 ---
 
 ## 🛠💡 Additional Resources (Collapsible)

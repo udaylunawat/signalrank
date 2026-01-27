@@ -1,33 +1,37 @@
 #!/usr/bin/env python3
+import argparse
 import pandas as pd
-from pathlib import Path
 from datetime import datetime, timezone
+from user_context import resolve_user_context
+from config_loader import settings
 
-CSV = Path("outputs/ranked_jobs.csv")
 
-if not CSV.exists():
-    print("ranked_jobs.csv not found")
-    exit(1)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--user", required=True)
+    parser.add_argument("--use-case", help="Use case (optional)")
+    args = parser.parse_args()
 
-df = pd.read_csv(CSV)
+    ctx = resolve_user_context(
+        user=args.user,
+        use_case_override=args.use_case,
+        require_resume=False,
+    )
 
-def age_days(d):
-    try:
-        dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
-        return (datetime.now(timezone.utc) - dt).days
-    except Exception:
-        return None
+    path = ctx.outputs_dir / settings.outputs.ranked_jobs_file
+    df = pd.read_csv(path)
 
-df["age_days"] = df["date_posted"].apply(age_days)
+    def age_days(d):
+        try:
+            dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
+            return (datetime.now(timezone.utc) - dt).days
+        except Exception:
+            return None
 
-print("\nRecency distribution (days):")
-print(df["age_days"].describe())
+    df["age_days"] = df["date_posted"].apply(age_days)
 
-print("\nBuckets:")
-print(
-    pd.cut(
-        df["age_days"],
-        bins=[-1, 3, 7, 14, 30, 60, 180, 10000],
-        labels=["0-3", "4-7", "8-14", "15-30", "31-60", "61-180", "180+"],
-    ).value_counts().sort_index()
-)
+    print(df["age_days"].describe())
+
+
+if __name__ == "__main__":
+    main()

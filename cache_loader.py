@@ -1,37 +1,53 @@
-# cache_loader.py
-import pandas as pd
-from pathlib import Path
+# ================================
+# FILE: cache_loader.py
+# ================================
+import os
 import json
+from pathlib import Path
 from datetime import datetime, timedelta
+import pandas as pd
 
-CACHE_DIR = Path("cache")
+from config_loader import settings
 
-# -----------------------------
-# CACHE POLICY (TUNE HERE)
-# -----------------------------
-MAX_QUERY_FILES = 50          # hard cap
-MAX_CACHE_AGE_HOURS = 72      # 3 days
+# --------------------------------------------------
+# CACHE DIRECTORY (USER / USE-CASE AWARE)
+# --------------------------------------------------
+CACHE_DIR = Path(
+    os.environ.get(
+        "JOBRANKER_CACHE_DIR",
+        settings.paths.cache_dir,   # legacy fallback
+    )
+)
 
-
+# --------------------------------------------------
+# INTERNALS
+# --------------------------------------------------
 def _prune_cache(logger=None):
     """
-    Remove old or excess cached query files.
-    Safe, deterministic, idempotent.
+    Remove expired or excess cached query files.
+    Deterministic and idempotent.
     """
+    if not CACHE_DIR.exists():
+        return
+
+    max_files = settings.cache.queries.max_files
+    max_age = timedelta(hours=settings.cache.queries.max_age_hours)
+
     meta_files = sorted(
         CACHE_DIR.glob("query_*.json"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
 
-    # ---- age-based pruning ----
-    cutoff = datetime.now() - timedelta(hours=MAX_CACHE_AGE_HOURS)
+    # --------------------------------
+    # Age-based pruning
+    # --------------------------------
+    cutoff = datetime.now() - max_age
 
     for meta in meta_files:
         try:
-            ts = datetime.fromisoformat(
-                json.loads(meta.read_text()).get("ts")
-            )
+            payload = json.loads(meta.read_text())
+            ts = datetime.fromisoformat(payload["ts"])
             if ts < cutoff:
                 csv = meta.with_suffix(".csv")
                 meta.unlink(missing_ok=True)
@@ -41,14 +57,16 @@ def _prune_cache(logger=None):
         except Exception:
             continue
 
-    # ---- size-based pruning ----
+    # --------------------------------
+    # Size-based pruning
+    # --------------------------------
     meta_files = sorted(
         CACHE_DIR.glob("query_*.json"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
 
-    for meta in meta_files[MAX_QUERY_FILES:]:
+    for meta in meta_files[max_files:]:
         csv = meta.with_suffix(".csv")
         meta.unlink(missing_ok=True)
         csv.unlink(missing_ok=True)
@@ -59,15 +77,16 @@ def _prune_cache(logger=None):
 def load_all_cached_jobs(logger=None) -> pd.DataFrame:
     """
     Load and merge all cached job CSVs.
-    Automatically prunes cache first.
+    Applies pruning policy first.
     """
     if not CACHE_DIR.exists():
+        if logger:
+            logger.info(f"[CACHE] No cache dir at {CACHE_DIR}")
         return pd.DataFrame()
 
     _prune_cache(logger)
 
     csv_files = list(CACHE_DIR.glob("query_*.csv"))
-
     if not csv_files:
         if logger:
             logger.warning("No cached job files found")

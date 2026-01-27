@@ -1,4 +1,7 @@
-# scheduler.py
+#!/usr/bin/env python3
+# ================================
+# FILE: scheduler.py
+# ================================
 import subprocess
 import time
 from pathlib import Path
@@ -7,42 +10,40 @@ import logging
 import sys
 import os
 
-# --------------------------------------------------
-# CONFIG
-# --------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent
-RUN_SCRIPT = BASE_DIR / "run_daily.sh"
-OUTPUT_FILE = BASE_DIR / "outputs" / "ranked_jobs.csv"
-LOG_FILE = Path.home() / "job_ranker_scheduler.log"
+from config_loader import settings
+from user_context import resolve_user_context
 
-CHECK_INTERVAL_SECONDS = 24 * 60 * 60   # 24 hours
-STALE_AFTER_HOURS = 24
 
-STREAMLIT_CMD = [
-    sys.executable,
-    "-m",
-    "streamlit",
-    "run",
-    "app.py",
-]
+USER = os.environ.get("JOBRANKER_USER")
+USE_CASE = os.environ.get("JOBRANKER_USE_CASE", "default")
 
-# --------------------------------------------------
-# LOGGING
-# --------------------------------------------------
-logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+if not USER:
+    raise SystemExit(
+        "JOBRANKER_USER must be set for scheduler.\n"
+        "Example:\n"
+        "export JOBRANKER_USER=uday\n"
+        "export JOBRANKER_USE_CASE=default"
+    )
+
+ctx = resolve_user_context(
+    user=USER,
+    use_case_override=USE_CASE,
+    require_resume=False,
 )
 
-console = logging.StreamHandler()
-console.setLevel(logging.INFO)
-logging.getLogger("").addHandler(console)
+RUN_SCRIPT = Path(settings.paths.project_root).resolve() / "run_daily.sh"
+OUTPUT_FILE = ctx.outputs_dir / settings.outputs.ranked_jobs_file
+
+CHECK_INTERVAL_SECONDS = settings.scheduler.check_interval_seconds
+STALE_AFTER_HOURS = settings.scheduler.stale_after_hours
+
+logging.basicConfig(
+    filename=settings.logging.log_file if settings.logging.log_to_file else None,
+    level=getattr(logging, settings.logging.level),
+    format=settings.logging.format,
+)
 
 
-# --------------------------------------------------
-# HELPERS
-# --------------------------------------------------
 def is_output_stale() -> bool:
     if not OUTPUT_FILE.exists():
         logging.warning("ranked_jobs.csv missing")
@@ -50,68 +51,32 @@ def is_output_stale() -> bool:
 
     mtime = datetime.fromtimestamp(OUTPUT_FILE.stat().st_mtime)
     age = datetime.now() - mtime
-
-    if age > timedelta(hours=STALE_AFTER_HOURS):
-        logging.warning(
-            f"ranked_jobs.csv stale ({age.total_seconds()/3600:.1f}h old)"
-        )
-        return True
-
-    return False
+    return age > timedelta(hours=STALE_AFTER_HOURS)
 
 
 def run_daily_job() -> bool:
-    logging.info("Running daily ranking job")
-
     try:
-        subprocess.run(
-            ["bash", str(RUN_SCRIPT)],
-            cwd=BASE_DIR,
-            check=True,
-        )
-        logging.info("run_daily.sh completed successfully")
+        subprocess.run(["bash", str(RUN_SCRIPT)], check=True)
         return True
-
     except subprocess.CalledProcessError as e:
         logging.error(f"run_daily.sh failed: {e}")
         return False
 
 
-def start_streamlit():
-    logging.info("Starting Streamlit app")
-
-    subprocess.Popen(
-        STREAMLIT_CMD,
-        cwd=BASE_DIR,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        env=os.environ.copy(),
-    )
-
-
-# --------------------------------------------------
-# MAIN LOOP
-# --------------------------------------------------
 def main():
-    logging.info("Job Ranker scheduler started")
+    logging.info(f"Scheduler started for {ctx.user}/{ctx.use_case}")
 
     while True:
         try:
-            needs_run = is_output_stale()
-
-            if needs_run:
-                success = run_daily_job()
-                if success:
-                    start_streamlit()
-                else:
-                    logging.error("Daily job failed; Streamlit not started")
+            if is_output_stale():
+                logging.info("Output stale; running daily job")
+                run_daily_job()
             else:
-                logging.info("ranked_jobs.csv is fresh; no action taken")
+                logging.info("Output fresh; no action")
 
-        except Exception as e:
-            logging.exception(f"Scheduler error: {e}")
+        except Exception:
+            logging.exception("Scheduler error")
 
-        logging.info("Sleeping until next check")
         time.sleep(CHECK_INTERVAL_SECONDS)
 
 
