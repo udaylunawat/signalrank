@@ -1,1 +1,8 @@
-archived_v2/
+archived_v1/
+digest*.txt
+.ruff_cache
+__pycache__
+cache
+job_ranker.egg-info
+**/.DS_Store
+.env
