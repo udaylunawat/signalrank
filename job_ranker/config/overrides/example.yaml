@@ -1,0 +1,134 @@
+# ============================================================
+# User Override — EXAMPLE
+# Persona: Senior ML / AI Platform Engineer
+# ============================================================
+
+# --------------------
+# RESUME / EMBEDDING INTENT
+# --------------------
+resume:
+  embedding_prefix: >
+    Machine learning engineering, MLOps, LLM systems,
+    production ML platforms, AI infrastructure, agentic systems.
+
+# --------------------
+# FUNCTIONAL ROLE PREFERENCE
+# --------------------
+ranking:
+  functional_role_penalties:
+    agentic_systems: 1.0
+    mlops_llmops: 1.0
+    platform_devops: 0.9
+    software_general: 0.85
+
+# --------------------
+# ROLE VOCABULARY (PERSONA SIGNAL)
+# --------------------
+functional_role_terms:
+  ai:
+    - llm
+    - agent
+    - rag
+    - embedding
+    - inference
+    - orchestration
+  devops:
+    - kubernetes
+    - terraform
+    - ci/cd
+    - pipeline
+    - monitoring
+    - sre
+
+# --------------------
+# COMPANY PREFERENCES
+# --------------------
+company_scoring:
+  default_weight: 1.0
+  preferred_weight: 1.25
+  deprioritized_weight: 0.85
+
+  preferred_companies:
+    - unitedhealth
+    - optum
+    - roche
+    - pfizer
+    - abbvie
+    - eli lilly
+    - merck
+    - philips
+    - ge healthcare
+    - siemens
+    - walmart
+    - ubs
+    - visa
+    - mastercard
+    - capital one
+    - intuit
+    - workday
+    - servicenow
+    - atlassian
+    - salesforce
+    - adobe
+    - blackrock
+    - goldman sachs
+    - microsoft
+    - google
+    - apple
+    - msci
+
+  aliases:
+    uhg: unitedhealth
+    united health group: unitedhealth
+    eli lilly: eli lilly
+    lilly: eli lilly
+    ge healthineers: ge healthcare
+    goldman: goldman sachs
+    capitalone: capital one
+
+  deprioritized_companies:
+    - amazon
+    - uber
+    - wipro
+    - infosys
+    - tcs
+    - tata consultancy services
+    - hcl
+    - tech mahindra
+    - cognizant
+    - capgemini
+    - ibm
+    - epam
+    - globallogic
+    - nagarro
+    - fractal
+
+# --------------------
+# LOCATION PREFERENCES
+# --------------------
+location_scoring:
+  preferred_weight: 1.2
+  preferred_locations:
+    - ka, in
+    - mh, in
+    - remote, in
+    - pune
+    - bangalore
+    - bengaluru
+    - hyderabad
+
+# --------------------
+# HARD FILTERS
+# --------------------
+title_blocklist:
+  - trainee
+  - manager
+  - sales
+  - trainer
+  - junior
+
+# --------------------
+# EXPERIENCE CONSTRAINT
+# --------------------
+experience:
+  max_yoe: 9
