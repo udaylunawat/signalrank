@@ -1,0 +1,6 @@
+users:
+  uday:
+    default_use_case: default
+    use_cases:
+      default:
+        resume_path: users/uday/resume.tex

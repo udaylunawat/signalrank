@@ -1,0 +1,17 @@
+streamlit
+python-jobspy
+pandas
+numpy<2.0
+PyPDF2
+tqdm
+python-dotenv
+aiohttp
+pydantic
+duckdb
+fastembed
+onnxruntime
+litellm
+gitingest
+sentence-transformers
+pyyaml
+black
