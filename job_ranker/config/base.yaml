@@ -17,16 +17,21 @@ embeddings:
   device: cpu
   text:
     normalize_embeddings: true
-    max_chars: 2000
+    max_chars: 50000
 
 # --------------------
 # RANKING MECHANICS (NEUTRAL)
 # --------------------
 ranking:
-  min_semantic_score: 0.30
+  min_semantic_score: 0.50
   enable_recency_decay: true
   recency_half_life_days: 21
-
+  min_keyword_overlap: 0
+  min_quality_multiplier: 0.80
+  role_semantic_thresholds:
+    software_general: 0.65
+    platform_devops: 0.55
+    agentic_systems: 0.50
   seniority_penalty:
     junior_multiplier: 0.4
     low_yoe_multiplier: 0.5
@@ -36,12 +41,45 @@ ranking:
         - junior
         - entry
 
+  role_negative_keywords:
+    software_general:
+      - qa
+      - tester
+      - manual testing
+      - support engineer
+      - helpdesk
+      - customer support
+      - wordpress
+      - shopify developer
+
+    platform_devops:
+      - qa
+      - tester
+      - frontend
+      - react
+      - angular
+      - ui developer
+      - wordpress
+      - shopify developer
+
+    agentic_systems:
+      - qa
+      - tester
+      - data analyst
+      - business analyst
+      - power bi
+      - tableau
+      - excel heavy
+      - reporting
+      - dashboard
+      - wordpress
+      - shopify developer
   # Neutral defaults — no role preference here
   functional_role_penalties:
     agentic_systems: 1.0
     mlops_llmops: 1.0
     platform_devops: 1.0
-    software_general: 1.0
+    software_general: 0.9
 
   llm_veto:
     enabled: false
@@ -67,12 +105,11 @@ scraping:
   country: India
   max_results: 500
   min_description_length: 0
-  use_multiprocessing: true
+  use_multiprocessing: True
   sites:
     enabled:
       - indeed
       - linkedin
-      - glassdoor
 
 # --------------------
 # ROLE TAXONOMY (VOCABULARY ONLY)
@@ -100,3 +137,7 @@ functional_role_thresholds:
   mlops_ai_terms: 1
   mlops_devops_terms: 1
   platform_devops_min_terms: 2
+
+resume:
+  distillation:
+    enabled: false

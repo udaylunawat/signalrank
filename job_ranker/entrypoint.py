@@ -10,18 +10,24 @@ ROOT = Path(__file__).resolve().parents[1]
 def run_batch(args):
     from job_ranker.cli import main as cli_main
 
-    sys.argv = [
+    argv = [
         "job-ranker",
         "--user",
         args.user,
         "--use-case",
         args.use_case,
-        "--search",
-        args.search,
-        "--hours-old",
-        str(args.hours_old),
-    ] + (["--force-refresh"] if args.force_refresh else [])
+    ]
 
+    if args.search is not None:
+        argv += ["--search", args.search]
+
+    if args.hours_old is not None:
+        argv += ["--hours-old", str(args.hours_old)]
+
+    if args.force_refresh:
+        argv.append("--force-refresh")
+
+    sys.argv = argv
     cli_main()
 
 
@@ -41,9 +47,14 @@ def run_ui(_args):
 
 
 def run_onboard(_args):
+    script = ROOT / "job_ranker" / "tools" / "onboard_user.py"
+
+    if not script.exists():
+        raise RuntimeError(f"Onboarding script not found: {script}")
+
     cmd = [
         sys.executable,
-        str(ROOT / "tools" / "onboard_user.py"),
+        str(script),
     ]
     subprocess.run(cmd, check=True)
 
@@ -51,7 +62,8 @@ def run_onboard(_args):
 def doctor(_args):
     print("✔ Python:", sys.executable)
     print("✔ Repo root:", ROOT)
-    print("✔ DuckDB path exists:", (ROOT / "duckdb").exists())
+    print("✔ job_ranker package path:", ROOT / "job_ranker")
+    print("✔ DuckDB path exists:", (ROOT / "job_ranker" / "duckdb").exists())
     print("✔ Streamlit importable:", end=" ")
 
     try:
@@ -73,7 +85,7 @@ def main():
     r.add_argument("--user")
     r.add_argument("--use-case", default="default")
     r.add_argument("--search")
-    r.add_argument("--hours-old", type=int, default=24)
+    r.add_argument("--hours-old", type=int)
     r.add_argument("--force-refresh", action="store_true")
     r.set_defaults(fn=run_batch)
 

@@ -7,6 +7,32 @@ name = "job-ranker"
 version = "0.1.0"
 requires-python = ">=3.10"
 
+dependencies = [
+  "streamlit",
+  "duckdb",
+  "pandas",
+  "numpy",
+  "python-jobspy",
+  "sentence-transformers",
+  "fastembed",
+  "onnxruntime",
+  "PyPDF2",
+  "tqdm",
+  "python-dotenv",
+  "aiohttp",
+  "pydantic",
+  "litellm",
+  "gitingest",
+  "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = [
+  "black",
+  "ruff",
+  "isort",
+]
+
 [project.scripts]
 job-ranker = "job_ranker.entrypoint:main"
 
@@ -15,28 +41,6 @@ packages = ["job_ranker"]
 
 [tool.setuptools.package-data]
 job_ranker = ["**/*"]
-
-dependencies = [
-  "streamlit",
-  "duckdb",
-  "sentence-transformers",
-  "streamlit",
-  "python-jobspy",
-  "pandas",
-  "numpy<2.0",
-  "PyPDF2",
-  "tqdm",
-  "python-dotenv",
-  "aiohttp",
-  "pydantic",
-  "duckdb",
-  "fastembed",
-  "onnxruntime",
-  "litellm",
-  "gitingest",
-  "sentence-transformers",
-  "pyyaml",
-]
 
 [tool.black]
 line-length = 88
@@ -53,7 +57,7 @@ exclude = '''
 [tool.isort]
 profile = "black"
 line_length = 88
-known_first_party = ["job_ranker_v2"]
+known_first_party = ["job_ranker"]
 combine_as_imports = true
 
 [tool.ruff]

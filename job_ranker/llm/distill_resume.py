@@ -27,7 +27,10 @@ RESUME:
 """
 
 
-def distill_resume(resume_text: str) -> dict:
+def distill_resume(resume_text: str, *, enabled: bool = True) -> dict:
+    if not enabled:
+        return {}
+
     data = llm_json(
         PROMPT.replace("<<<TEXT>>>", resume_text),
         max_tokens=700,

@@ -8,6 +8,7 @@ from typing import Dict, Iterable, List
 import numpy as np
 
 logger = logging.getLogger(__name__)
+_ENGINE = None
 
 
 def fingerprint_text(text: str) -> str:
@@ -16,6 +17,8 @@ def fingerprint_text(text: str) -> str:
 
 class EmbeddingEngine:
     def __init__(self, cfg):
+        if hasattr(self, "model"):
+            return
         # 🚫 Hard guard: never allow this in Streamlit
         if "streamlit" in __import__("sys").modules:
             raise RuntimeError("EmbeddingEngine must not be used inside Streamlit UI")
@@ -42,14 +45,25 @@ class EmbeddingEngine:
 
         logger.info("[EMBED] Model loaded successfully")
 
+    def __new__(cls, cfg):
+        global _ENGINE
+        if _ENGINE is not None:
+            return _ENGINE
+        self = super().__new__(cls)
+        _ENGINE = self
+        return self
+
     def embed(self, texts: List[str]) -> np.ndarray:
         if not texts:
             return np.zeros((0, 0), dtype="float32")
 
         logger.info("[EMBED] Encoding %d texts", len(texts))
 
+        batch_size = 64 if self.device == "mps" else 256
+
         vecs = self.model.encode(
             texts,
+            batch_size=batch_size,
             normalize_embeddings=self.normalize,
             show_progress_bar=False,
         )
@@ -138,75 +152,16 @@ def build_job_embedding_text(
     return f"ROLE: {title}\n" f"RESPONSIBILITIES: {desc}\n" f"REQUIRED_SKILLS: {skills}"
 
 
-def build_resume_embedding_text(
-    *,
-    resume_text: str,
-    distilled: dict | None,
-    cfg: dict,
-    use_case: str,
-) -> str:
-    resume_cfg = cfg.get("resume", {})
+def build_resume_embedding_text(*, resume_text, distilled, cfg, use_case):
+    parts = []
 
-    embedding_cfg = resume_cfg.get("embedding", {})
-    sep = embedding_cfg.get("separator", " ")
-    mode = embedding_cfg.get("mode", "prefix_plus_skills")
-    if mode not in {"prefix_only", "skills_only", "prefix_plus_skills"}:
-        mode = "prefix_plus_skills"
+    if distilled:
+        parts.append(distilled)
+    else:
+        parts.append(resume_text)
 
-    prefix = resume_cfg.get("embedding_prefix", "")
-    overrides = resume_cfg.get("embedding_prefix_by_use_case", {})
-    if isinstance(overrides, dict):
-        prefix = overrides.get(use_case, prefix)
+    prefix = cfg.get("resume", {}).get("embedding_prefix")
+    if prefix:
+        parts.insert(0, prefix)
 
-    if not distilled:
-        return (prefix + sep + resume_text[:1500]).strip()
-
-    bits = (
-        distilled.get("primary_focus", [])
-        + distilled.get("core_capabilities", [])
-        + distilled.get("secondary_skills", [])
-    )
-    bits = [b.strip() for b in bits if isinstance(b, str)]
-
-    if mode == "prefix_only":
-        return prefix.strip()
-
-    if mode == "skills_only":
-        return sep.join(bits)
-
-    # default: prefix_plus_skills
-    return (prefix + sep + sep.join(bits)).strip()
-
-
-def get_or_create_resume_embedding(ctx, engine):
-    import json
-
-    from job_ranker.domain.embeddings import fingerprint_text
-
-    resume_fp = fingerprint_text(ctx.resume_text)
-    store = ctx.store
-
-    row = store.con.execute(
-        """
-        SELECT payload
-        FROM resume_distillations
-        WHERE resume_fp = ? AND user = ? AND use_case = ?
-        """,
-        [resume_fp, ctx.user, ctx.use_case],
-    ).fetchone()
-
-    if row:
-        return np.array(json.loads(row[0]), dtype="float32")
-
-    emb = engine.embed([ctx.resume_text])[0]
-
-    store.con.execute(
-        """
-        INSERT OR REPLACE INTO resume_distillations
-        (resume_fp, user, use_case, payload, created_at)
-        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """,
-        [resume_fp, ctx.user, ctx.use_case, json.dumps(emb.tolist())],
-    )
-
-    return emb
+    return "\n\n".join(parts)

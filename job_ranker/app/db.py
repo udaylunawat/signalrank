@@ -15,4 +15,5 @@ def get_ui_db():
     """
     root = Path(__file__).resolve().parents[1]
     db_path = root / "duckdb"
-    return duckdb.connect(str(db_path), read_only=True)
+    con = duckdb.connect(str(db_path), read_only=True)
+    return con

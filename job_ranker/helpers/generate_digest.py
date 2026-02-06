@@ -8,12 +8,10 @@ Interactive repository digest generator.
 """
 
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 
 import gitingest
-
 
 # --------------------------------------------------
 # Logging: keep output clean
@@ -75,9 +73,7 @@ def main():
     }
 
     if yes_no("Add additional exclusions?", default=False):
-        extra = prompt(
-            "Comma-separated exclude patterns (e.g. data,tmp,*.log)"
-        )
+        extra = prompt("Comma-separated exclude patterns (e.g. data,tmp,*.log)")
         for item in extra.split(","):
             if item.strip():
                 base_excludes.add(item.strip())

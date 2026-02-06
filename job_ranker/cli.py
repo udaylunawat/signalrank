@@ -5,7 +5,6 @@ from typing import Optional
 
 from job_ranker.batch.run import execute
 
-
 # ---- Silence HF internals ----
 for name in [
     "huggingface_hub",
@@ -60,7 +59,6 @@ def main():
     p.add_argument("--force-refresh", action="store_true")
 
     args = p.parse_args()
-
     # -----------------------------
     # Interactive resolution
     # -----------------------------
@@ -80,7 +78,7 @@ def main():
     hours_old = (
         args.hours_old
         if args.hours_old is not None
-        else prompt_int("Max job age in hours", default=24)
+        else prompt_int("Max job age in hours", default=240)
     )
 
     force_refresh = (
@@ -89,13 +87,17 @@ def main():
         else prompt_bool("Force refresh (ignore cached scrape)?", default=False)
     )
 
-    execute(
-        user=user,
-        use_case=use_case,
-        search=search,
-        hours_old=hours_old,
-        force_refresh=force_refresh,
-    )
+    try:
+        execute(
+            user=user,
+            use_case=use_case,
+            search=search,
+            hours_old=hours_old,
+            force_refresh=force_refresh,
+        )
+    except RuntimeError as e:
+        print(str(e).strip())
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

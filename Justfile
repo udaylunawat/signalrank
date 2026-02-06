@@ -1,30 +1,10 @@
 # =====================================================
 # Job Ranker – Project Commands (just)
 # =====================================================
-#
-# This Justfile provides *workflow shortcuts only*.
-# All arguments, defaults, and interactivity live in
-# the `job-ranker` CLI itself.
-#
-# Usage examples:
-#
-#   just help
-#   just install
-#   just lint
-#   just check
-#
-#   # Interactive run (CLI will prompt)
-#   just run
-#
-#   # Fully scripted usage (use CLI directly)
-#   # job-ranker run --user example --search "mlops|llmops"
-#
-#   just ui
-#   just doctor
-#
-# =====================================================
 
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
+
+VENV := ".venv"
 
 # -----------------------------
 # Help
@@ -34,16 +14,18 @@ help:
     @echo ""
     @echo "Job Ranker – available commands:"
     @echo ""
-    @echo "  just install    Install project and dependencies"
-    @echo "  just lint       Auto-fix lint issues (ruff + isort + black)"
-    @echo "  just check      Lint check only (no fixes)"
+    @echo "  just install     Create venv + install dependencies"
+    @echo "  just activate    Print command to activate venv"
     @echo ""
-    @echo "  just run        Run batch job (interactive CLI)"
-    @echo "  just ui         Launch Streamlit UI"
-    @echo "  just doctor     Environment sanity check"
+    @echo "  just lint        Auto-fix lint issues"
+    @echo "  just check       Lint check only"
     @echo ""
-    @echo "For fully scripted runs, use:"
-    @echo "  job-ranker run --user <user> --search <query> [options]"
+    @echo "  just run         Run batch job (interactive CLI)"
+    @echo "  just ui          Launch Streamlit UI (read-only)"
+    @echo "  just onboard     Onboard a new user (resume-first)"
+    @echo "  just doctor      Environment sanity check"
+    @echo ""
+    @echo "  just digest      Generate repository digest (interactive)"
     @echo ""
 
 # -----------------------------
@@ -51,8 +33,15 @@ help:
 # -----------------------------
 
 install:
-    uv pip install -e .
-    uv pip install -r job_ranker/requirements.txt
+    uv venv {{VENV}} --python python3.11
+    uv pip install -e .[dev]
+
+activate:
+    @echo ""
+    @echo "Run this to activate the environment:"
+    @echo ""
+    @echo "  source {{VENV}}/bin/activate"
+    @echo ""
 
 # -----------------------------
 # Code Quality
@@ -75,11 +64,26 @@ check:
 run:
     uv run job-ranker run
 
+run-refresh:
+    uv run job-ranker run \
+      --user example \
+      --search "ai platform engineer|ml platform engineer|mlops|llmops|genai|agentic systems|ai infrastructure|forward deployed engineer|developer productivity engineer" \
+      --hours-old 72 \
+      --force-refresh
 ui:
     uv run job-ranker ui
 
 doctor:
     uv run job-ranker doctor
+
+onboard:
+    uv run job-ranker onboard
+# -----------------------------
+# Utilities
+# -----------------------------
+
+digest:
+    uv run python job_ranker/helpers/generate_digest.py
 
 # -----------------------------
 # Cleanup
@@ -87,6 +91,3 @@ doctor:
 
 clean:
     rm -rf cache .ruff_cache __pycache__ */__pycache__
-
-digest:
-    python job_ranker/helpers/generate_digest.py

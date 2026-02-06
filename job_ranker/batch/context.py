@@ -7,8 +7,6 @@ from pathlib import Path
 
 import yaml
 
-from job_ranker.storage.store import Store
-
 # --------------------------------------------------
 # Package paths
 # --------------------------------------------------
@@ -28,7 +26,6 @@ class Context:
     config_fp: str
     resume_text: str
     db_path: Path
-    store: Store
 
 
 # --------------------------------------------------
@@ -36,6 +33,16 @@ class Context:
 # --------------------------------------------------
 def _fingerprint(obj: dict) -> str:
     return hashlib.md5(json.dumps(obj, sort_keys=True).encode()).hexdigest()
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    out = dict(base)
+    for k, v in override.items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
 
 
 def _load_resume_text(user: str) -> str:
@@ -75,37 +82,45 @@ def resolve_context(user: str, use_case: str | None) -> Context:
     if not user:
         raise ValueError("user is required")
 
-    # default use case (pure label)
     use_case = use_case or "default"
 
     # --------------------------------------------------
-    # Load base config (global only)
+    # Load base config
     # --------------------------------------------------
     base_cfg = yaml.safe_load((CONFIG_DIR / "base.yaml").read_text())
     skills_cfg = yaml.safe_load((CONFIG_DIR / "skills.yaml").read_text())
-    base_cfg = {**base_cfg, **skills_cfg}
-    # Optional per-user override
+
+    cfg = deep_merge(base_cfg, skills_cfg)
+
+    # --------------------------------------------------
+    # Optional per-user override (DEEP MERGE)
+    # --------------------------------------------------
+    override_path = CONFIG_DIR / "overrides" / f"{user}.yaml"
+    if override_path.exists():
+        override_cfg = yaml.safe_load(override_path.read_text())
+        cfg = deep_merge(cfg, override_cfg)
+
+        from job_ranker.batch.logging_utils import log_config_override
+
+        log_config_override(user, override_cfg)
+
+    # --------------------------------------------------
+    # Validate required engine keys
+    # --------------------------------------------------
     required = [
         "functional_role_taxonomy",
         "functional_role_terms",
         "functional_role_thresholds",
+        "ranking",
     ]
     for k in required:
-        if k not in base_cfg:
+        if k not in cfg:
             raise ValueError(f"Missing required config key: {k}")
-    override_path = CONFIG_DIR / "overrides" / f"{user}.yaml"
-    if override_path.exists():
-        override_cfg = yaml.safe_load(override_path.read_text())
-        base_cfg = {**base_cfg, **override_cfg}
 
-        from job_ranker.batch.logging_utils import log_config_override
+    if "min_semantic_score" not in cfg["ranking"]:
+        raise ValueError("ranking.min_semantic_score must be defined")
 
-        if override_path.exists():
-            override_cfg = yaml.safe_load(override_path.read_text())
-            base_cfg = {**base_cfg, **override_cfg}
-            log_config_override(user, override_cfg)
-
-    cfg_fp = _fingerprint(base_cfg)
+    cfg_fp = _fingerprint(cfg)
 
     # --------------------------------------------------
     # Resume
@@ -115,49 +130,19 @@ def resolve_context(user: str, use_case: str | None) -> Context:
     # --------------------------------------------------
     # Storage
     # --------------------------------------------------
-    db_path = (PACKAGE_ROOT / base_cfg["paths"]["db_path"]).resolve()
-    try:
-        store = Store(db_path)
-    except Exception as e:
-        raise RuntimeError(f"""
-    ❌ Failed to acquire DuckDB write lock.
-
-    Another process is holding the database.
-
-    Most common causes:
-    - Streamlit UI is running
-    - Another batch job is active
-
-    Fix:
-    - Stop Streamlit before running batch
-    - OR run UI in read-only mode
-
-    Original error:
-    {e}
-    """) from e
+    db_path = (PACKAGE_ROOT / cfg["paths"]["db_path"]).resolve()
 
     return Context(
         user=user,
         use_case=use_case,
-        config=base_cfg,
+        config=cfg,
         config_fp=cfg_fp,
         resume_text=resume_text,
         db_path=db_path,
-        store=store,
     )
 
 
-# batch/context.py
-
-
 def resolve_ui_context(user: str, use_case: str):
-    """
-    UI-safe context:
-    - NO Store
-    - NO write DB connection
-    - config + resume only
-    """
-
     if not user:
         raise ValueError("user is required")
 
@@ -165,23 +150,26 @@ def resolve_ui_context(user: str, use_case: str):
 
     base_cfg = yaml.safe_load((CONFIG_DIR / "base.yaml").read_text())
     skills_cfg = yaml.safe_load((CONFIG_DIR / "skills.yaml").read_text())
-    base_cfg = {**base_cfg, **skills_cfg}
+
+    cfg = deep_merge(base_cfg, skills_cfg)
 
     override_path = CONFIG_DIR / "overrides" / f"{user}.yaml"
     if override_path.exists():
         override_cfg = yaml.safe_load(override_path.read_text())
-        base_cfg = {**base_cfg, **override_cfg}
+        cfg = deep_merge(cfg, override_cfg)
+
+    if "min_semantic_score" not in cfg.get("ranking", {}):
+        raise ValueError("ranking.min_semantic_score must be defined")
 
     resume_text = _load_resume_text(user)
-    cfg_fp = _fingerprint(base_cfg)
-    db_path = (PACKAGE_ROOT / base_cfg["paths"]["db_path"]).resolve()
+    cfg_fp = _fingerprint(cfg)
+    db_path = (PACKAGE_ROOT / cfg["paths"]["db_path"]).resolve()
 
     return Context(
         user=user,
         use_case=use_case,
-        config=base_cfg,
+        config=cfg,
         config_fp=cfg_fp,
         resume_text=resume_text,
         db_path=db_path,
-        store=None,  # 🚨 explicitly no Store
     )

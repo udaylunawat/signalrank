@@ -1,6 +1,7 @@
 # storage/store.py
 from __future__ import annotations
 
+import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -20,10 +21,24 @@ class Store:
     - No LLM calls
     """
 
-    def __init__(self, db_path: Path):
-        self.db_path = db_path
+    def __init__(self, db_path: Path, *, readonly: bool = False):
+        if readonly:
+            self.con = duckdb.connect(str(db_path), read_only=True)
+            return
+
+        if "streamlit" in sys.modules:
+            raise RuntimeError(
+                "Write-enabled Store must not be created inside Streamlit"
+            )
+
         self.con = duckdb.connect(str(db_path))
         self._init_schema()
+
+    def _ensure_column(self, table: str, column: str, ddl: str):
+        cols = self.con.execute(f"PRAGMA table_info('{table}')").df()["name"].tolist()
+
+        if column not in cols:
+            self.con.execute(ddl)
 
     # --------------------------------------------------
     # Schema
@@ -31,6 +46,18 @@ class Store:
     def _init_schema(self):
         schema_path = Path(__file__).parent / "schema.sql"
         self.con.execute(schema_path.read_text())
+
+        # ---- guarded migrations ----
+        self._ensure_column(
+            table="jobs_raw",
+            column="canonical_skills",
+            ddl="ALTER TABLE jobs_raw ADD COLUMN canonical_skills JSON",
+        )
+        self._ensure_column(
+            table="embeddings",
+            column="text_fp",
+            ddl="ALTER TABLE embeddings ADD COLUMN text_fp VARCHAR",
+        )
 
     # --------------------------------------------------
     # Runs
@@ -73,33 +100,24 @@ class Store:
 
         df = df.copy()
 
-        # --------------------------------------------------
-        # HARD NORMALIZATION (DATE POSTED)
-        # --------------------------------------------------
+        if "job_url_direct" not in df.columns:
+            df["job_url_direct"] = None
+
+        # ---- Normalize date_posted ----
         if "date_posted" in df.columns:
             s = df["date_posted"]
-
             if pd.api.types.is_numeric_dtype(s):
-                # epoch timestamps (seconds or ms)
                 df["date_posted"] = pd.to_datetime(
-                    s,
-                    errors="coerce",
-                    utc=True,
-                    unit="ms",
+                    s, errors="coerce", utc=True, unit="ms"
                 )
             else:
-                # ISO strings like "2026-01-31"
-                df["date_posted"] = pd.to_datetime(
-                    s,
-                    errors="coerce",
-                    utc=True,
-                )
+                df["date_posted"] = pd.to_datetime(s, errors="coerce", utc=True)
         else:
             df["date_posted"] = pd.NaT
 
-        # Kill epoch-zero explicitly
         df.loc[
-            df["date_posted"] <= pd.Timestamp("1971-01-01", tz="UTC"), "date_posted"
+            df["date_posted"] <= pd.Timestamp("1971-01-01", tz="UTC"),
+            "date_posted",
         ] = pd.NaT
 
         df["user"] = ctx.user
@@ -110,6 +128,7 @@ class Store:
             INSERT INTO jobs_raw
             SELECT
                 job_url,
+                job_url_direct,
                 title,
                 company,
                 description,
@@ -122,14 +141,15 @@ class Store:
             FROM df
             ON CONFLICT (job_url, user, use_case)
             DO UPDATE SET
-                title        = EXCLUDED.title,
-                company      = EXCLUDED.company,
-                description  = EXCLUDED.description,
-                location     = EXCLUDED.location,
-                site         = EXCLUDED.site,
-                date_posted  = EXCLUDED.date_posted,
-                ingested_at  = EXCLUDED.ingested_at
-            """)
+                job_url_direct = EXCLUDED.job_url_direct,
+                title          = EXCLUDED.title,
+                company        = EXCLUDED.company,
+                description    = EXCLUDED.description,
+                location       = EXCLUDED.location,
+                site           = EXCLUDED.site,
+                date_posted    = EXCLUDED.date_posted,
+                ingested_at    = EXCLUDED.ingested_at
+        """)
 
     # --------------------------------------------------
     # Corpus
@@ -189,3 +209,38 @@ class Store:
     @staticmethod
     def connect_readonly(db_path: Path):
         return duckdb.connect(str(db_path), read_only=True)
+
+    def populate_missing_skills(self, ctx):
+        from job_ranker.domain.skills import (
+            SkillCanonicalizer,
+            extract_skills_from_texts,
+        )
+
+        rows = self.con.execute(
+            """
+            SELECT job_url, description
+            FROM jobs_raw
+            WHERE user = ? AND use_case = ? AND canonical_skills IS NULL
+            """,
+            [ctx.user, ctx.use_case],
+        ).df()
+
+        if rows.empty:
+            return
+
+        raw = extract_skills_from_texts(rows["description"].tolist(), ctx.config)
+        canon = SkillCanonicalizer(ctx.config)
+
+        rows["canonical_skills"] = [list(canon.canonicalize(r)) for r in raw]
+
+        self.con.execute(
+            """
+            UPDATE jobs_raw
+            SET canonical_skills = df.canonical_skills
+            FROM rows df
+            WHERE jobs_raw.job_url = df.job_url
+            AND jobs_raw.user = ?
+            AND jobs_raw.use_case = ?
+        """,
+            [ctx.user, ctx.use_case],
+        )

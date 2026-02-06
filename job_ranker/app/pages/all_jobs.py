@@ -63,13 +63,14 @@ con = get_ui_db()
 df = con.execute(
     """
     SELECT
-      title,
-      company,
-      location,
-      site,
-      date_posted,
-      job_url,
-      ingested_at
+    title,
+    company,
+    location,
+    site,
+    date_posted,
+    job_url,
+    job_url_direct,
+    ingested_at
     FROM jobs_raw
     WHERE user = ? AND use_case = ?
     ORDER BY ingested_at DESC
@@ -85,7 +86,7 @@ df["Category"] = (
 )
 df["Posted"] = df["date_posted"].apply(format_date)
 df["Ingested"] = df["ingested_at"].apply(format_date)
-df["Apply"] = df["job_url"]
+df["Apply"] = df["job_url_direct"].fillna(df["job_url"])
 
 st.dataframe(
     df.rename(

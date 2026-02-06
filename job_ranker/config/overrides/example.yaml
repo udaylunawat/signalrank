@@ -8,19 +8,22 @@
 # --------------------
 resume:
   embedding_prefix: >
-    Machine learning engineering, MLOps, LLM systems,
+    AI Platform Engineer, MLOps, LLM systems, LLMOps
     production ML platforms, AI infrastructure, agentic systems.
 
+  distilled_text: >
+    Experienced AI platform engineer with 7 years building
+    cloud-agnostic ML infrastructure, agent orchestration,
+    CI/CD systems, and FinOps-aware deployments.
 # --------------------
 # FUNCTIONAL ROLE PREFERENCE
 # --------------------
 ranking:
   functional_role_penalties:
-    agentic_systems: 1.0
-    mlops_llmops: 1.0
-    platform_devops: 0.9
+    agentic_systems: 1.2
+    mlops_llmops: 1.2
+    platform_devops: 1.2
     software_general: 0.85
-
 # --------------------
 # ROLE VOCABULARY (PERSONA SIGNAL)
 # --------------------
@@ -45,7 +48,7 @@ functional_role_terms:
 # --------------------
 company_scoring:
   default_weight: 1.0
-  preferred_weight: 1.25
+  preferred_weight: 1.5
   deprioritized_weight: 0.85
 
   preferred_companies:
@@ -57,6 +60,8 @@ company_scoring:
     - eli lilly
     - merck
     - philips
+    - ge
+    - general electric
     - ge healthcare
     - siemens
     - walmart
@@ -77,6 +82,68 @@ company_scoring:
     - apple
     - msci
 
+    # Big Tech / Core Platforms
+    - meta
+    - nvidia
+    - oracle
+    - sap
+    - snowflake
+    - databricks
+    - bloomberg
+    - palantir
+
+    # AI-native / GenAI companies
+    - openai
+    - anthropic
+    - cohere
+    - mistral ai
+    - adept
+    - perplexity
+    - together ai
+    - scale ai
+    - glean
+    - harvey
+
+    # AI infra, tooling, platforms
+    - weights and biases
+    - arize ai
+    - hugging face
+    - langchain
+    - llamainex
+    - anyscale
+    - modal
+    - prefect
+    - temporal
+    - astronomer
+    - pinecone
+    - weaviate
+    - chroma
+    - neon
+    - supabase
+    - replit
+    - cognition
+
+    # Product / consumer tech with strong AI platforms
+    - stripe
+    - airbnb
+    - netflix
+    - spotify
+    - shopify
+
+    # Financial / enterprise heavy AI users
+    - jpmorgan chase
+    - palo alto networks
+    - crowdstrike
+
+    # India-based, globally serious tech
+    - razorpay
+    - phonepe
+    - swiggy
+    - flipkart
+    - ola
+    - tiger analytics
+    - mu sigma
+
   aliases:
     uhg: unitedhealth
     united health group: unitedhealth
@@ -85,6 +152,11 @@ company_scoring:
     ge healthineers: ge healthcare
     goldman: goldman sachs
     capitalone: capital one
+    wnb: weights and biases
+    wandb: weights and biases
+    huggingface: hugging face
+    jp morgan: jpmorgan chase
+    jpmc: jpmorgan chase
 
   deprioritized_companies:
     - amazon
@@ -102,6 +174,8 @@ company_scoring:
     - globallogic
     - nagarro
     - fractal
+    - SAP
+    - Capgemini
 
 # --------------------
 # LOCATION PREFERENCES
@@ -116,6 +190,9 @@ location_scoring:
     - bangalore
     - bengaluru
     - hyderabad
+    - remote
+    - maharashtra
+    - karnataka
 
 # --------------------
 # HARD FILTERS
@@ -131,4 +208,4 @@ title_blocklist:
 # EXPERIENCE CONSTRAINT
 # --------------------
 experience:
-  max_yoe: 9
+  max_yoe: 10

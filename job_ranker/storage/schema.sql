@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS runs (
 
 CREATE TABLE IF NOT EXISTS jobs_raw (
   job_url TEXT,
+  job_url_direct TEXT,
   title TEXT,
   company TEXT,
   description TEXT,
@@ -55,4 +56,13 @@ CREATE TABLE IF NOT EXISTS resume_distillations (
   payload JSON,
   created_at TIMESTAMP,
   PRIMARY KEY (resume_fp, user, use_case)
+);
+
+CREATE TABLE IF NOT EXISTS scrape_log (
+  user TEXT,
+  use_case TEXT,
+  query TEXT,
+  hours_old INTEGER,
+  scraped_at TIMESTAMP,
+  PRIMARY KEY (user, use_case, query, hours_old)
 );

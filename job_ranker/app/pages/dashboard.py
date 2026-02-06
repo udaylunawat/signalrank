@@ -159,16 +159,40 @@ for col in ["title", "description", "company", "location"]:
 # ==================================================
 # Category filter
 # ==================================================
-df["Category"] = (df["title"].fillna("") + " " + df["description"].fillna("")).apply(
-    lambda t: classify_functional_role(t, ctx.config)
+# ==================================================
+# Category (multi-valued)
+# ==================================================
+def classify_categories(text: str, cfg: dict) -> list[str]:
+    """
+    Conservative multi-label wrapper.
+    Reuses existing classifier, but allows extension later.
+    """
+    primary = classify_functional_role(text, cfg)
+    return [primary] if primary else []
+
+
+df["Categories"] = (df["title"].fillna("") + " " + df["description"].fillna("")).apply(
+    lambda t: classify_categories(t, ctx.config)
 )
 
-selected_category = st.selectbox(
+# Stable, display-only column
+df["Category"] = df["Categories"].apply(lambda xs: ", ".join(sorted(xs)))
+
+# ==================================================
+# Category filter (multi-select)
+# ==================================================
+all_categories = sorted({c for cats in df["Categories"] for c in cats})
+st.caption("Select one or more categories. Jobs matching any selection are shown.")
+selected_categories = st.multiselect(
     "Category filter",
-    sorted(df["Category"].unique()),
+    options=all_categories,
+    default=all_categories,  # show everything by default
 )
 
-df = df[df["Category"] == selected_category]
+if selected_categories:
+    df = df[
+        df["Categories"].apply(lambda cats: any(c in cats for c in selected_categories))
+    ]
 
 
 # ==================================================
@@ -230,8 +254,11 @@ with st.expander("Semantic Explorer", expanded=False):
                 for (job_url, title, company, location, desc, _), score in zip(
                     raw, sims
                 ):
-                    cat = classify_functional_role(f"{title} {desc}", ctx.config)
-                    if cat_filter != "(any)" and cat != cat_filter:
+                    cats = classify_categories(f"{title} {desc}", ctx.config)
+
+                    if selected_categories and not any(
+                        c in cats for c in selected_categories
+                    ):
                         continue
 
                     results.append(
@@ -240,7 +267,7 @@ with st.expander("Semantic Explorer", expanded=False):
                             "title": title,
                             "company": company,
                             "location": location,
-                            "category": cat,
+                            "category": ", ".join(sorted(cats)),
                             "job_url": job_url,
                             "explain": explain_overlap(ctx.resume_text, desc),
                         }
@@ -283,14 +310,14 @@ c4.metric("Companies", df["company"].nunique())
 
 st.divider()
 
-top_n = st.slider("Show top N jobs", 5, min(200, len(df)), min(25, len(df)), 5)
+top_n = st.slider("Show top N jobs", 1, min(200, len(df)), min(25, len(df)), 1)
 view = st.radio("View", ["Table", "Cards"], horizontal=True)
 
 show_df = df.sort_values("Score", ascending=False).head(top_n)
 
 if view == "Table":
     table = show_df.copy()
-    table["Apply"] = table["job_url"]
+    table["Apply"] = table["job_url_direct"].fillna(table["job_url"])
 
     table = table[
         [
@@ -330,5 +357,8 @@ else:
 Score **{row['Score']}** · Posted {row['Posted']} · {row['days_old']} days ago
 """)
         with cols[1]:
-            st.link_button("Apply", row["job_url"])
+            st.link_button(
+                "Apply",
+                row["job_url_direct"] or row["job_url"],
+            )
         st.markdown("<hr style='opacity:0.25'>", unsafe_allow_html=True)

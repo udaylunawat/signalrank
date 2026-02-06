@@ -23,16 +23,6 @@ from pathlib import Path
 import yaml
 from PyPDF2 import PdfReader
 
-# Optional LLM
-llm_json = None
-try:
-    from job_ranker.llm.client import llm_json as _llm_json
-
-    if _llm_json:
-        llm_json = _llm_json
-except Exception as e:
-    print(f"[LLM] Disabled due to import error: {e}")
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OVERRIDES_DIR = PROJECT_ROOT / "config" / "overrides"
 USERS_DIR = PROJECT_ROOT / "users"
@@ -173,8 +163,22 @@ def load_resume_text(path: Path) -> str:
     return path.read_text(errors="ignore")
 
 
+def _load_llm():
+    try:
+        from job_ranker.llm.client import llm_json as fn
+
+        if callable(fn):
+            return fn
+    except Exception as e:
+        print(f"[LLM] Disabled due to import error: {e}")
+    return None
+
+
+llm_json = _load_llm()
+
+
 def llm_available() -> bool:
-    return llm_json is not None
+    return callable(llm_json)
 
 
 def validate_penalty_values(penalties: dict) -> list[str]:
@@ -387,7 +391,52 @@ def main():
         shutil.copy(resume_path, dest_resume)
 
     resume_text = load_resume_text(dest_resume)
+    # --------------------------------------------------
+    # Resume distillation (ONBOARDING ONLY)
+    # --------------------------------------------------
+    distilled_text: str | None = None
 
+    if not args.no_llm and llm_available():
+        if ask_yes_no("Distill resume for semantic embedding?", True):
+            print("\n[LLM] Distilling resume (one-time)...")
+            try:
+                out = llm_json(
+                    f"""
+    Summarize this resume into a single dense paragraph optimized
+    for semantic job matching.
+
+    Rules:
+    - No bullet points
+    - No headings
+    - No explanations
+    - Plain text only
+    - Max ~120 words
+
+    Resume:
+    <<<
+    {resume_text[:6000]}
+    >>>
+    """,
+                    max_tokens=300,
+                )
+
+                if isinstance(out, dict):
+                    # tolerate different provider shapes
+                    distilled_text = (
+                        out.get("text") or out.get("summary") or out.get("content")
+                    )
+
+                if distilled_text:
+                    distilled_text = distilled_text.strip()
+                    print("[LLM] Resume distilled successfully")
+                else:
+                    print("[LLM] Distillation returned empty output")
+
+            except Exception as e:
+                print(f"[LLM] Resume distillation failed: {e}")
+
+    else:
+        print("\n[LLM] Resume distillation skipped")
     # --------------------------------------------------
     # Intent
     # --------------------------------------------------
@@ -412,6 +461,7 @@ def main():
     override = {
         "resume": {
             "embedding_prefix": "",
+            "distilled_text": distilled_text,
         },
         "ranking": {
             "functional_role_penalties": {
@@ -447,7 +497,9 @@ def main():
         print("\n[LLM] Skipped (--no-llm)")
     elif not llm_available():
         print("\n[LLM] Skipped (LLM unavailable or API key missing)")
-    elif ask_yes_no("\nUse LLM to derive persona from resume?", True):
+    elif llm_available() and ask_yes_no(
+        "\nUse LLM to derive persona from resume?", True
+    ):
         llm_out = derive_persona_with_llm(
             resume_text=resume_text,
             intent=intent,
@@ -478,7 +530,8 @@ def main():
             if llm_out.get("notes"):
                 print("\nLLM notes:")
                 print(textwrap.indent(llm_out["notes"], "  "))
-
+            if llm_out and "_error" in llm_out:
+                print("\n[LLM] All providers failed. Proceeding without persona.")
             # -----------------------------
             # Allow user tweaks (IMPORTANT)
             # -----------------------------
