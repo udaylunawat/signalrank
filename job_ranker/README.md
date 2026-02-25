@@ -1,227 +1,345 @@
-# Job Ranker
+# SignalRank
 
-A batch-first, deterministic job ranking engine for senior individual contributor roles.
+**SignalRank** is a deterministic, batch-first hybrid relevance engine
+for ranking semi-structured market listings against a user intent.
 
-This system is designed to optimize for **ranking correctness, operational calm, and long-term evolvability**, not feature velocity or configurability.
+It was originally built for job discovery.\
+It is architected as a configurable scoring engine.
 
----
+This system optimizes for:
 
-## What This System Is
+-   Ranking correctness
+-   Determinism
+-   Explainability
+-   Operational calm
+-   Long-term evolvability
 
-**Job Ranker** is a **job discovery and ranking engine**, not a job board.
+Not for feature velocity.
+
+------------------------------------------------------------------------
+
+# What This System Actually Is
+
+SignalRank is **not** a job board.\
+It is **not** a scraper.\
+It is **not** an LLM wrapper.
+
+It is a **hybrid retrieval and scoring engine** over noisy listings.
 
 It answers one question well:
 
-> "Given a resume and a search intent, which jobs are most worth my attention today?"
+> Given a structured intent and a noisy corpus, what deserves attention
+> today?
 
-Everything in the system exists to support that outcome with:
-- Repeatable results
-- Explainable scoring
-- Minimal hidden state
-- Low operational surprise
+The engine combines:
 
----
+-   Semantic similarity (embeddings)
+-   Deterministic gates
+-   Taxonomy-based classification
+-   Persona-conditioned multipliers
+-   Hard caps
+-   Optional bounded LLM advisory signals
+-   Immutable run tracking
 
-## Core Properties
+Everything is versioned.\
+Everything is reproducible.
 
-### Batch-first by design
-- All scraping, embedding, and ranking happens in batch
-- No ranking logic is executed from the UI
-- Every execution is explicit and auditable
+------------------------------------------------------------------------
 
-### Immutable runs
-- Each execution produces a new `run_id`
-- Past results are never overwritten
-- History is preserved by default
+# Core Properties
 
-### Single state spine
-- DuckDB is the only persistence layer
-- No CSV snapshots
-- No parallel caches for the same data
+## Batch-first by design
 
-### Deterministic ranking
-- Same inputs produce the same outputs
-- Heuristics run before probabilistic signals
-- LLMs are advisory, never authoritative
+-   All scraping, embedding, and ranking occurs in batch
+-   No ranking logic executes inside the UI
+-   Every execution produces an immutable run
 
----
+The UI is read-only. Always.
 
-## High-level Architecture
+------------------------------------------------------------------------
 
-One writer. Many readers. Always.
+## Deterministic scoring spine
 
-```
-CLI / Scheduler
-    ↓
-Batch Run
-    ↓
-DuckDB (runs, jobs, embeddings, results)
-    ↓
-Streamlit UI (read-only)
-```
+Same inputs → same outputs.
 
----
+Heuristics run before probabilistic signals.
 
-## Repository Layout
+LLMs are advisory, never authoritative.
 
-```
-job_ranker/
-├── app/            # Streamlit UI (read-only)
-├── batch/          # Batch execution pipeline (only writer)
-├── config/         # Static config + per-user overrides
-├── domain/         # Pure scoring and ranking logic
-├── llm/            # Advisory LLM utilities
-├── runtime/        # Scheduler / orchestration
-├── storage/        # DuckDB schema and store
-├── tools/          # One-off operational tools
-└── tests/          # Scoring correctness tests
-```
+------------------------------------------------------------------------
 
-### Intent by directory
+## Immutable runs
 
-**`domain/`**  
-Pure functions only. No I/O. No database. No environment access.
+Each execution creates a new `run_id`.
 
-**`batch/`**  
-Orchestrates scraping, embeddings, scoring, and persistence.
+-   Historical results are never overwritten
+-   Config fingerprinting ensures reproducibility
+-   Embeddings are cached and version-scoped
 
-**`storage/`**  
-Owns schema and persistence rules. No scoring logic allowed.
+Ranking is auditable.
 
-**`app/`**  
-Visualization and inspection only. Never mutates state.
+------------------------------------------------------------------------
 
----
+## Single state backbone
 
-## Installation
+DuckDB is the only persistence layer.
 
-### Requirements
-- Python ≥ 3.10
-- DuckDB
-- A supported LLM provider (optional)
+-   No CSV snapshots
+-   No shadow caches
+-   No background state mutation
 
-### Install (editable)
+One writer. Many readers.
 
-On macOS, use:
+------------------------------------------------------------------------
 
-```bash
+# High-Level Architecture
+
+    CLI / Scheduler
+            ↓
+    Batch Pipeline
+            ↓
+    DuckDB
+    (runs, jobs_raw, embeddings, results)
+            ↓
+    Streamlit UI (read-only)
+
+Only the batch layer writes.
+
+The UI cannot mutate system state.
+
+------------------------------------------------------------------------
+
+# Ranking Model Overview
+
+SignalRank uses a staged ranking pipeline:
+
+1.  Pre-filters\
+2.  Skill extraction and canonicalization\
+3.  Embedding generation or cache reuse\
+4.  Semantic similarity scoring\
+5.  Role-aware semantic gates\
+6.  Deterministic multipliers
+    -   Role/skill match
+    -   Company weighting
+    -   Location weighting
+    -   Recency decay
+    -   Seniority alignment
+7.  Hard caps for misaligned roles\
+8.  Optional LLM veto (bounded)\
+9.  Safe deduplication\
+10. Immutable persistence
+
+Design principle:
+
+> No downstream multiplier may resurrect a bad semantic match.
+
+------------------------------------------------------------------------
+
+# Why This Exists
+
+Modern listing ecosystems are noisy.
+
+Titles are inconsistent.\
+Descriptions are padded.\
+Intent is implicit.\
+Signal is buried under boilerplate.
+
+SignalRank exists to:
+
+-   Extract semantic signal
+-   Apply deterministic structure
+-   Bound bias
+-   Preserve explainability
+-   Maintain operational stability
+
+It is closer to a relevance engine than a scraper.
+
+------------------------------------------------------------------------
+
+# Repository Structure
+
+    job_ranker/
+    ├── app/            # Streamlit UI (read-only)
+    ├── batch/          # Batch orchestration pipeline
+    ├── config/         # Base config + user overrides
+    ├── domain/         # Pure scoring and classification logic
+    ├── llm/            # Bounded advisory LLM utilities
+    ├── runtime/        # Scheduling logic
+    ├── storage/        # DuckDB schema + persistence
+    ├── tools/          # Operational utilities
+    └── tests/          # Ranking correctness tests
+
+## Intent by directory
+
+**domain/**\
+Pure logic. No I/O. No environment access. No database calls.
+
+**batch/**\
+Coordinates scraping, embeddings, scoring, and persistence.
+
+**storage/**\
+Owns schema and state mutation rules.
+
+**app/**\
+Inspection and visualization only.
+
+------------------------------------------------------------------------
+
+# Configuration Model
+
+## Base configuration
+
+`config/base.yaml`
+
+Engine-neutral defaults: - Embedding model - Semantic thresholds - Role
+taxonomy - Ranking caps - Scraping defaults
+
+Safe to version control.
+
+------------------------------------------------------------------------
+
+## User overrides
+
+`config/overrides/<user>.yaml`
+
+Overrides express intent, not mechanics.
+
+They can adjust:
+
+-   Resume embedding prefix
+-   Functional role bias
+-   Company preferences
+-   Location weighting
+-   Experience bounds
+-   Title blocklists
+
+Overrides are deep-merged and fingerprinted per run.
+
+------------------------------------------------------------------------
+
+# LLM Usage (Strictly Bounded)
+
+LLMs are optional.
+
+They are used only for:
+
+-   Resume distillation
+-   Advisory relevance veto
+-   Onboarding assistance
+
+Hard guarantees:
+
+-   LLM failure never breaks a run
+-   LLM output never directly defines ranking
+-   LLM effects are bounded multipliers or filters
+-   Determinism is preserved when LLM veto is disabled
+
+------------------------------------------------------------------------
+
+# Running the System
+
+## Install (macOS recommended)
+
+``` bash
 uv pip install -e .
 ```
 
-Verify environment:
+Verify:
 
-```bash
+``` bash
 job-ranker doctor
 ```
 
----
+------------------------------------------------------------------------
 
-## Running the System
+## Execute a batch run
 
-### Batch execution (primary interface)
-
-```bash
-job-ranker run \
-  --user example \
-  --use-case default \
-  --search "mlops|llmops|genai" \
-  --hours-old 24
+``` bash
+job-ranker run   --user example   --use-case default   --search "mlops|llmops|genai"   --hours-old 24
 ```
 
-If arguments are omitted, the CLI will prompt interactively.
+Each run:
 
-What happens in a run:
-1. Optional scraping (skipped if recent data exists)
-2. Job canonicalization
-3. Embedding generation or reuse
-4. Semantic similarity scoring
-5. Deterministic adjustments (company, role, recency, experience)
-6. Optional LLM veto
-7. Immutable persistence of results
+-   Optionally scrapes
+-   Ingests and canonicalizes
+-   Generates or reuses embeddings
+-   Scores deterministically
+-   Persists immutable results
 
-### Launching the UI
+------------------------------------------------------------------------
 
-```bash
+## Launch the UI
+
+``` bash
 job-ranker ui
 ```
 
 The UI:
-- Reads from DuckDB only
-- Never triggers batch logic
-- Allows inspection of historical runs
 
----
+-   Reads from DuckDB
+-   Displays historical runs
+-   Supports semantic exploration
+-   Never executes ranking logic
 
-## Configuration Model
+------------------------------------------------------------------------
 
-### Base configuration
-- Stored in `config/base.yaml`
-- Engine-neutral defaults only
-- Safe to version-control
+# What This System Avoids
 
-### User overrides
-- Stored in `config/overrides/<user>.yaml`
-- Express intent, not mechanics
-- Limited surface area by design
+-   Real-time ranking
+-   UI-triggered computation
+-   Hidden background jobs
+-   Implicit mutation
+-   CSV-based workflows
+-   Unbounded configuration complexity
+-   Silent LLM authority
 
-Overrides can affect:
-- Resume embedding intent
-- Role weighting
-- Company preferences
-- Experience bounds
-- Location preference
+Correctness is preferred over flexibility.
 
----
+------------------------------------------------------------------------
 
-## LLM Usage (Strictly Bounded)
+# Design Principles
 
-LLMs are used only for:
-- Resume distillation
-- Optional relevance veto
-- Optional onboarding assistance
+-   Prefer explicit data over inferred state
+-   Prefer staged pipelines over magical heuristics
+-   Prefer gates before multipliers
+-   Prefer explainability over cleverness
+-   Prefer deletion over abstraction
+-   Prefer determinism over novelty
 
-Hard rules:
-- LLM failure never breaks a run
-- LLM output never directly determines ranking
-- All LLM effects are bounded multipliers or filters
+------------------------------------------------------------------------
 
----
+# What This Can Become
 
-## What This System Explicitly Avoids
+Although originally built for job discovery, the architecture
+generalizes to:
 
-- Real-time ranking
-- UI-triggered computation
-- Hidden background jobs
-- Filesystem-based snapshots
-- Unbounded configuration matrices
-- "Latest.csv" semantics
+-   Talent matching
+-   Vendor scoring
+-   RFP filtering
+-   Startup scouting
+-   Grant discovery
+-   Internal project matching
+-   Any semi-structured listing relevance problem
 
-If you are looking for flexibility over correctness, this is not that system.
+It is a hybrid relevance engine with persona conditioning.
 
----
+------------------------------------------------------------------------
 
-## Design Principles
+# Future Evolution
 
-- Prefer simple scoring tweaks over new subsystems
-- Prefer explicit data over inferred state
-- Prefer explainability over cleverness
-- Prefer deletion over abstraction
+To move from heuristic tuning to measurable system design:
 
----
+-   Introduce labeled evaluation sets
+-   Add offline relevance benchmarks
+-   Track score distribution drift
+-   Log score component breakdowns
+-   Formalize weight calibration
 
-## Getting Oriented as a Contributor
+When that layer is added, this becomes a full search relevance
+framework.
 
-Suggested reading order:
+------------------------------------------------------------------------
 
-1. `DESIGN.md` (see companion document)
-2. `batch/run.py`
-3. `batch/ranker.py`
-4. `domain/scoring.py`
-5. `storage/schema.sql`
-6. `app/pages/dashboard.py`
+# License
 
----
-
-## License and Usage
-
-This project is intended for personal and internal use. Open-sourcing focuses on clarity and correctness, not general-purpose extensibility.
+Intended for personal and internal use.
