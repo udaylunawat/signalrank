@@ -116,7 +116,11 @@ def resolve_context(user: str, use_case: str | None) -> Context:
     for k in required:
         if k not in cfg:
             raise ValueError(f"Missing required config key: {k}")
+    if "role_semantic_thresholds" not in cfg["ranking"]:
+        raise ValueError("ranking.role_semantic_thresholds must be defined")
 
+    if "caps" not in cfg["ranking"]:
+        raise ValueError("ranking.caps must be defined")
     if "min_semantic_score" not in cfg["ranking"]:
         raise ValueError("ranking.min_semantic_score must be defined")
 

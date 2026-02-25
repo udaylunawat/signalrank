@@ -69,7 +69,9 @@ def main():
         "build",
         "*.egg-info",
         "digest*.txt",  # ignore ALL digest outputs anywhere in repo
+        "*.md",
         "uv.lock",
+        "archived"
     }
 
     if yes_no("Add additional exclusions?", default=False):

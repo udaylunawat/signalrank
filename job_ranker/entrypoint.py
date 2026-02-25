@@ -26,7 +26,8 @@ def run_batch(args):
 
     if args.force_refresh:
         argv.append("--force-refresh")
-
+    if args.csv:
+        argv += ["--csv", args.csv]
     sys.argv = argv
     cli_main()
 
@@ -87,6 +88,8 @@ def main():
     r.add_argument("--search")
     r.add_argument("--hours-old", type=int)
     r.add_argument("--force-refresh", action="store_true")
+    r.add_argument("--no-scrape", action="store_true")
+    r.add_argument("--csv", help="Path to pre-scraped CSV")
     r.set_defaults(fn=run_batch)
 
     # ---------------- ui ----------------

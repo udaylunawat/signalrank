@@ -12,6 +12,7 @@ Design goals:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 import time
@@ -19,13 +20,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
 import pandas as pd
+from dotenv import load_dotenv
 from jobspy import scrape_jobs
 
+from job_ranker.scrapers.linkedin_api import LinkedInRapidAPIScraper
+
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Conservative defaults
 MAX_WORKERS = 1
-DEFAULT_RESULTS_WANTED = 100
+DEFAULT_RESULTS_WANTED = 25
 MIN_DESC_LEN = 20
 
 # Observability / safety
@@ -57,6 +62,49 @@ def _normalize_jobs(jobs) -> List[dict]:
     logger.warning("[SCRAPE] Unsupported job payload type: %s", type(jobs))
     return []
 
+def _scrape_single_query_rapidapi(
+    *,
+    query: str,
+    ctx,
+    hours_old: int,
+) -> List[dict]:
+    """
+    Run a single query using RapidAPI-based scrapers.
+
+    This replaces JobSpy but keeps the same contract:
+    returns list[dict], fail-soft.
+    """
+    cfg = ctx.config
+    rapidapi_key = os.getenv("RAPIDAPI_KEY")
+
+    if not rapidapi_key:
+        logger.warning("[SCRAPE] RAPIDAPI_KEY missing, skipping RapidAPI scrape")
+        return []
+
+    scraper = LinkedInRapidAPIScraper(
+        api_key=rapidapi_key,
+        cfg=cfg,
+        logger=logger,
+    )
+
+    logger.info("[SCRAPE] ▶ RapidAPI query=%r", query)
+
+    try:
+        rows = scraper.search(
+            title=query,
+            location=cfg.get("scraping", {}).get("country", "India"),
+            cfg=cfg,
+        )
+    except Exception as e:
+        logger.warning("[SCRAPE] ✖ RapidAPI query=%r failed: %s", query, e)
+        return []
+
+    logger.info(
+        "[SCRAPE] ✔ RapidAPI finished query=%r rows=%d",
+        query,
+        len(rows),
+    )
+    return rows
 
 def _scrape_single_query(
     *,
@@ -111,7 +159,11 @@ def _scrape_single_query(
         return []
     finally:
         stop_heartbeat.set()
-
+    logger.info(
+        "[SCRAPE] Using sites=%s for query=%r",
+        kwargs.get("site_name"),
+        query,
+    )
     elapsed = time.time() - start
     if elapsed > MAX_QUERY_SECONDS:
         logger.warning(
@@ -128,7 +180,7 @@ def _scrape_single_query(
         len(records),
         elapsed,
     )
-
+    logger.info(type(jobs))
     return records
 
 

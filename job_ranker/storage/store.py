@@ -125,7 +125,19 @@ class Store:
         df["ingested_at"] = datetime.utcnow()
 
         self.con.execute("""
-            INSERT INTO jobs_raw
+            INSERT INTO jobs_raw (
+                job_url,
+                job_url_direct,
+                title,
+                company,
+                description,
+                location,
+                site,
+                date_posted,
+                user,
+                use_case,
+                ingested_at
+            )
             SELECT
                 job_url,
                 job_url_direct,

@@ -51,18 +51,18 @@ def main():
         description="Job Ranker v2 — batch-first job ranking engine",
     )
 
-    # NOTE: nothing is required here
     p.add_argument("--user")
     p.add_argument("--use-case")
     p.add_argument("--search")
     p.add_argument("--hours-old", type=int)
     p.add_argument("--force-refresh", action="store_true")
+    p.add_argument("--csv", help="Path to pre-scraped CSV")
 
     args = p.parse_args()
-    # -----------------------------
-    # Interactive resolution
-    # -----------------------------
 
+    # --------------------------------------------------
+    # Required user
+    # --------------------------------------------------
     user = args.user or prompt("User")
 
     use_case = args.use_case or prompt(
@@ -70,6 +70,30 @@ def main():
         default="default",
     )
 
+    # --------------------------------------------------
+    # CSV MODE
+    # --------------------------------------------------
+    if args.csv:
+        logging.info("[MODE] CSV ingestion mode enabled")
+
+        try:
+            execute(
+                user=user,
+                use_case=use_case,
+                search=None,
+                hours_old=None,
+                force_refresh=False,
+                csv_path=args.csv,
+            )
+        except RuntimeError as e:
+            print(str(e).strip())
+            raise SystemExit(1)
+
+        return
+
+    # --------------------------------------------------
+    # SCRAPE MODE (default)
+    # --------------------------------------------------
     search = args.search or prompt(
         "Search query (use | to separate terms)",
         default="mlops|llmops",
@@ -94,6 +118,7 @@ def main():
             search=search,
             hours_old=hours_old,
             force_refresh=force_refresh,
+            csv_path=None,
         )
     except RuntimeError as e:
         print(str(e).strip())

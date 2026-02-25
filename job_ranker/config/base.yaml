@@ -1,6 +1,6 @@
 # ============================================================
 # Job Ranker v2 — BASE CONFIG (ENGINE ONLY)
-# Role-agnostic, persona-free, deterministic
+# Deterministic, role-aware, persona-neutral
 # ============================================================
 
 version: 1
@@ -32,6 +32,7 @@ ranking:
     software_general: 0.65
     platform_devops: 0.55
     agentic_systems: 0.50
+
   seniority_penalty:
     junior_multiplier: 0.4
     low_yoe_multiplier: 0.5
@@ -81,39 +82,50 @@ ranking:
     platform_devops: 1.0
     software_general: 0.9
 
+  # ----------------------------------------------------------
+  # 4. HARD CAPS (upper bounds)
+  # ----------------------------------------------------------
+  caps:
+    role_intent:
+      customer_facing: 0.6
+      architecture_strategy: 0.75
+
+  # ----------------------------------------------------------
+  # 5. LLM ADVISORY
+  # ----------------------------------------------------------
   llm_veto:
     enabled: false
     model_max_tokens: 200
     penalty_multiplier: 0.65
 
-# --------------------
-# COMPANY (NEUTRAL)
-# --------------------
+# ============================================================
+# COMPANY SCORING
+# ============================================================
 company_scoring:
   default_weight: 1.0
 
-# --------------------
-# SKILLS (CANONICALIZATION)
-# --------------------
+# ============================================================
+# SKILLS
+# ============================================================
 skills:
   equivalence_groups: {}
 
-# --------------------
-# SCRAPING DEFAULTS
-# --------------------
+# ============================================================
+# SCRAPING
+# ============================================================
 scraping:
   country: India
   max_results: 500
   min_description_length: 0
-  use_multiprocessing: True
+  use_multiprocessing: true
   sites:
     enabled:
       - indeed
       - linkedin
 
-# --------------------
-# ROLE TAXONOMY (VOCABULARY ONLY)
-# --------------------
+# ============================================================
+# ROLE TAXONOMY
+# ============================================================
 functional_role_terms:
   ai: []
   devops: []
@@ -138,6 +150,9 @@ functional_role_thresholds:
   mlops_devops_terms: 1
   platform_devops_min_terms: 2
 
+# ============================================================
+# RESUME
+# ============================================================
 resume:
   distillation:
     enabled: false

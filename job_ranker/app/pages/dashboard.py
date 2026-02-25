@@ -295,12 +295,7 @@ with st.expander("Semantic Explorer", expanded=False):
 # ==================================================
 # Ranking view
 # ==================================================
-min_s, max_s = df["final_score"].min(), df["final_score"].max()
-df["Score"] = (
-    ((df["final_score"] - min_s) / (max_s - min_s) * 100).round().astype(int)
-    if max_s > min_s
-    else 100
-)
+df["Score"] = (df["final_score"].rank(pct=True) * 100).round(1)
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Jobs", len(df))

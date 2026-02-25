@@ -19,6 +19,7 @@ resume:
 # FUNCTIONAL ROLE PREFERENCE
 # --------------------
 ranking:
+  default_role: mlops_llmops
   functional_role_penalties:
     agentic_systems: 1.2
     mlops_llmops: 1.2
