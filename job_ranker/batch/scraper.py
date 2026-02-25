@@ -305,4 +305,7 @@ def scrape(
     df = df.reset_index(drop=True)
 
     logger.info("[SCRAPE] Final rows=%d", len(df))
+
+    df.to_csv(f"scraped_{ctx.user}_{ctx.use_case}_{pd.Timestamp.utcnow().strftime('%Y%m%d_%H%M%S')}.csv", index=False)
+
     return df
