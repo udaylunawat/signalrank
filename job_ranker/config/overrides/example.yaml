@@ -82,6 +82,13 @@ company_scoring:
     - google
     - apple
     - msci
+    - samsung research
+    - intuit
+    - databricks
+    - snowflake
+    - Bosch AI
+    - NVIDIA
+    - Qualcomm
 
     # Big Tech / Core Platforms
     - meta
