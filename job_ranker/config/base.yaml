@@ -115,7 +115,7 @@ skills:
 # ============================================================
 scraping:
   country: India
-  max_results: 500
+  max_results: 1500
   min_description_length: 0
   use_multiprocessing: true
   sites:
