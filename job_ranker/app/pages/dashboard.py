@@ -95,6 +95,15 @@ def load_dashboard_df(run_id: str, user: str, use_case: str) -> pd.DataFrame:
         pd.NaT
     )
 
+    # ---- Deduplicate by title+company (case-insensitive, keep highest score) ----
+    df["_dedup_key"] = (
+        df["title"].str.strip().str.lower() + "|" + df["company"].str.strip().str.lower()
+    )
+    df = df.sort_values("final_score", ascending=False).drop_duplicates(
+        subset="_dedup_key", keep="first"
+    )
+    df = df.drop(columns=["_dedup_key"])
+
     # ---- Derived fields ----
     now = pd.Timestamp.utcnow()
     df["Posted"] = (
@@ -301,11 +310,72 @@ c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Jobs", len(df))
 c2.metric("Top Score", df["Score"].max())
 c3.metric("Median Score", int(df["Score"].median()))
-c4.metric("Companies", df["company"].nunique())
+# Normalize company/location for display (title-case, strip whitespace)
+df["company_norm"] = df["company"].fillna("Unknown").str.strip().str.title()
+df["location"] = df["location"].fillna("").str.strip().str.title()
+
+c4.metric("Companies", df["company_norm"].nunique())
+
+# ==================================================
+# Charts
+# ==================================================
+st.divider()
+st.subheader("Analytics")
+
+chart_col1, chart_col2 = st.columns(2)
+
+with chart_col1:
+    st.markdown("**Top 20 Companies by Job Count**")
+    company_counts = (
+        df["company_norm"]
+        .value_counts()
+        .head(20)
+        .reset_index()
+    )
+    company_counts.columns = ["Company", "Jobs"]
+    st.bar_chart(company_counts, x="Company", y="Jobs", horizontal=True)
+
+with chart_col2:
+    st.markdown("**Avg Score by Top 20 Companies**")
+    avg_score = (
+        df.groupby("company_norm")["Score"]
+        .agg(["mean", "count"])
+        .query("count >= 2")
+        .sort_values("mean", ascending=False)
+        .head(20)
+        .reset_index()
+    )
+    avg_score.columns = ["Company", "Avg Score", "Count"]
+    st.bar_chart(avg_score, x="Company", y="Avg Score", horizontal=True)
+
+chart_col3, chart_col4 = st.columns(2)
+
+with chart_col3:
+    st.markdown("**Jobs by Category**")
+    cat_counts = (
+        df["Category"]
+        .value_counts()
+        .reset_index()
+    )
+    cat_counts.columns = ["Category", "Jobs"]
+    st.bar_chart(cat_counts, x="Category", y="Jobs", horizontal=True)
+
+with chart_col4:
+    st.markdown("**Score Distribution**")
+    bins = list(range(0, 101, 5))
+    labels = [f"{b}-{b+5}" for b in bins[:-1]]
+    score_hist = (
+        pd.cut(df["Score"], bins=bins, labels=labels, include_lowest=True)
+        .value_counts()
+        .reindex(labels, fill_value=0)
+        .reset_index()
+    )
+    score_hist.columns = ["Score Range", "Count"]
+    st.bar_chart(score_hist, x="Score Range", y="Count")
 
 st.divider()
 
-top_n = st.slider("Show top N jobs", 1, min(200, len(df)), min(25, len(df)), 1)
+top_n = st.slider("Show top N jobs", 1, min(2000, len(df)), min(25, len(df)), 1)
 view = st.radio("View", ["Table", "Cards"], horizontal=True)
 
 show_df = df.sort_values("Score", ascending=False).head(top_n)
@@ -317,7 +387,7 @@ if view == "Table":
     table = table[
         [
             "title",
-            "company",
+            "company_norm",
             "location",
             "Category",
             "Posted",
@@ -328,7 +398,7 @@ if view == "Table":
     ].rename(
         columns={
             "title": "Role",
-            "company": "Company",
+            "company_norm": "Company",
             "location": "Location",
             "days_old": "Days Old",
         }
@@ -360,7 +430,7 @@ else:
         with cols[0]:
             st.markdown(f"""
 **{row['title']}**
-{row['company']} · {row['location']} · `{row['Category']}`
+{row['company_norm']} · {row['location']} · `{row['Category']}`
 Score **{row['Score']}** · Posted {row['Posted']} · {row['days_old']} days ago
 """)
         with cols[1]:

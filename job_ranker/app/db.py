@@ -2,18 +2,16 @@
 from pathlib import Path
 
 import duckdb
-import streamlit as st
 
 
-@st.cache_resource
+_DB_PATH = Path(__file__).resolve().parents[1] / "duckdb"
+
+
 def get_ui_db():
     """
     UI-only DuckDB connection.
     - read-only
-    - cached across reruns
+    - fresh connection each call so new batch data is visible
     - never conflicts with batch writer
     """
-    root = Path(__file__).resolve().parents[1]
-    db_path = root / "duckdb"
-    con = duckdb.connect(str(db_path), read_only=True)
-    return con
+    return duckdb.connect(str(_DB_PATH), read_only=True)

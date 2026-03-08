@@ -4,34 +4,45 @@ Enrich jobs that have empty descriptions by scraping the public job page.
 
 Currently supports:
 - LinkedIn public job pages (no login required)
+
+Uses a token-bucket rate limiter shared across all workers to maintain
+a safe global request rate while maximizing throughput.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Tuple
+from typing import Tuple
 
 import requests
 
 logger = logging.getLogger(__name__)
 
-# Throttle to avoid getting blocked
-REQUEST_DELAY = 1.5  # seconds between requests per worker
-MAX_WORKERS = 3
+# ── Concurrency & rate limiting ──────────────────────────────────
+MAX_WORKERS = 5
+REQUESTS_PER_SECOND = 3  # global rate across all workers
 TIMEOUT = 15
-MAX_RETRIES = 2
+MAX_RETRIES = 3
+RETRY_BACKOFF = 3  # seconds
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml",
+# Rotating user-agents to reduce fingerprinting
+_USER_AGENTS = [
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+]
+
+_BASE_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
 }
 
 # Regex to extract description from LinkedIn public page
@@ -42,26 +53,87 @@ _DESC_RE = re.compile(
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
-def _scrape_linkedin_description(job_url: str) -> str | None:
+class _TokenBucket:
+    """Thread-safe token bucket rate limiter."""
+
+    def __init__(self, rate: float):
+        self._rate = rate
+        self._tokens = rate  # start full
+        self._last = time.monotonic()
+        self._lock = threading.Lock()
+
+    def acquire(self):
+        with self._lock:
+            now = time.monotonic()
+            elapsed = now - self._last
+            self._tokens = min(self._rate, self._tokens + elapsed * self._rate)
+            self._last = now
+
+            if self._tokens < 1.0:
+                wait = (1.0 - self._tokens) / self._rate
+                self._lock.release()
+                time.sleep(wait)
+                self._lock.acquire()
+                now = time.monotonic()
+                elapsed = now - self._last
+                self._tokens = min(self._rate, self._tokens + elapsed * self._rate)
+                self._last = now
+
+            self._tokens -= 1.0
+
+
+# Global rate limiter shared by all workers
+_limiter = _TokenBucket(REQUESTS_PER_SECOND)
+
+# Track consecutive 429s — if we get too many, back off globally
+_consecutive_429 = 0
+_429_lock = threading.Lock()
+
+
+def _get_headers(index: int) -> dict:
+    headers = dict(_BASE_HEADERS)
+    headers["User-Agent"] = _USER_AGENTS[index % len(_USER_AGENTS)]
+    return headers
+
+
+def _scrape_linkedin_description(job_url: str, worker_id: int) -> str | None:
     """Scrape job description from a public LinkedIn job page."""
+    global _consecutive_429
+
     for attempt in range(1, MAX_RETRIES + 1):
+        _limiter.acquire()
+
+        # If many 429s, add extra global backoff
+        with _429_lock:
+            if _consecutive_429 >= 3:
+                backoff = min(30, _consecutive_429 * 5)
+                logger.info("[ENRICH] global backoff %ds (429 count=%d)", backoff, _consecutive_429)
+                time.sleep(backoff)
+
         try:
             r = requests.get(
                 job_url,
-                headers=HEADERS,
+                headers=_get_headers(worker_id + attempt),
                 timeout=TIMEOUT,
                 allow_redirects=True,
             )
+
             if r.status_code == 429:
-                wait = 5 * attempt
-                logger.info("[ENRICH] 429 rate-limited, waiting %ds", wait)
+                with _429_lock:
+                    _consecutive_429 += 1
+                wait = RETRY_BACKOFF * (2 ** attempt)
+                logger.info("[ENRICH] 429 rate-limited, waiting %ds (attempt %d)", wait, attempt)
                 time.sleep(wait)
                 continue
+
+            # Reset 429 counter on success
+            with _429_lock:
+                _consecutive_429 = max(0, _consecutive_429 - 1)
+
             if r.status_code != 200:
-                logger.info("[ENRICH] HTTP %d for %s", r.status_code, job_url)
                 return None
+
             if "authwall" in r.url:
-                logger.info("[ENRICH] authwall redirect for %s", job_url)
                 return None
 
             match = _DESC_RE.search(r.text)
@@ -73,18 +145,18 @@ def _scrape_linkedin_description(job_url: str) -> str | None:
             return clean if len(clean) >= 50 else None
 
         except requests.exceptions.Timeout:
-            logger.info("[ENRICH] timeout attempt=%d url=%s", attempt, job_url)
-        except requests.exceptions.RequestException as e:
-            logger.info("[ENRICH] request error: %s", e)
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_BACKOFF * attempt)
+        except requests.exceptions.RequestException:
             return None
 
     return None
 
 
-def _enrich_one(job_url: str) -> Tuple[str, str | None]:
+def _enrich_one(args: Tuple[int, str]) -> Tuple[str, str | None]:
     """Enrich a single job. Returns (job_url, description or None)."""
-    time.sleep(REQUEST_DELAY)
-    desc = _scrape_linkedin_description(job_url)
+    worker_id, job_url = args
+    desc = _scrape_linkedin_description(job_url, worker_id)
     return job_url, desc
 
 
@@ -99,7 +171,6 @@ def enrich_empty_descriptions(db_con, *, batch_size: int = 5000) -> int:
     Returns:
         Number of jobs enriched
     """
-    # Find LinkedIn jobs with empty/short descriptions
     rows = db_con.execute(
         """
         SELECT job_url
@@ -119,20 +190,26 @@ def enrich_empty_descriptions(db_con, *, batch_size: int = 5000) -> int:
         return 0
 
     job_urls = [r[0] for r in rows]
-    logger.info("[ENRICH] Enriching %d LinkedIn jobs", len(job_urls))
+    total = len(job_urls)
+    logger.info(
+        "[ENRICH] Enriching %d LinkedIn jobs (workers=%d, rate=%d req/s)",
+        total, MAX_WORKERS, REQUESTS_PER_SECOND,
+    )
 
     enriched = 0
     failed = 0
+    start_time = time.time()
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = {
-            pool.submit(_enrich_one, url): url for url in job_urls
+            pool.submit(_enrich_one, (i, url)): url
+            for i, url in enumerate(job_urls)
         }
 
         for i, fut in enumerate(as_completed(futures), 1):
             url = futures[fut]
             try:
-                _, desc = fut.result(timeout=30)
+                _, desc = fut.result(timeout=60)
             except Exception as e:
                 logger.info("[ENRICH] exception for %s: %s", url, e)
                 failed += 1
@@ -140,25 +217,24 @@ def enrich_empty_descriptions(db_con, *, batch_size: int = 5000) -> int:
 
             if desc:
                 db_con.execute(
-                    """
-                    UPDATE jobs_raw
-                    SET description = ?
-                    WHERE job_url = ?
-                    """,
+                    "UPDATE jobs_raw SET description = ? WHERE job_url = ?",
                     [desc, url],
                 )
                 enriched += 1
             else:
                 failed += 1
 
-            if i % 20 == 0:
+            if i % 50 == 0:
+                elapsed = time.time() - start_time
+                rate = i / elapsed if elapsed > 0 else 0
                 logger.info(
-                    "[ENRICH] progress: %d/%d (enriched=%d, failed=%d)",
-                    i, len(job_urls), enriched, failed,
+                    "[ENRICH] progress: %d/%d (enriched=%d, failed=%d, %.1f jobs/s)",
+                    i, total, enriched, failed, rate,
                 )
 
+    elapsed = time.time() - start_time
     logger.info(
-        "[ENRICH] Done: enriched=%d, failed=%d, total=%d",
-        enriched, failed, len(job_urls),
+        "[ENRICH] Done: enriched=%d, failed=%d, total=%d, time=%.1fs (%.1f jobs/s)",
+        enriched, failed, total, elapsed, total / elapsed if elapsed > 0 else 0,
     )
     return enriched

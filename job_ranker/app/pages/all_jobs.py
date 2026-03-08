@@ -81,6 +81,18 @@ df = con.execute(
 if df.empty:
     st.info("No jobs scraped yet.")
     st.stop()
+
+# ---- Deduplicate by title+company (case-insensitive, keep latest) ----
+total_before = len(df)
+df["_dedup_key"] = (
+    df["title"].str.strip().str.lower() + "|" + df["company"].str.strip().str.lower()
+)
+df = df.drop_duplicates(subset="_dedup_key", keep="first")  # already sorted by ingested_at DESC
+df = df.drop(columns=["_dedup_key"])
+dupes_removed = total_before - len(df)
+if dupes_removed:
+    st.caption(f"Removed {dupes_removed:,} duplicates ({total_before:,} -> {len(df):,} unique jobs)")
+
 df["Category"] = (
     df["title"].fillna("").apply(lambda t: classify_functional_role(t, ctx.config))
 )
