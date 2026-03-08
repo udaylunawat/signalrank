@@ -28,13 +28,13 @@ from job_ranker.scrapers.linkedin_api import LinkedInRapidAPIScraper
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Conservative defaults
-MAX_WORKERS = 1
+# Concurrency
+MAX_WORKERS = 4
 DEFAULT_RESULTS_WANTED = 25
 MIN_DESC_LEN = 20
 
 # Observability / safety
-MAX_QUERY_SECONDS = 90
+MAX_QUERY_SECONDS = 180
 LOG_HEARTBEAT_SECONDS = 15
 
 
@@ -81,19 +81,22 @@ def _scrape_single_query_rapidapi(
         logger.warning("[SCRAPE] RAPIDAPI_KEY missing, skipping RapidAPI scrape")
         return []
 
+    max_results = cfg.get("scraping", {}).get("max_results", 100)
+
     scraper = LinkedInRapidAPIScraper(
         api_key=rapidapi_key,
         cfg=cfg,
         logger=logger,
     )
 
-    logger.info("[SCRAPE] ▶ RapidAPI query=%r", query)
+    logger.info("[SCRAPE] ▶ RapidAPI query=%r max_results=%d", query, max_results)
 
     try:
         rows = scraper.search(
             title=query,
             location=cfg.get("scraping", {}).get("country", "India"),
             cfg=cfg,
+            max_results=max_results,
         )
     except Exception as e:
         logger.warning("[SCRAPE] ✖ RapidAPI query=%r failed: %s", query, e)
@@ -106,7 +109,7 @@ def _scrape_single_query_rapidapi(
     )
     return rows
 
-def _scrape_single_query(
+def _scrape_single_query_jobspy(
     *,
     query: str,
     scraping_cfg: dict,
@@ -133,7 +136,7 @@ def _scrape_single_query(
     if scraping_cfg.get("supports_hours_old", False):
         kwargs["hours_old"] = hours_old
 
-    logger.info("[SCRAPE] ▶ starting query=%r", query)
+    logger.info("[SCRAPE] ▶ JobSpy starting query=%r", query)
 
     stop_heartbeat = threading.Event()
 
@@ -152,18 +155,14 @@ def _scrape_single_query(
     try:
         jobs = scrape_jobs(**kwargs)
     except TypeError as e:
-        logger.warning("[SCRAPE] ✖ query=%r failed (TypeError): %s", query, e)
+        logger.warning("[SCRAPE] ✖ JobSpy query=%r failed (TypeError): %s", query, e)
         return []
     except Exception as e:
-        logger.warning("[SCRAPE] ✖ query=%r failed: %s", query, e)
+        logger.warning("[SCRAPE] ✖ JobSpy query=%r failed: %s", query, e)
         return []
     finally:
         stop_heartbeat.set()
-    logger.info(
-        "[SCRAPE] Using sites=%s for query=%r",
-        kwargs.get("site_name"),
-        query,
-    )
+
     elapsed = time.time() - start
     if elapsed > MAX_QUERY_SECONDS:
         logger.warning(
@@ -175,12 +174,11 @@ def _scrape_single_query(
     records = _normalize_jobs(jobs)
 
     logger.info(
-        "[SCRAPE] ✔ finished query=%r rows=%d time=%.1fs",
+        "[SCRAPE] ✔ JobSpy finished query=%r rows=%d time=%.1fs",
         query,
         len(records),
         elapsed,
     )
-    logger.info(type(jobs))
     return records
 
 
@@ -197,10 +195,9 @@ def scrape(
     """
     Scrape jobs for a given user/use_case/search string.
 
-    Rules:
-    - Each query is independent
-    - Partial failure is allowed
-    - Empty result is valid
+    Strategy:
+    1. Try RapidAPI first (reliable, no IP blocking)
+    2. Fall back to JobSpy if RapidAPI yields nothing
     """
     queries = [q.strip() for q in search.split("|") if q.strip()]
     if not queries:
@@ -208,12 +205,14 @@ def scrape(
         return pd.DataFrame()
 
     scraping_cfg = ctx.config.get("scraping", {})
+    has_rapidapi = bool(os.getenv("RAPIDAPI_KEY"))
     all_rows: List[dict] = []
 
     logger.info(
-        "[SCRAPE] Starting scrape: queries=%d workers=%d",
+        "[SCRAPE] Starting scrape: queries=%d workers=%d rapidapi=%s",
         len(queries),
         min(len(queries), MAX_WORKERS),
+        has_rapidapi,
     )
     logger.info(
         "[SCRAPE] Config: sites=%s max_results=%s force_refresh=%s",
@@ -223,36 +222,85 @@ def scrape(
     )
 
     # --------------------------------------------------
-    # Parallel scraping (bounded)
+    # Phase 1: RapidAPI (primary)
     # --------------------------------------------------
-    with ThreadPoolExecutor(max_workers=min(len(queries), MAX_WORKERS)) as pool:
-        futures = {
-            pool.submit(
-                _scrape_single_query,
-                query=q,
-                scraping_cfg=scraping_cfg,
-                hours_old=hours_old,
-            ): q
-            for q in queries
-        }
+    failed_queries = []
 
-        for fut in as_completed(futures):
-            query = futures[fut]
-            try:
-                rows = fut.result(timeout=MAX_QUERY_SECONDS + 10)
-            except Exception as e:
-                logger.warning(
-                    "[SCRAPE] ✖ query=%r raised exception or timeout: %s",
-                    query,
-                    e,
+    if has_rapidapi:
+        workers = min(len(queries), MAX_WORKERS)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    _scrape_single_query_rapidapi,
+                    query=q,
+                    ctx=ctx,
+                    hours_old=hours_old,
+                ): q
+                for q in queries
+            }
+
+            for fut in as_completed(futures):
+                query = futures[fut]
+                try:
+                    rows = fut.result(timeout=MAX_QUERY_SECONDS + 10)
+                except Exception as e:
+                    logger.warning(
+                        "[SCRAPE] ✖ RapidAPI query=%r exception: %s", query, e
+                    )
+                    failed_queries.append(query)
+                    continue
+
+                if not rows:
+                    logger.info(
+                        "[SCRAPE] RapidAPI query=%r yielded no rows", query
+                    )
+                    failed_queries.append(query)
+                    continue
+
+                all_rows.extend(rows)
+                logger.info(
+                    "[SCRAPE] ✔ query=%r collected %d rows", query, len(rows)
                 )
-                continue
+    else:
+        failed_queries = list(queries)
 
-            if not rows:
-                logger.info("[SCRAPE] query=%r yielded no rows", query)
-                continue
+    # --------------------------------------------------
+    # Phase 2: JobSpy fallback for failed queries
+    # --------------------------------------------------
+    if failed_queries:
+        logger.info(
+            "[SCRAPE] JobSpy fallback for %d queries: %s",
+            len(failed_queries),
+            failed_queries,
+        )
+        with ThreadPoolExecutor(max_workers=min(len(failed_queries), MAX_WORKERS)) as pool:
+            futures = {
+                pool.submit(
+                    _scrape_single_query_jobspy,
+                    query=q,
+                    scraping_cfg=scraping_cfg,
+                    hours_old=hours_old,
+                ): q
+                for q in failed_queries
+            }
 
-            all_rows.extend(rows)
+            for fut in as_completed(futures):
+                query = futures[fut]
+                try:
+                    rows = fut.result(timeout=MAX_QUERY_SECONDS + 10)
+                except Exception as e:
+                    logger.warning(
+                        "[SCRAPE] ✖ JobSpy query=%r exception: %s", query, e
+                    )
+                    continue
+
+                if rows:
+                    all_rows.extend(rows)
+                    logger.info(
+                        "[SCRAPE] ✔ JobSpy query=%r collected %d rows",
+                        query,
+                        len(rows),
+                    )
 
     if not all_rows:
         logger.warning("[SCRAPE] No rows collected from any query")
