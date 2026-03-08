@@ -5,4 +5,4 @@ __pycache__
 cache
 job_ranker.egg-info
 **/.DS_Store
-.env
+.env.worktrees/
