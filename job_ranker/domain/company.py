@@ -53,3 +53,17 @@ class CompanyScorer:
                 return self.deprioritized_weight
 
         return self.default_weight
+
+    def classify(self, company: str) -> str:
+        """Returns 'preferred', 'deprioritized', or 'default'."""
+        name = self._canonical(company)
+
+        for p in self.preferred:
+            if p and p in name:
+                return "preferred"
+
+        for d in self.deprioritized:
+            if d and d in name:
+                return "deprioritized"
+
+        return "default"

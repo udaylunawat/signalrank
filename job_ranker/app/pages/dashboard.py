@@ -295,7 +295,7 @@ with st.expander("Semantic Explorer", expanded=False):
 # ==================================================
 # Ranking view
 # ==================================================
-df["Score"] = (df["final_score"].rank(pct=True) * 100).round(1)
+df["Score"] = df["final_score"].round(1)
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Jobs", len(df))
@@ -343,12 +343,24 @@ if view == "Table":
         },
     )
 else:
+    _has_breakdown = all(
+        c in show_df.columns
+        for c in ["skills_score", "company_score", "seniority_score_dim", "location_score", "recency_score"]
+    )
+    _dim_info = [
+        ("Skills", "skills_score", 0.40),
+        ("Company", "company_score", 0.20),
+        ("Seniority", "seniority_score_dim", 0.15),
+        ("Location", "location_score", 0.15),
+        ("Recency", "recency_score", 0.10),
+    ]
+
     for _, row in show_df.iterrows():
         cols = st.columns([8, 2])
         with cols[0]:
             st.markdown(f"""
-**{row['title']}**  
-{row['company']} · {row['location']} · `{row['Category']}`  
+**{row['title']}**
+{row['company']} · {row['location']} · `{row['Category']}`
 Score **{row['Score']}** · Posted {row['Posted']} · {row['days_old']} days ago
 """)
         with cols[1]:
@@ -356,4 +368,12 @@ Score **{row['Score']}** · Posted {row['Posted']} · {row['days_old']} days ago
                 "Apply",
                 row["job_url_direct"] or row["job_url"],
             )
+
+        if _has_breakdown:
+            with st.expander("Score breakdown"):
+                for label, col, weight in _dim_info:
+                    val = row[col]
+                    contrib = val * weight
+                    st.progress(val / 100, text=f"{label}: {val:.0f}/100 (w={weight}) = {contrib:.1f}")
+
         st.markdown("<hr style='opacity:0.25'>", unsafe_allow_html=True)

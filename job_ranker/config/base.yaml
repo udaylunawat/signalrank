@@ -75,6 +75,16 @@ ranking:
       - dashboard
       - wordpress
       - shopify developer
+  # ----------------------------------------------------------
+  # SCORING WEIGHTS (additive model)
+  # ----------------------------------------------------------
+  scoring_weights:
+    skills_match: 0.40
+    company_fit: 0.20
+    seniority: 0.15
+    location: 0.15
+    recency: 0.10
+
   # Neutral defaults — no role preference here
   functional_role_penalties:
     agentic_systems: 1.0
@@ -87,8 +97,8 @@ ranking:
   # ----------------------------------------------------------
   caps:
     role_intent:
-      customer_facing: 0.6
-      architecture_strategy: 0.75
+      customer_facing: 60
+      architecture_strategy: 75
 
   # ----------------------------------------------------------
   # 5. LLM ADVISORY

@@ -17,6 +17,14 @@ import numpy as np
 import pandas as pd
 
 from job_ranker.batch.veto import apply_llm_veto
+from job_ranker.domain.additive_scoring import (
+    company_score_0_100,
+    compute_weighted_score,
+    location_score_0_100,
+    recency_score_0_100,
+    seniority_score_0_100,
+    skills_score_0_100,
+)
 from job_ranker.domain.company import CompanyScorer
 from job_ranker.domain.description_quality import description_quality_multiplier
 from job_ranker.domain.embed_math import cosine_similarity
@@ -127,23 +135,49 @@ def apply_semantic_gates(df: pd.DataFrame, cfg: dict, role_intent: str):
 
 
 # -------------------------------------------------------------
-# Phase 4
+# Phase 4 — Additive scoring
 # -------------------------------------------------------------
-def apply_multipliers(df: pd.DataFrame) -> pd.DataFrame:
+def apply_additive_scoring(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     df = df.copy()
 
-    df["final_score"] = (
-        df["semantic_score"]
-        * df["role_skill_score"]
-        * df["company_weight"]
-        * df["location_weight"]
-        * df["recency_weight"]
-        * df["functional_role_penalty"]
-        * df["seniority_score"]
-        * df["title"].apply(consulting_dampener)
+    # Compute consulting dampener per row
+    df["_consulting_damp"] = df["title"].apply(consulting_dampener)
+
+    # Dimension scores (each 0-100)
+    df["skills_score"] = df.apply(
+        lambda r: skills_score_0_100(
+            r["semantic_score"],
+            r["skill_overlap"],
+            r["role_skill_score"],
+            r["functional_role_penalty"],
+            r["_consulting_damp"],
+        ),
+        axis=1,
+    )
+    df["company_score"] = df["company_tier"].apply(company_score_0_100)
+    df["seniority_score_dim"] = df["seniority_score"].apply(seniority_score_0_100)
+    df["location_score"] = df["location_weight"].apply(location_score_0_100)
+    df["recency_score"] = df["date_posted"].apply(recency_score_0_100)
+
+    # Read weights from config (with defaults)
+    weights = cfg.get("ranking", {}).get("scoring_weights", {})
+
+    df["final_score"] = df.apply(
+        lambda r: compute_weighted_score(
+            {
+                "skills_match": r["skills_score"],
+                "company_fit": r["company_score"],
+                "seniority": r["seniority_score_dim"],
+                "location": r["location_score"],
+                "recency": r["recency_score"],
+            },
+            weights or None,
+        ),
+        axis=1,
     )
 
     df["final_score"] = df["final_score"].fillna(0.0)
+    df = df.drop(columns=["_consulting_damp"])
 
     return df
 
@@ -155,7 +189,12 @@ def apply_caps_and_veto(df: pd.DataFrame, ctx, role_intent: str):
     df = df.copy()
 
     # ---- SAFE CAPS ----
-    caps = ctx.config.get("ranking", {}).get("caps", {}).get("role_intent", {})
+    raw_caps = ctx.config.get("ranking", {}).get("caps", {}).get("role_intent", {})
+    # Auto-detect old-scale caps (< 2.0) and convert to 0-100
+    caps = {
+        k: v * 100 if v < 2.0 else v
+        for k, v in raw_caps.items()
+    }
 
     if caps:
         cap_values = df["functional_role"].map(lambda r: caps.get(r, None))
@@ -298,6 +337,7 @@ def rank(ctx, jobs_df: pd.DataFrame) -> pd.DataFrame:
 
     scorer = CompanyScorer(cfg)
     df["company_weight"] = df["company"].apply(scorer.score)
+    df["company_tier"] = df["company"].apply(scorer.classify)
     df["location_weight"] = df["location"].apply(
         lambda x: location_weight(x, cfg)
     )
@@ -323,8 +363,8 @@ def rank(ctx, jobs_df: pd.DataFrame) -> pd.DataFrame:
         lambda r: penalties.get(r, 1.0)
     )
 
-    # ---- Phase 5
-    df = apply_multipliers(df)
+    # ---- Phase 4: Additive scoring
+    df = apply_additive_scoring(df, cfg)
     _log_distribution(df, "final_score", "before_caps")
 
     df = apply_caps_and_veto(df, ctx, role_intent)
