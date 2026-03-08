@@ -71,7 +71,10 @@ def main():
         "digest*.txt",  # ignore ALL digest outputs anywhere in repo
         "*.md",
         "uv.lock",
-        "archived"
+        "archived",
+        "analyze_ranked.py",
+        "minimal_ranked.py",
+        "ingest_csv.py"
     }
 
     if yes_no("Add additional exclusions?", default=False):
