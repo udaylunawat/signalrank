@@ -31,6 +31,23 @@ class LinkedInRapidAPIScraper:
     HOST_INDEED_COMPANY = "indeed12.p.rapidapi.com"
     HOST_GOOGLE_JOBS = "google-jobs-api.p.rapidapi.com"
     HOST_GENERIC = "jobs-search-api.p.rapidapi.com"
+    HOST_ARBEITNOW = "arbeitnow-free-job-board.p.rapidapi.com"
+
+    # Direct (no RapidAPI key needed) endpoints
+    URL_HIMALAYAS = "https://himalayas.app/jobs/api"
+    URL_REMOTIVE = "https://remotive.com/api/remote-jobs"
+    URL_JOBICY = "https://jobicy.com/api/v2/remote-jobs"
+
+    # Per-request timeout defaults (seconds)
+    TIMEOUT_LINKEDIN = 30
+    TIMEOUT_JSEARCH = 30
+    TIMEOUT_INDEED = 30
+    TIMEOUT_GOOGLE = 30
+    TIMEOUT_FREE = 20
+
+    # Retry config
+    MAX_RETRIES = 2
+    RETRY_BACKOFF = 2  # seconds
 
     def __init__(self, api_key: str, cfg, logger=None):
         self.api_key = api_key
@@ -50,14 +67,12 @@ class LinkedInRapidAPIScraper:
         title: str,
         location: str,
         cfg=None,
-        limit: int = 25,
-        page_limit: int = 5,
+        max_results: int = 100,
     ) -> List[Dict]:
 
-        limit = min(limit, 25)
-        page_limit = min(page_limit, 5)
-
-        # all_rows: List[Dict] = []
+        # LinkedIn API pages are 25 results each
+        page_size = 25
+        page_limit = max(1, max_results // page_size)
 
         title_q = title.strip()
         location_q = location.strip()
@@ -66,36 +81,53 @@ class LinkedInRapidAPIScraper:
 
         def _extend(label: str, fn):
             before = len(all_rows)
-            rows = fn()
+            try:
+                rows = fn()
+            except Exception as e:
+                self._debug(f"[SCRAPER] {label} crashed", error=str(e))
+                rows = []
             all_rows.extend(rows)
             after = len(all_rows)
             if self.logger:
-                self.logger.warning(
-                    "[SCRAPER] %-12s → %d rows",
+                self.logger.info(
+                    "[SCRAPER] %-20s → %d rows",
                     label,
                     after - before,
                 )
 
-        # _extend(
-        #     "linkedin",
-        #     lambda: self._search_linkedin(title_q, location_q, limit, page_limit),
-        # )
+        _extend(
+            "linkedin",
+            lambda: self._search_linkedin(title_q, location_q, page_size, page_limit),
+        )
         _extend(
             "jsearch",
-            lambda: self._search_jsearch(title_q, location_q, limit, page_limit),
+            lambda: self._search_jsearch(title_q, location_q, page_size, page_limit),
         )
         _extend(
-            "generic",
-            lambda: self._search_generic(),
+            "indeed",
+            lambda: self._search_indeed_scraper(title_q, location_q, max_results),
         )
-        # _extend(
-        #     "indeed",
-        #     lambda: self._search_indeed_scraper(title_q, location_q, limit),
-        # )
-        # _extend(
-        #     "google",
-        #     lambda: self._search_google_jobs(title_q),
-        # )
+        _extend(
+            "google",
+            lambda: self._search_google_jobs(title_q),
+        )
+        # Free direct APIs (no RapidAPI key needed)
+        _extend(
+            "himalayas",
+            lambda: self._search_himalayas(title_q, max_results),
+        )
+        _extend(
+            "remotive",
+            lambda: self._search_remotive(title_q),
+        )
+        _extend(
+            "jobicy",
+            lambda: self._search_jobicy(title_q),
+        )
+        _extend(
+            "arbeitnow",
+            lambda: self._search_arbeitnow(title_q, max_results),
+        )
         self._debug(
             "[SCRAPER] summary",
             total=len(all_rows),
@@ -120,6 +152,37 @@ class LinkedInRapidAPIScraper:
             "Content-Type": "application/json",
         }
 
+    def _request_with_retry(self, method, url, *, headers, timeout, **kwargs):
+        """Make an HTTP request with retry on transient failures."""
+        last_exc = None
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            self._throttle()
+            try:
+                r = requests.request(
+                    method, url, headers=headers, timeout=timeout, **kwargs
+                )
+                if r.status_code == 429:
+                    wait = self.RETRY_BACKOFF * attempt
+                    self._debug(f"[RETRY] 429 rate-limited, waiting {wait}s", url=url)
+                    time.sleep(wait)
+                    continue
+                if r.status_code == 401:
+                    self._debug("[RETRY] 401 unauthorized, skipping", url=url)
+                    return None
+                return r
+            except requests.exceptions.Timeout:
+                self._debug(f"[RETRY] timeout attempt={attempt}", url=url)
+                last_exc = TimeoutError(f"timeout after {timeout}s")
+            except requests.exceptions.RequestException as e:
+                self._debug(f"[RETRY] request failed attempt={attempt}", error=str(e))
+                last_exc = e
+                time.sleep(self.RETRY_BACKOFF * attempt)
+
+        self._debug("[RETRY] all attempts exhausted", url=url)
+        if last_exc:
+            raise last_exc
+        return None
+
     # ============================================================
     # LINKEDIN (EXISTING BEHAVIOR)
     # ============================================================
@@ -132,6 +195,7 @@ class LinkedInRapidAPIScraper:
             ("active-jb-7d", self.HOST_LINKEDIN_JB),
             ("active-ats-7d", self.HOST_LINKEDIN_ATS),
         ]:
+            consecutive_empty = 0
             for page in range(page_limit):
                 self._throttle()
                 offset = page * limit
@@ -139,14 +203,23 @@ class LinkedInRapidAPIScraper:
                     host, endpoint, title_q, location_q, limit, offset
                 )
                 if not rows:
-                    break
+                    consecutive_empty += 1
+                    if consecutive_empty >= 2:
+                        self._debug(
+                            "[LINKEDIN] stopping pagination",
+                            endpoint=endpoint,
+                            reason="2 consecutive empty pages",
+                        )
+                        break
+                    continue
+                consecutive_empty = 0
                 out.extend(rows)
                 if len(rows) < limit:
                     break
         return out
-    
+
     def _call_linkedin_api(self, host, endpoint, title_q, location_q, limit, offset):
-        conn = http.client.HTTPSConnection(host, timeout=20)
+        conn = http.client.HTTPSConnection(host, timeout=self.TIMEOUT_LINKEDIN)
         path = (
             f"/{endpoint}"
             f"?limit={limit}"
@@ -170,6 +243,15 @@ class LinkedInRapidAPIScraper:
             return []
         finally:
             conn.close()
+
+        if status in (401, 403):
+            self._debug("[LINKEDIN] auth_error", endpoint=endpoint, status=status)
+            return []
+
+        if status == 429:
+            self._debug("[LINKEDIN] rate_limited", endpoint=endpoint)
+            time.sleep(self.RETRY_BACKOFF)
+            return []
 
         self._debug(
             "[LINKEDIN] response",
@@ -244,30 +326,27 @@ class LinkedInRapidAPIScraper:
     # ============================================================
     def _search_jsearch(self, title, location, limit, page_limit):
         out = []
+        consecutive_empty = 0
         for page in range(1, page_limit + 1):
-            self._throttle()
             try:
-                r = requests.get(
+                r = self._request_with_retry(
+                    "GET",
                     "https://jsearch.p.rapidapi.com/search",
                     headers=self._headers(self.HOST_JSEARCH),
+                    timeout=self.TIMEOUT_JSEARCH,
                     params={
                         "query": f"{title} jobs in {location}",
                         "page": page,
                         "num_pages": 1,
                     },
-                    timeout=15,
                 )
+                if r is None:
+                    self._debug("[JSEARCH] skipped (auth or exhausted)", page=page)
+                    break
                 status = r.status_code
-                data = r.json().get("data", [])
-            except requests.exceptions.Timeout:
-                self._debug("[JSEARCH] timeout", page=page)
-                break
+                data = r.json().get("data") or []
             except Exception as e:
-                self._debug(
-                    "[JSEARCH] failed",
-                    page=page,
-                    error=type(e).__name__,
-                )
+                self._debug("[JSEARCH] failed", page=page, error=str(e))
                 break
 
             self._debug(
@@ -276,6 +355,13 @@ class LinkedInRapidAPIScraper:
                 status=status,
                 rows=len(data),
             )
+
+            if not data:
+                consecutive_empty += 1
+                if consecutive_empty >= 2:
+                    break
+                continue
+            consecutive_empty = 0
 
             rows = []
             dropped = 0
@@ -304,21 +390,27 @@ class LinkedInRapidAPIScraper:
     # INDEED SCRAPER (POST)
     # ============================================================
     def _search_indeed_scraper(self, title, location, limit):
-        self._throttle()
         try:
-            r = requests.post(
+            r = self._request_with_retry(
+                "POST",
                 "https://indeed-scraper-api.p.rapidapi.com/api/job",
                 headers=self._headers(self.HOST_INDEED_SCRAPER),
+                timeout=self.TIMEOUT_INDEED,
                 json={
                     "scraper": {
                         "query": title,
                         "location": location,
-                        "maxRows": limit,
-                        "fromDays": 7,
+                        "maxRows": min(limit, 100),
+                        "fromDays": 15,
                     }
                 },
-                timeout=30,
             )
+            if r is None:
+                self._debug("[INDEED] skipped (auth or exhausted)")
+                return []
+            if r.status_code != 200:
+                self._debug("[INDEED] bad status", status=r.status_code)
+                return []
             jobs = r.json().get("returnvalue", {}).get("data", [])
         except Exception as e:
             self._log(f"[INDEED_SCRAPER] failed: {e}")
@@ -327,24 +419,23 @@ class LinkedInRapidAPIScraper:
         return [j for j in map(self._normalize_indeed, jobs) if j]
 
     # ============================================================
-    # INDEED COMPANY (BEST EFFORT)
-    # ============================================================
-    def _search_indeed_company(self, title, location, limit):
-        # No real search; best-effort placeholder
-        return []
-
-    # ============================================================
     # GOOGLE JOBS
     # ============================================================
     def _search_google_jobs(self, title):
-        self._throttle()
         try:
-            r = requests.get(
+            r = self._request_with_retry(
+                "GET",
                 "https://google-jobs-api.p.rapidapi.com/google-jobs/relocation",
                 headers=self._headers(self.HOST_GOOGLE_JOBS),
+                timeout=self.TIMEOUT_GOOGLE,
                 params={"include": title},
-                timeout=20,
             )
+            if r is None:
+                self._debug("[GOOGLE] skipped (auth or exhausted)")
+                return []
+            if r.status_code != 200:
+                self._debug("[GOOGLE] bad status", status=r.status_code)
+                return []
             jobs = r.json().get("jobs", [])
         except Exception as e:
             self._log(f"[GOOGLE_JOBS] failed: {e}")
@@ -353,20 +444,124 @@ class LinkedInRapidAPIScraper:
         return [j for j in map(self._normalize_google, jobs) if j]
 
     # ============================================================
-    # GENERIC JOBS SEARCH API
+    # HIMALAYAS (direct, free, paginated)
     # ============================================================
-    def _search_generic(self):
+    def _search_himalayas(self, title, max_results):
+        out = []
+        limit_per_page = 50
+        pages = max(1, min(max_results // limit_per_page, 20))
+        for page_offset in range(0, pages * limit_per_page, limit_per_page):
+            self._throttle()
+            try:
+                r = requests.get(
+                    self.URL_HIMALAYAS,
+                    params={"q": title, "limit": limit_per_page, "offset": page_offset},
+                    timeout=self.TIMEOUT_FREE,
+                )
+                if r.status_code != 200:
+                    self._debug("[HIMALAYAS] bad status", status=r.status_code)
+                    break
+                data = r.json().get("jobs") or []
+            except Exception as e:
+                self._debug("[HIMALAYAS] failed", error=str(e))
+                break
+
+            if not data:
+                break
+
+            for row in data:
+                job = self._normalize_himalayas(row)
+                if job:
+                    out.append(job)
+
+            self._debug("[HIMALAYAS] page", offset=page_offset, rows=len(data))
+
+            if len(data) < limit_per_page:
+                break
+        return out
+
+    # ============================================================
+    # REMOTIVE (direct, free)
+    # ============================================================
+    def _search_remotive(self, title):
         self._throttle()
         try:
             r = requests.get(
-                "https://jobs-search-api.p.rapidapi.com/",
-                headers=self._headers(self.HOST_GENERIC),
-                timeout=20,
+                self.URL_REMOTIVE,
+                params={"search": title, "limit": 100},
+                timeout=self.TIMEOUT_FREE,
             )
-            jobs = r.json().get("data", [])
-        except Exception:
+            if r.status_code != 200:
+                self._debug("[REMOTIVE] bad status", status=r.status_code)
+                return []
+            jobs = r.json().get("jobs") or []
+        except Exception as e:
+            self._debug("[REMOTIVE] failed", error=str(e))
             return []
-        return []
+        return [j for j in map(self._normalize_remotive, jobs) if j]
+
+    # ============================================================
+    # JOBICY (direct, free)
+    # ============================================================
+    def _search_jobicy(self, title):
+        self._throttle()
+        try:
+            r = requests.get(
+                self.URL_JOBICY,
+                params={"count": 50, "tag": title},
+                timeout=self.TIMEOUT_FREE,
+            )
+            if r.status_code != 200:
+                self._debug("[JOBICY] bad status", status=r.status_code)
+                return []
+            jobs = r.json().get("jobs") or []
+        except Exception as e:
+            self._debug("[JOBICY] failed", error=str(e))
+            return []
+        return [j for j in map(self._normalize_jobicy, jobs) if j]
+
+    # ============================================================
+    # ARBEITNOW (RapidAPI, free tier, paginated)
+    # ============================================================
+    def _search_arbeitnow(self, title, max_results):
+        out = []
+        max_pages = max(1, min(max_results // 100, 10))
+        for page in range(1, max_pages + 1):
+            self._throttle()
+            try:
+                r = requests.get(
+                    f"https://{self.HOST_ARBEITNOW}/api/job-board-api",
+                    headers=self._headers(self.HOST_ARBEITNOW),
+                    params={"page": page},
+                    timeout=self.TIMEOUT_FREE,
+                )
+                if r.status_code == 403:
+                    self._debug("[ARBEITNOW] not subscribed, skipping")
+                    return out
+                if r.status_code != 200:
+                    self._debug("[ARBEITNOW] bad status", status=r.status_code)
+                    break
+                data = r.json().get("data") or []
+            except Exception as e:
+                self._debug("[ARBEITNOW] failed", error=str(e))
+                break
+
+            if not data:
+                break
+
+            # Filter by title keyword (Arbeitnow has no search param)
+            title_lower = title.lower()
+            for row in data:
+                row_title = (row.get("title") or "").lower()
+                row_tags = " ".join(row.get("tags") or []).lower()
+                row_desc = (row.get("description") or "")[:500].lower()
+                if title_lower in row_title or title_lower in row_tags or title_lower in row_desc:
+                    job = self._normalize_arbeitnow(row)
+                    if job:
+                        out.append(job)
+
+            self._debug("[ARBEITNOW] page", page=page, matched=len(out))
+        return out
 
     # ============================================================
     # NORMALIZERS
@@ -428,6 +623,70 @@ class LinkedInRapidAPIScraper:
             "site": "google",
         }
 
+    def _normalize_himalayas(self, row):
+        title = row.get("title")
+        desc = row.get("description") or row.get("excerpt") or ""
+        if not title:
+            return None
+        return {
+            "job_url": row.get("applicationLink") or row.get("guid"),
+            "job_url_direct": row.get("applicationLink"),
+            "title": title,
+            "company": row.get("companyName"),
+            "description": desc,
+            "location": ", ".join(row.get("locationRestrictions") or []) or "Remote",
+            "date_posted": row.get("pubDate"),
+            "site": "himalayas",
+        }
+
+    def _normalize_remotive(self, row):
+        title = row.get("title")
+        desc = row.get("description") or ""
+        if not title:
+            return None
+        return {
+            "job_url": row.get("url"),
+            "job_url_direct": row.get("url"),
+            "title": title,
+            "company": row.get("company_name"),
+            "description": desc,
+            "location": row.get("candidate_required_location") or "Remote",
+            "date_posted": row.get("publication_date"),
+            "site": "remotive",
+        }
+
+    def _normalize_jobicy(self, row):
+        title = row.get("jobTitle")
+        desc = row.get("jobDescription") or row.get("jobExcerpt") or ""
+        if not title:
+            return None
+        return {
+            "job_url": row.get("url"),
+            "job_url_direct": row.get("url"),
+            "title": title,
+            "company": row.get("companyName"),
+            "description": desc,
+            "location": row.get("jobGeo") or "Remote",
+            "date_posted": row.get("pubDate"),
+            "site": "jobicy",
+        }
+
+    def _normalize_arbeitnow(self, row):
+        title = row.get("title")
+        desc = row.get("description") or ""
+        if not title:
+            return None
+        return {
+            "job_url": row.get("url"),
+            "job_url_direct": row.get("url"),
+            "title": title,
+            "company": row.get("company_name"),
+            "description": desc,
+            "location": row.get("location") or "Remote",
+            "date_posted": row.get("created_at"),
+            "site": "arbeitnow",
+        }
+
     # ============================================================
     # LOGGING
     # ============================================================
@@ -439,4 +698,4 @@ class LinkedInRapidAPIScraper:
         if not self.logger:
             return
         extra = " ".join(f"{k}={v}" for k, v in kv.items())
-        self.logger.warning(f"{msg} {extra}".strip())
+        self.logger.info(f"{msg} {extra}".strip())
