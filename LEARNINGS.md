@@ -68,6 +68,13 @@
 
 ## Fixes Applied
 
+### Fix 3: Enrichment rate limiting (2026-03-09)
+- `MAX_WORKERS` reduced 5 → 2 (was causing burst 429s)
+- `REQUESTS_PER_SECOND` reduced 3 → 1 (well under LinkedIn's limit)
+- `RETRY_BACKOFF` increased 3s → 6s
+- Added `_reset_rate_state()` called at start of each enrich run (module-level counter never reset between runs)
+- Result: slower enrichment (~2 min for 100 jobs) but no 429 cascade
+
 ### Fix 1: Decouple free APIs from RapidAPI key check
 - Previously: free APIs only ran as fallback when RapidAPI failed
 - After: free APIs always run unconditionally (they're free, always available)
