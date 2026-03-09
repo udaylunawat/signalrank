@@ -206,6 +206,7 @@ def scrape(
     search: str,
     hours_old: int,
     force_refresh: bool,
+    jobspy_only: bool = False,
 ) -> pd.DataFrame:
     """
     Scrape jobs for a given user/use_case/search string.
@@ -295,6 +296,7 @@ def scrape(
                     logger.info("[SCRAPE] RapidAPI query=%r yielded no rows", query)
 
     # --------------------------------------------------
+    # Phase 2: JobSpy Indeed    # --------------------------------------------------
     # Phase 2: JobSpy Indeed — serialized to avoid 403
     # --------------------------------------------------
     _run_jobspy_sequential(

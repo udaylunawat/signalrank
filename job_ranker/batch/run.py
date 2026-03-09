@@ -55,6 +55,7 @@ def execute(
     force_refresh,
     no_scrape=False,
     csv_path=None,
+    jobspy_only=False,
 ):
     ctx = resolve_context(user, use_case)
 
@@ -141,6 +142,7 @@ def execute(
                     search=search,
                     hours_old=hours_old,
                     force_refresh=force_refresh,
+                    jobspy_only=jobspy_only,
                 )
 
         # ==================================================
