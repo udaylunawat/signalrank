@@ -43,7 +43,16 @@ def skills_score_0_100(
 
 
 def company_score_0_100(tier: str) -> float:
-    return {"preferred": 100.0, "deprioritized": 15.0}.get(tier, 50.0)
+    return {
+        "tier_s": 100.0,
+        "tier_a": 85.0,
+        "tier_b": 65.0,
+        "tier_c": 45.0,
+        "tier_d": 15.0,
+        # Legacy compatibility
+        "preferred": 100.0,
+        "deprioritized": 15.0,
+    }.get(tier, 50.0)
 
 
 def seniority_score_0_100(multiplier: float) -> float:

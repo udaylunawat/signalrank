@@ -336,17 +336,16 @@ with chart_col1:
     st.bar_chart(company_counts, x="Company", y="Jobs", horizontal=True)
 
 with chart_col2:
-    st.markdown("**Avg Score by Top 20 Companies**")
-    avg_score = (
+    st.markdown("**Best Match per Company (Top 20)**")
+    top_score = (
         df.groupby("company_norm")["Score"]
-        .agg(["mean", "count"])
-        .query("count >= 2")
-        .sort_values("mean", ascending=False)
+        .max()
+        .sort_values(ascending=False)
         .head(20)
         .reset_index()
     )
-    avg_score.columns = ["Company", "Avg Score", "Count"]
-    st.bar_chart(avg_score, x="Company", y="Avg Score", horizontal=True)
+    top_score.columns = ["Company", "Top Score"]
+    st.bar_chart(top_score, x="Company", y="Top Score", horizontal=True)
 
 chart_col3, chart_col4 = st.columns(2)
 
@@ -372,6 +371,30 @@ with chart_col4:
     )
     score_hist.columns = ["Score Range", "Count"]
     st.bar_chart(score_hist, x="Score Range", y="Count")
+
+chart_col5, chart_col6 = st.columns(2)
+
+with chart_col5:
+    st.markdown("**Jobs Posted Over Time**")
+    timeline = df.dropna(subset=["date_posted"]).copy()
+    if not timeline.empty:
+        timeline["week"] = timeline["date_posted"].dt.to_period("W").dt.start_time
+        weekly = timeline.groupby("week").size().reset_index()
+        weekly.columns = ["Week", "Jobs"]
+        st.line_chart(weekly, x="Week", y="Jobs")
+    else:
+        st.caption("No date data available.")
+
+with chart_col6:
+    st.markdown("**Freshness vs Score**")
+    scatter_df = df.dropna(subset=["days_old"]).copy()
+    if not scatter_df.empty:
+        scatter_df = scatter_df[["days_old", "Score"]].rename(
+            columns={"days_old": "Days Old"}
+        )
+        st.scatter_chart(scatter_df, x="Days Old", y="Score")
+    else:
+        st.caption("No date data available.")
 
 st.divider()
 

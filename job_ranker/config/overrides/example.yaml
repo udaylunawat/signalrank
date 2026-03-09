@@ -49,60 +49,20 @@ functional_role_terms:
 # --------------------
 company_scoring:
   default_weight: 1.0
-  preferred_weight: 1.5
-  deprioritized_weight: 0.85
 
-  preferred_companies:
-    - unitedhealth
-    - optum
-    - roche
-    - pfizer
-    - abbvie
-    - eli lilly
-    - merck
-    - philips
-    - ge
-    - general electric
-    - ge healthcare
-    - siemens
-    - walmart
-    - ubs
-    - visa
-    - mastercard
-    - capital one
-    - intuit
-    - workday
-    - servicenow
-    - atlassian
-    - salesforce
-    - adobe
-    - blackrock
-    - goldman sachs
-    - microsoft
-    - google
-    - apple
-    - msci
-    - samsung research
-    - intuit
+  # ── Tier S: Career Acceleration Engines ──
+  # Core AI infrastructure builders — highest skill compounding
+  tier_s:
     - databricks
     - snowflake
-    - Bosch AI
-    - NVIDIA
-    - Qualcomm
-
-    # Big Tech / Core Platforms
-    - meta
     - nvidia
-    - oracle
-    - sap
-    - snowflake
-    - databricks
-    - bloomberg
-    - palantir
-
-    # AI-native / GenAI companies
     - openai
     - anthropic
+    - microsoft
+    - google
+    - meta
+    - apple
+    # AI-native / GenAI
     - cohere
     - mistral ai
     - adept
@@ -111,13 +71,11 @@ company_scoring:
     - scale ai
     - glean
     - harvey
-
-    # AI infra, tooling, platforms
+    # AI infra & tooling
     - weights and biases
     - arize ai
     - hugging face
     - langchain
-    - llamainex
     - anyscale
     - modal
     - prefect
@@ -126,49 +84,73 @@ company_scoring:
     - pinecone
     - weaviate
     - chroma
-    - neon
-    - supabase
     - replit
     - cognition
 
-    # Product / consumer tech with strong AI platforms
+  # ── Tier A: High-Leverage Product AI Companies ──
+  # Massive AI systems at scale, strong ML platform work
+  tier_a:
+    - intuit
+    - walmart
+    - visa
+    - mastercard
+    - capital one
+    - servicenow
+    - atlassian
+    - salesforce
+    - adobe
+    - workday
+    - palantir
+    - bloomberg
     - stripe
     - airbnb
     - netflix
     - spotify
     - shopify
-
-    # Financial / enterprise heavy AI users
     - jpmorgan chase
+    - goldman sachs
+    - blackrock
     - palo alto networks
     - crowdstrike
-
-    # India-based, globally serious tech
+    - samsung research
+    - qualcomm
+    - oracle
+    # India-based serious tech
     - razorpay
     - phonepe
     - swiggy
     - flipkart
-    - ola
-    - tiger analytics
-    - mu sigma
 
-  aliases:
-    uhg: unitedhealth
-    united health group: unitedhealth
-    eli lilly: eli lilly
-    lilly: eli lilly
-    ge healthineers: ge healthcare
-    goldman: goldman sachs
-    capitalone: capital one
-    wnb: weights and biases
-    wandb: weights and biases
-    huggingface: hugging face
-    jp morgan: jpmorgan chase
-    jpmc: jpmorgan chase
+  # ── Tier B: Domain AI Powerhouses ──
+  # Large AI programs in domain verticals (healthcare, finance, etc.)
+  tier_b:
+    - optum
+    - unitedhealth
+    - msci
+    - siemens healthineers
+    - siemens
+    - ge healthcare
+    - pfizer
+    - roche
+    - eli lilly
+    - abbvie
+    - merck
+    - philips
+    - ubs
 
-  deprioritized_companies:
-    - amazon
-    - uber
+  # ── Tier C: Industrial AI Ecosystem ──
+  # AI supports physical infrastructure, less LLM/platform focus
+  tier_c:
+    - ge vernova
+    - ge
+    - general electric
+    - john deere
+    - bosch
+    - nxp semiconductors
+
+  # ── Tier D: Legacy Enterprise / IT Services ──
+  # Consulting-driven, slower innovation, limited skill growth
+  tier_d:
     - wipro
     - infosys
     - tcs
@@ -182,8 +164,24 @@ company_scoring:
     - globallogic
     - nagarro
     - fractal
-    - SAP
-    - Capgemini
+    - genpact
+    - accenture
+    - deloitte
+    - ey
+    - ntt data
+
+  aliases:
+    uhg: unitedhealth
+    united health group: unitedhealth
+    lilly: eli lilly
+    ge healthineers: ge healthcare
+    goldman: goldman sachs
+    capitalone: capital one
+    wnb: weights and biases
+    wandb: weights and biases
+    huggingface: hugging face
+    jp morgan: jpmorgan chase
+    jpmc: jpmorgan chase
 
 # --------------------
 # LOCATION PREFERENCES

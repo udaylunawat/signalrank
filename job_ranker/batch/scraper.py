@@ -185,6 +185,15 @@ def _scrape_single_query_jobspy(
 # --------------------------------------------------
 # Public API
 # --------------------------------------------------
+
+def _is_valid_api_key(key: str | None) -> bool:
+    """Return True only if key looks like a real credential (not a placeholder)."""
+    if not key:
+        return False
+    placeholders = {"dd", "sk-", "your_key", "xxx", "test", "none", "null", ""}
+    return key.strip().lower() not in placeholders and len(key.strip()) > 8
+
+
 def scrape(
     *,
     ctx,
@@ -195,9 +204,13 @@ def scrape(
     """
     Scrape jobs for a given user/use_case/search string.
 
-    Strategy:
-    1. Try RapidAPI first (reliable, no IP blocking)
-    2. Fall back to JobSpy if RapidAPI yields nothing
+    Strategy (parallel, additive):
+    1. RapidAPI sources — if RAPIDAPI_KEY is valid
+    2. JobSpy (Indeed + LinkedIn) — always attempted; free internal API
+    3. Free direct APIs (Remotive, Himalayas, Jobicy, Arbeitnow) — always run
+       via LinkedInRapidAPIScraper (handles them internally, no key needed)
+
+    All phases run; results are merged and deduplicated.
     """
     queries = [q.strip() for q in search.split("|") if q.strip()]
     if not queries:
@@ -205,7 +218,8 @@ def scrape(
         return pd.DataFrame()
 
     scraping_cfg = ctx.config.get("scraping", {})
-    has_rapidapi = bool(os.getenv("RAPIDAPI_KEY"))
+    rapidapi_key = os.getenv("RAPIDAPI_KEY", "")
+    has_rapidapi = _is_valid_api_key(rapidapi_key)
     all_rows: List[dict] = []
 
     logger.info(
@@ -221,11 +235,16 @@ def scrape(
         force_refresh,
     )
 
-    # --------------------------------------------------
-    # Phase 1: RapidAPI (primary)
-    # --------------------------------------------------
-    failed_queries = []
+    if not has_rapidapi:
+        logger.warning(
+            "[SCRAPE] ⚠ RAPIDAPI_KEY is missing or invalid — "
+            "RapidAPI sources (LinkedIn, JSearch, Indeed Scraper) will be skipped. "
+            "JobSpy (Indeed) and free direct APIs will still run."
+        )
 
+    # --------------------------------------------------
+    # Phase 1: RapidAPI (optional, when key is valid)
+    # --------------------------------------------------
     if has_rapidapi:
         workers = min(len(queries), MAX_WORKERS)
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -247,60 +266,77 @@ def scrape(
                     logger.warning(
                         "[SCRAPE] ✖ RapidAPI query=%r exception: %s", query, e
                     )
-                    failed_queries.append(query)
-                    continue
-
-                if not rows:
-                    logger.info(
-                        "[SCRAPE] RapidAPI query=%r yielded no rows", query
-                    )
-                    failed_queries.append(query)
-                    continue
-
-                all_rows.extend(rows)
-                logger.info(
-                    "[SCRAPE] ✔ query=%r collected %d rows", query, len(rows)
-                )
-    else:
-        failed_queries = list(queries)
-
-    # --------------------------------------------------
-    # Phase 2: JobSpy fallback for failed queries
-    # --------------------------------------------------
-    if failed_queries:
-        logger.info(
-            "[SCRAPE] JobSpy fallback for %d queries: %s",
-            len(failed_queries),
-            failed_queries,
-        )
-        with ThreadPoolExecutor(max_workers=min(len(failed_queries), MAX_WORKERS)) as pool:
-            futures = {
-                pool.submit(
-                    _scrape_single_query_jobspy,
-                    query=q,
-                    scraping_cfg=scraping_cfg,
-                    hours_old=hours_old,
-                ): q
-                for q in failed_queries
-            }
-
-            for fut in as_completed(futures):
-                query = futures[fut]
-                try:
-                    rows = fut.result(timeout=MAX_QUERY_SECONDS + 10)
-                except Exception as e:
-                    logger.warning(
-                        "[SCRAPE] ✖ JobSpy query=%r exception: %s", query, e
-                    )
                     continue
 
                 if rows:
                     all_rows.extend(rows)
                     logger.info(
-                        "[SCRAPE] ✔ JobSpy query=%r collected %d rows",
-                        query,
-                        len(rows),
+                        "[SCRAPE] ✔ RapidAPI query=%r collected %d rows", query, len(rows)
                     )
+                else:
+                    logger.info("[SCRAPE] RapidAPI query=%r yielded no rows", query)
+
+    # --------------------------------------------------
+    # Phase 2: JobSpy — always run (free Indeed + LinkedIn)
+    # --------------------------------------------------
+    logger.info("[SCRAPE] JobSpy phase: %d queries", len(queries))
+    with ThreadPoolExecutor(max_workers=min(len(queries), MAX_WORKERS)) as pool:
+        futures = {
+            pool.submit(
+                _scrape_single_query_jobspy,
+                query=q,
+                scraping_cfg=scraping_cfg,
+                hours_old=hours_old,
+            ): q
+            for q in queries
+        }
+
+        for fut in as_completed(futures):
+            query = futures[fut]
+            try:
+                rows = fut.result(timeout=MAX_QUERY_SECONDS + 10)
+            except Exception as e:
+                logger.warning(
+                    "[SCRAPE] ✖ JobSpy query=%r exception: %s", query, e
+                )
+                continue
+
+            if rows:
+                all_rows.extend(rows)
+                logger.info(
+                    "[SCRAPE] ✔ JobSpy query=%r collected %d rows",
+                    query,
+                    len(rows),
+                )
+
+    # --------------------------------------------------
+    # Phase 3: Free direct APIs — always run (no key needed)
+    # They are handled inside LinkedInRapidAPIScraper when key is invalid
+    # or can be called directly via a keyless scraper instance
+    # --------------------------------------------------
+    if not has_rapidapi:
+        logger.info("[SCRAPE] Running free direct APIs (Remotive, Himalayas, Jobicy, Arbeitnow)")
+        # Pass a dummy key; LinkedInRapidAPIScraper's free-API methods don't use it
+        _free_scraper = LinkedInRapidAPIScraper(
+            api_key="__no_key__",
+            cfg=ctx.config,
+            logger=logger,
+        )
+        for q in queries:
+            try:
+                rows_h = _free_scraper._search_himalayas(q, scraping_cfg.get("max_results", 50))
+                rows_r = _free_scraper._search_remotive(q)
+                rows_j = _free_scraper._search_jobicy(q)
+                free_rows = rows_h + rows_r + rows_j
+                if free_rows:
+                    all_rows.extend(free_rows)
+                    logger.info(
+                        "[SCRAPE] ✔ Free APIs query=%r collected %d rows "
+                        "(himalayas=%d remotive=%d jobicy=%d)",
+                        q, len(free_rows), len(rows_h), len(rows_r), len(rows_j),
+                    )
+            except Exception as e:
+                logger.warning("[SCRAPE] ✖ Free APIs query=%r exception: %s", q, e)
 
     if not all_rows:
         logger.warning("[SCRAPE] No rows collected from any query")

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run:*)",
+      "WebSearch",
+      "Bash(xargs kill)",
+      "Read(//Users/examplecandidate/Projects/job_ranker/**)",
+      "Bash(ls:*)",
+      "Bash(pkill:*)",
+      "Bash(just digest:*)",
+      "Bash(printf \\\\n\\\\n:*)",
+      "Bash(printf \\\\n\\\\n\\\\n\\\\n\\\\n\\\\n\\\\n\\\\n:*)",
+      "Bash(uv pip:*)",
+      "Bash(PYTHONPATH=. uv run:*)"
+    ]
+  }
+}
