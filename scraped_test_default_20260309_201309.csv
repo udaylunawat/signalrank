@@ -1,0 +1,394 @@
+id,site,job_url,job_url_direct,title,company,location,date_posted,job_type,salary_source,interval,min_amount,max_amount,currency,is_remote,job_level,job_function,listing_type,emails,description,company_industry,company_url,company_logo,company_url_direct,company_addresses,company_num_employees,company_revenue,company_description,skills,experience_range,company_rating,company_reviews_count,vacancy_count,work_from_home_type
+in-610a2ec7de2514e8,indeed,https://in.indeed.com/viewjob?jk=610a2ec7de2514e8,https://astrazeneca.wd3.myworkdayjobs.com/Careers/job/India---Chennai/Senior-Analyst--Medical-Analytics----ML-Solution-Owner_R-247213-2,Senior Analyst (Medical Analytics) – ML Solution Owner,AstraZeneca,"TN, IN",2026-03-09,fulltime,,,,,,False,,,,,"**Job Title: Senior Analyst (Medical Analytics) – ML Solution Owner**
+---------------------------------------------------------------------
+
+**Career Level: D1**
+--------------------
+
+**Introduction to role:**
+-------------------------
+
+Are you ready to own high-impact ML solutions that guide medical strategy and accelerate decisions across our enterprise? You will lead production-grade analytics products in this role. These products extract signals from complex data to guide Medical, Commercial, Clinical Operations, and other teams. This helps drive faster, more consistent decisions that benefit individuals we serve and the organization.
+
+You will translate real collaborator needs into scalable, secure solutions that combine robust engineering with advanced ML and generative AI. Join us at a pivotal moment as we invest in automation, modern data platforms and intelligent products to power the next chapter of growth. Would you thrive leading a multidisciplinary team to deliver tools that clinicians and leaders trust every day?
+
+**Accountabilities****:**
+-------------------------
+
+* Solution Ownership & Delivery: Act as the primary owner for assigned analytics and ML solutions, ensuring end-to-end delivery with high quality and agility; collaborate with partners to translate business needs into scalable, production-ready solutions; architect and lead all aspects of data pipelines, ML models and application workflows; maintain detailed documentation, business logic mapping and release notes; ensure compliance with data governance, privacy and security standards.
+* Machine Learning & Advanced Analytics: Lead the building, creation and assessment of ML models for predictive analytics, classification and regression, NLP (topic modeling, summarization, extraction), recommendation engines and time-series forecasting; drive experimentation, testing, model optimization and explainability; leverage LLMs and generative AI for automation, summarization and insight extraction; evaluate and integrate new ML libraries, frameworks and platforms.
+* Application Development & UI Engineering: Lead development of web-based UIs, dashboards and decision-support tools using Replit; Python with Flask/FastAPI; React, Streamlit or Dash; partner with application engineers to build end-to-end user experiences that integrate ML outputs; ensure applications are responsive, intuitive and performance-optimized.
+* Team Leadership & Mentorship: Lead a team of six mid-level and junior data analysts, data scientists and application engineers; provide daily mentorship, code reviews, technical coaching and priority setting; foster an environment of creativity, ongoing development and high technical standards; coordinate workload planning, delivery timelines and critical issue management .
+* Data Engineering & Integration: Guide develop of data pipelines, feature engineering workflows and cloud-based integrations; work with engineers to connect to structured and unstructured datasets (CSV, Excel, APIs, Databricks, SQL databases); ensure data quality, versioning and reproducibility.
+* Collaborator Management & Communication: Act as the main point of contact for business partners on solution scope, achievements, risks and timelines; present analyses, model outcomes and product demos to leadership teams; influence decision-making through clear, actionable communication.
+* Innovation & Continuous Improvement: Evaluate new technologies (LLMs, MLOps, AutoML, similarity search databases, Vibe Coding, advanced application frameworks); proactively propose POCs, quick prototypes and new analytics capabilities with measurable business value; drive adoption of modern development practices (CI/CD, GitHub workflows, model monitoring).
+
+**Essential Skills/Experience:**
+--------------------------------
+
+**Education & Experience:**
+---------------------------
+
+* Bachelor’s or master’s degree in computer science, Engineering, Data Science, Statistics, or related fields.
+* 8–10 years of experience in analytics, machine learning, or solution delivery.
+* Proven experience leading small to medium technical teams.
+
+**Technical Skills:**
+---------------------
+
+* Strong programming skills in Python (pandas, scikit‑learn, numpy, spaCy, transformers).
+* Experience in ML model development, deployment, and monitoring.
+* Strong knowledge of SQL and at least one cloud platform (Azure preferred).
+* Experience with Databricks, PySpark, or equivalent big‑data engines.
+* Ability to build applications using Replit, Streamlit, Flask/FastAPI, or React.
+* Familiarity with healthcare/pharma datasets (IQVIA, EMR, claims, real‑world evidence).
+
+**Solution Ownership Skills**
+-----------------------------
+
+* Strong understanding of solution architecture, software development lifecycle, and delivery governance.
+* Ability to translate business needs into technical requirements.
+* Strong documentation, estimation, scoping, and dependency‑management skills.
+
+**Leadership & Soft Skills:**
+-----------------------------
+
+* Excellent communication, collaborator management, and mentorship capabilities.
+* Ability to present insights and technical concepts to non‑technical audiences.
+* Strong problem‑solving skills with a bias toward action and innovation.
+* Ability to manage multiple projects simultaneously.
+
+**Desirable Skills/Experience:**
+--------------------------------
+
+* Experience deploying ML models via containers, serverless functions, or MLflow.
+* Knowledge of MLOps, CI/CD workflows, GitHub Actions.
+* Hands‑on experience with LLMs, prompt engineering, and generative AI tools.
+* Exposure to next‑gen development tools (Vibe Coding, AI‑assisted app development).
+* Experience with NLP models for summarization, named entity recognition, Q&A systems.
+* Knowledge of oncology, medical affairs, or commercial pharma analytics.
+* Certifications in AI/ML, cloud, or data engineering.
+
+When we put unexpected teams in the same room, we unleash bold thinking with the power to inspire life-changing medicines. In-person working gives us the platform we need to connect, work at pace and challenge perceptions. That's why we work, on average, a minimum of three days per week from the office. But that doesn't mean we're not flexible. We balance the expectation of being in the office while respecting individual flexibility. Join us in our unique and ambitious world.
+
+**Why AstraZeneca:**
+--------------------
+
+Here you will help shape a tech-enabled enterprise where ambitious ideas become real solutions that speed decisions and free our scientists and clinicians to focus on what matters most—patients. We combine new data science with disciplined engineering. We bring diverse experts together to challenge assumptions and move quickly. We invest in modern automation to turn insight into action. You will join a global, collaborative network that values kindness alongside ambition, gives you the trust and accountability to own outcomes, and backs your curiosity with the scale and support to learn, experiment and deliver impact that’s felt well beyond your team.
+
+Own the next wave of ML products that turn sophisticated medical data into decisive action—submit your application and help us deliver faster, smarter decisions for patients and the business.",,https://in.indeed.com/cmp/Astrazeneca,https://d2q79iu7y748jz.cloudfront.net/s/_squarelogo/256x256/f2c4573da9c8a5f3d23f2bc4e5da72a3,http://www.astrazeneca.com,"Cambridge, England","10,000+",more than $10B (USD),Build unrivalled capabilities in a place that promotes learning agility and offers development opportunities. We never standstill so you’ll have the chance to constantly grow your abilities.,,,,,,
+in-98899129c8bf67c9,indeed,https://in.indeed.com/viewjob?jk=98899129c8bf67c9,https://astrazeneca.wd3.myworkdayjobs.com/Careers/job/India---Bangalore/Associate-Director--AI_R-247583-1,"Associate Director, AI",AstraZeneca,"KA, IN",2026-03-09,fulltime,,,,,,False,,,,,"**Job Title: Associate Director, AI**
+
+**Global Career Level: E**
+
+**About our Team:**
+
+Predictive AI and Data team is responsible for providing AI and Bioinformatics solutions to the scientists across the spectrum of drug development and discovery in AstraZeneca (both pre-clinical and clinical stages). The primary aim is to find ways to accelerate the drug development process by leveraging existing company data in combination with the most cutting-edge AI approaches in day-to-day scientific work across the company.
+
+**Introduction to role:**  
+As Associate Director, AI, you will be accountable for hands-on design and deployment of advanced Machine Learning and AI solutions used for processing, analysis and interpretation of transcriptomics (as well as proteomics and cell painting) data within toxicological safety domains. You will then help build out the robust solution in production in collaboration with other data science and software developer teams across European and Asian R&D hubs.
+
+**Accountabilities:**
+
+* Collaborate with scientists from across the company to understand their challenges and work with them to build the platform that underpins their research.
+* Take responsibility for designing, and deploying machine learning models for a large-scale analysis of clinical transcriptomics data
+* Design and build machine learning models for transcriptomics data to predict the risk of clinical events, patient segmentation, or for high-throughput compound screening
+* Apply a range of data science methodologies, developing novel data science solutions where off-the-shelf methodologies do not fit
+* Build and manage effective relationships with stakeholders to ensure utilization and value of information resources and services. Clearly and objectively communicate results, as well as their associated uncertainties and limitations to shape solutions
+* Work effectively across several timezones with AI research teams in China, India and Europe, communicating the requirements for the AI models and evaluating the available solutions
+* Champion a “production first attitude” to ensure the necessary infrastructure and platforms are available to scale exploratory research to production.
+* Be a part of a hard-working team, continuously improving AstraZeneca’s Machine Learning development environments, platforms, and tooling.
+* Work closely and collaboratively with internal governance and compliance functions such as Cyber Security and Data Privacy to secure the computing environment without obstructing end-user productivity.
+
+**Essential Skills/Experience:**  
+
+* PhD (or equivalent years of experience) in mathematics, computer science, engineering, physics, statistics, computational sciences or a related field.
+
+* Proven experience in applying AI and machine learning to solve problems in commercial context
+* Demonstrated experience in implementing machine learning/AI workflows to automate bioinformatics analysis pipelines, ideally in the Pharma and/or Healthcare space
+* Familiarity with modern foundation models for biological data (e.g., transcriptomics or Cell Painting)
+* Experience of manipulating and analysing large high dimensionality unstructured datasets, drawing conclusions, defining recommended actions, and reporting results across stakeholders
+* Advanced skills in programming languages such as Python, and experience with AI libraries and frameworks (e.g., TensorFlow, PyTorch).
+* Strong knowledge of software development and machine learning deployment principles
+* Demonstratable experience working with AWS or a similar cloud environment
+* Experience working in a team with ML engineers and/or software developers
+* Familiarity with GitHub, CI/CD pipeline, and best DevOps and MLOps practices
+* Excellent communication and presentation skills, with the ability to convey complex technical concepts to non-technical partners.
+* Strong leadership and project management skills, with a track record of leading successful bioinformatics projects
+* Knowledge of AI ethics and responsible AI practices
+
+**Desirable Skills/Experience:**  
+
+* Experience building ML/AI models to predict compound safety
+
+* Experience in life sciences, healthcare, or pharmaceutical industry.
+* Familiarity with existing machine vision models: CNNs, vision transformers, diffusion models etc. for self-supervised and multimodal training (e.g., ResNet, UNet, DINO, CLIP, Stable Diffusion)
+* Experience working with proteomics datasets
+* Experience in a complex global organization.
+* Experience working in an Agile team with knowledge or experience of working in product or platform-focused delivery
+
+When we put unexpected teams in the same room, we unleash bold thinking with the power to inspire life-changing medicines. In-person working gives us the platform we need to connect, work at pace and challenge perceptions. That's why we work, on average, a minimum of three days per week from the office. But that doesn't mean we're not flexible. We balance the expectation of being in the office while respecting individual flexibility. Join us in our unique and ambitious world.
+
+**Why AstraZeneca:**
+
+Here, curiosity and courage meet practical impact. We combine digital, data science and AI with deep biological insight to tackle complex disease, investing to better predict clinical success and move programs with pace. You will join a collaborative environment where unexpected teams come together to unlock breakthrough ideas, where kindness sits alongside ambition, and where your production-grade solutions can shape the future of healthcare for patients worldwide.
+
+**Call to Action:**
+
+Ready to build and scale AI that changes how we understand disease and accelerates therapies—take the next step today and shape breakthroughs that matter!",,https://in.indeed.com/cmp/Astrazeneca,https://d2q79iu7y748jz.cloudfront.net/s/_squarelogo/256x256/f2c4573da9c8a5f3d23f2bc4e5da72a3,http://www.astrazeneca.com,"Cambridge, England","10,000+",more than $10B (USD),Build unrivalled capabilities in a place that promotes learning agility and offers development opportunities. We never standstill so you’ll have the chance to constantly grow your abilities.,,,,,,
+in-2151f2e721a2272b,indeed,https://in.indeed.com/viewjob?jk=2151f2e721a2272b,https://genpact.taleo.net/careersection/sgy_external_career_section/jobdetail.ftl?job=CPG062965&tz=GMT-05%3A00&tzname=America%2FChicago,Manager – Data Scientist.,Genpact,"TS, IN",2026-03-09,fulltime,,,,,,False,,,,,"Ready to shape the future of work?  
+At Genpact, we don’t just adapt to change—we drive it. AI and digital innovation are redefining industries, and we’re leading the charge. Genpact’s AI Gigafactory, our industry-first accelerator, is an example of how we’re scaling advanced technology solutions to help global enterprises work smarter, grow faster, and transform at scale. From large-scale models to agentic AI, our breakthrough solutions tackle companies’ most complex challenges.  
+If you thrive in a fast-moving, tech-driven environment, love solving real-world problems, and want to be part of a team that’s shaping the future, this is your moment.  
+Genpact (NYSE: G) is an advanced technology services and solutions company that delivers lasting value for leading enterprises globally. Through our deep business knowledge, operational excellence, and cutting-edge solutions – we help companies across industries get ahead and stay ahead. Powered by curiosity, courage, and innovation, our teams implement data, technology, and AI to create tomorrow, today. Get to know us at genpact.com and on LinkedIn, X, YouTube, and Facebook.  
+Inviting applications for the role of Manager – Data Scientist.  
+In this role, The Data Scientist will apply advanced analytics, machine learning, and statistical modeling to generate actionable insights and solve complex business problems. The role involves data collection, cleaning, exploratory analysis, feature engineering, model development, and integration of AI/ML solutions into dashboards and applications. The Data Scientist collaborates with cross-functional teams to ensure models are aligned with business objectives, reproducible, and scalable.  
+This role supports initiatives such as demand forecasting, classification, workforce analytics. By leveraging predictive modelling, NLP, and AI-driven insights, the Data Scientist helps to make data-driven decisions, optimize operations, and enhance customer and employee experiences across its multinational business functions.
+
+Responsibilities  
+
+* Model Development & Statistical Analysis - Design, develop, and optimize machine learning, deep learning, and statistical models to solve complex business problems.
+* GenAI & LLM Integration – Implement and integrate AI/ML models into GenAI and Agentic AI applications using LangChain, LangGraph, OpenAI APIs, RAG pipelines, and vector databases.
+* End-to-End ML Pipelines – Build, deploy, and maintain scalable ML pipelines, from data ingestion and preprocessing to model deployment, monitoring, and lifecycle management.
+* Production Deployment & MLOps – Deploy models as APIs or services using Docker, Kubernetes, FastAPI, and cloud platforms (AWS SageMaker, GCP Vertex AI, Azure ML) while implementing CI/CD for automated testing and versioning.
+* Performance Monitoring & Reliability – Monitor model performance in production, detect drift or degradation, and establish alerting mechanisms to ensure reliability, compliance, and governance.
+* Analytics Integration – Embed models into real-time dashboards and analytics applications to deliver actionable insights for business and HR stakeholders.
+* Governance & Compliance – Ensure model explainability (XAI), security, audit logging, and adherence to ethical, regulatory, and enterprise standards.
+* Knowledge Sharing - Conduct and participate in training sessions, workshops, and technical discussions to share insights, AI/ML techniques, and best practices with team members.
+* Stakeholder Communication - Translate complex model results, analytics, and AI-driven insights into clear, actionable recommendations for business and non-technical stakeholders.
+* Documentation & Enablement - Create well-structured documentation, reproducible workflows, and explanatory reports to support model adoption, operational handovers, and team learning.
+* Cross-Functional Collaboration - Works closely with senior data scientists, engineers, and product teams to implement AI/ML solutions, ensuring alignment with project requirements and business objectives.
+* Independent Contribution - Executes tasks such as data cleaning, exploratory analysis, feature engineering, and baseline model development under guidance, contributing to end-to-end AI/ML workflows
+* Stakeholder Alignment - Assists in presenting findings, visualizations, and insights to business and HR stakeholders, translating technical results into actionable recommendations.
+
+Qualifications We Seek in You!  
+Minimum Qualifications / Skills  
+
+* Bachelor’s or Master’s degree in data science, Computer Science, Statistics, Mathematics, or a related quantitative field.
+* Years of hands-on experience in data analysis, machine learning, or AI projects, preferably in corporate or academic settings.
+* Certification in areas like GenAI, Databricks etc.
+
+Preferred Qualifications / Skills  
+
+* Hands-on experience in data preprocessing, exploratory data analysis, and feature engineering to support ML and AI model development.
+* Knowledge of machine learning, deep learning, and NLP techniques for classification, regression, clustering, and predictive modelling.
+* Proficiency in Python, SQL, ML/DL frameworks (TensorFlow, PyTorch, Scikit-learn), and familiarity with cloud platforms (AWS, Azure, GCP) and data visualization tools.
+* Experience integrating models into dashboards, analytics tools, and prototype AI applications.
+* Familiarity with MLOps practices, model monitoring, CI/CD workflows, and cloud platforms (AWS, Azure, GCP).
+* Ability to translate business problems into data-driven solutions and communicate insights to stakeholders effectively.
+
+Why join Genpact?  
+
+* Be a transformation leader – Work at the cutting edge of AI, automation, and digital innovation
+* Make an impact – Drive change for global enterprises and solve business challenges that matter
+* Accelerate your career – Get hands-on experience, mentorship, and continuous learning opportunities
+* Work with the best – Join 140,000+ bold thinkers and problem-solvers who push boundaries every day
+* Thrive in a values-driven culture – Our courage, curiosity, and incisiveness - built on a foundation of integrity and inclusion - allow your ideas to fuel progress
+
+Come join the tech shapers and growth makers at Genpact and take your career in the only direction that matters: Up.  
+Let’s build tomorrow together.  
+Genpact is an Equal Opportunity Employer and considers applicants for all positions without regard to race, color, religion or belief, sex, age, national origin, citizenship status, marital status, military/veteran status, genetic information, sexual orientation, gender identity, physical or mental disability or any other characteristic protected by applicable laws. Genpact is committed to creating a dynamic work environment that values respect and integrity, customer focus, and innovation.  
+Furthermore, please do note that Genpact does not charge fees to process job applications and applicants are not required to pay to participate in our hiring process in any other way. Examples of such scams include purchasing a 'starter kit,' paying to apply, or purchasing equipment or training.
+
+JobManager
+
+Primary LocationIndia-Hyderabad
+
+ScheduleFull-time
+
+Education LevelBachelor's / Graduation / Equivalent
+
+Job PostingMar 9, 2026, 10:10:14 AM
+
+Unposting DateOngoing
+
+Master Skills ListDigital
+
+Job CategoryFull Time",,https://in.indeed.com/cmp/Genpact,https://d2q79iu7y748jz.cloudfront.net/s/_squarelogo/256x256/505bd58a0a332271212ac1b411dd3cd0,https://www.genpact.com,"New York, NY","10,000+",$1B to $5B (USD),"Genpact (NYSE: G) is a global professional services firm that makes business transformation real, driving digital-led innovation and digitally-enabled intelligent operations for our clients.",,,,,,
+in-31cbbfe0d880ad7c,indeed,https://in.indeed.com/viewjob?jk=31cbbfe0d880ad7c,https://careers.united.com/us/en/job/UAIUADUSGGN00002472EXTERNALENUSTALEO/Senior-Developer-Information-Technology?utm_source=indeed&utm_medium=phenom-feeds,Senior Developer - Information Technology,United Airlines,"HR, IN",2026-03-09,fulltime,,,,,,False,,,,,"Achieving our goals starts with supporting yours. Grow your career, access top-tier health and wellness benefits, build lasting connections with your team and our customers, and travel the world using our extensive route network.  
+  
+Come join us to create what’s next. Let’s define tomorrow, together.  
+
+**Description**
+---------------
+
+**Description:**  
+United's Digital Technology team designs, develops, and maintains massively scaling technology solutions brought to life with innovative architectures, data analytics, and digital solutions.
+
+**Our Values:**  
+At United Airlines, we believe that inclusion propels innovation and is the foundation of all that we do. Our Shared Purpose: ""Connecting people. Uniting the world."" drives us to be the best airline for our employees, customers, and everyone we serve, and we can only do that with a truly diverse and inclusive workforce. Our team spans the globe and is made up of diverse individuals all working together with cutting-edge technology to build the best airline in the history of aviation.
+
+With multiple employee-run ""Business Resource Group"" communities and world-class benefits like health insurance, parental leave, and space-available travel, United is truly a one-of-a-kind place to work that will make you feel welcome and accepted. Come join our team and help us make a positive impact on the world.
+
+**Experience:** 5-8 years Software Development And 1–3 years LLM/AI Development
+
+**Job overview and responsibilities**  
+  
+**We are seeking a Senior AI Engineer to join the Mosaic Program, a strategic initiative dedicated to the modernization of our Passenger Service System (PSS) through the implementation of a cloud-based platform.**
+
+In this role, you will not only transform existing legacy applications into cloud-based applications but also design, develop, and deploy advanced LLM-powered applications to expedite the overall SDLC process—starting from reverse engineering of legacy logic through to implementation. You will be a strategic driver of efficiency, using LangChain and LangGraph to build agents that accelerate our transition to a modern, cloud-native PSS ecosystem.
+
+* SDLC Acceleration: Engineer AI agents and workflows to automate the reverse engineering of legacy codebases and expedite the migration to cloud-native microservice architectures.
+* AI Orchestration: Design and develop stateful, multi-agent reasoning systems using LangGraph to handle complex logic transformation and code generation.
+* Hybrid Development: Maintain a dual-stack proficiency, writing high-quality .NET/C# code for core PSS services while building Python-based AI tools to support them.
+* RAG Implementation: Build Retrieval-Augmented Generation (RAG) pipelines to index and query vast technical documentation and legacy specifications.
+* Model Integration: Deploy and optimize LLMs (OpenAI, Claude, LLaMA, AWS Bedrock) to automate testing, documentation, and code generation/refactoring.
+* Observability: Implement LangSmith to evaluate agent performance, ensuring that AI-generated outputs meet United’s high standards for safety and reliability.
+
+**This position is offered on local terms and conditions. Expatriate assignments and sponsorship for employment visas, even on a time-limited visa status, will not be awarded. This position is for United Airlines Business Services Pvt. Ltd - a wholly owned subsidiary of United Airlines Inc.**
+
+**Qualifications**
+------------------
+
+**What’s needed to succeed (Minimum Qualifications):**
+
+* 10+ years in Programming: Dual proficiency in Python (for AI) and .NET/C# (for application development).
+* 1-2 years in AI Frameworks: Hands-on experience with LangChain and LangGraph for building multi-step reasoning workflows.
+* Vector Tech: Experience with semantic search and Vector Databases (Pinecone, FAISS, Chroma, etc.).
+* Cloud Architecture: Familiarity with the AWS Ecosystem (ECS, EKS, Lambda, S3, DynamoDB etc).
+* System Design: Proven ability to build tool-calling agents that interact with APIs and databases.
+
+**What will help you propel from the pack (Preferred Qualifications):**
+
+* Experience with LLMOps and AI governance frameworks.
+* Background in Containerization (Docker/Kubernetes).
+* Familiarity with Legacy-to-Cloud transformation patterns in the aviation sector.
+
+**Key Competencies**
+
+* **Transformation Mindset:** Ability to see AI as a tool for accelerating complex enterprise migrations.
+* **Scalable Thinking:** Designing AI solutions that work at the scale of a global airline.
+* **Collaborative Execution:** Bridging the gap between legacy system experts and modern cloud engineers to ensure seamless implementation.",,https://in.indeed.com/cmp/United-Airlines,https://d2q79iu7y748jz.cloudfront.net/s/_squarelogo/256x256/923be32fd6df409dedfb25077fa2a71d,https://careers.united.com/us/en/,"Chicago, IL","10,000+",more than $10B (USD),Good Leads The Way.,,,,,,
+in-b2e11f7fafc2f2a6,indeed,https://in.indeed.com/viewjob?jk=b2e11f7fafc2f2a6,http://in.indeed.com/job/aiml-engineer-agentic-ai-engineer-b2e11f7fafc2f2a6,AI/ML Engineer / Agentic AI Engineer,Anjaneyaa Tech Solutions,"RJ, IN",2026-03-09,fulltime,,,,,,False,,,,,"We are looking for a skilled **AI/ML Engineer** with hands-on production experience across the **complete machine learning lifecycle** — from data preparation and model development to deployment, monitoring, and optimization.
+
+**Key Responsibilities:**
+
+* Develop, train, and deploy machine learning models.
+* Work on data preprocessing, feature engineering, and model optimization.
+* Build and maintain scalable ML pipelines.
+* Integrate ML models with backend systems using APIs.
+* Monitor model performance and improve production systems.
+
+**Key Requirements:**
+
+* Strong proficiency in **Python**
+* Experience with **Machine Learning frameworks (Scikit-learn)** and exposure to **Deep Learning**
+* Hands-on experience with **FastAPI** and **REST API integration**
+* Practical knowledge of **LLM pipelines, embeddings, and vector databases**
+* Experience deploying **scalable ML systems in production**
+
+**Agentic AI Engineer**
+
+We are seeking an experienced **Agentic AI Engineer** to design and build **autonomous AI systems** powered by LLMs that can reason, plan, and execute real-world workflows.
+
+**Key Responsibilities:**
+
+* Design and develop **LLM-powered AI agents**
+* Build intelligent systems capable of **planning and executing tasks**
+* Integrate APIs, tools, and external systems into AI workflows
+* Develop scalable backend services for AI applications
+
+**Key Requirements:**
+
+* Experience building **LLM-powered agents** using tools like **LangChain, LlamaIndex, or similar frameworks**
+* Strong backend development using **Python and FastAPI**
+* Knowledge of **RAG pipelines, embeddings, and vector databases**
+* Experience integrating **APIs and external tools into AI workflows**
+* Understanding of **agent architectures, tool-calling, and execution loops**
+
+**Preferred Qualifications:**
+
+* Cloud deployment experience (**AWS / GCP / Azure**)
+* Exposure to **MLOps / LLMOps practices**
+* Experience working with **production-level AI systems**
+
+Job Type: Full-time
+
+Pay: ₹500,000.00 - ₹700,000.00 per year
+
+Benefits:
+
+* Flexible schedule
+* Food provided
+* Health insurance
+* Leave encashment
+* Paid sick time
+* Paid time off
+* Provident Fund
+
+Work Location: In person",,https://in.indeed.com/cmp/Anjaneyaa-Tech-Solutions,,,,,,,,,,,,
+in-8ffd45d5980cfad2,indeed,https://in.indeed.com/viewjob?jk=8ffd45d5980cfad2,https://jobs.sap.com/job/Gurgaon-AI-Development-Expert%28Generative-&-Agentic-AI-%28SAP-BTP%29-122002/1291130301/?feedId=118200&utm_source=Indeed&utm_campaign=SAP_Indeed,AI Development Expert(Generative & Agentic AI (SAP BTP),SAP,"HR, IN",2026-03-08,fulltime,,,,,,False,,,,Careers@sap.com,"**We help the world run better**  
+At SAP, we keep it simple: you bring your best to us, and we'll bring out the best in you. We're builders touching over 20 industries and 80% of global commerce, and we need your unique talents to help shape what's next. The work is challenging – but it matters. You'll find a place where you can be yourself, prioritize your wellbeing, and truly belong. What's in it for you? Constant learning, skill growth, great benefits, and a team that wants you to grow and succeed.
+
+SAP is seeking a highly skilled **AI Development Expert** to build and deliver enterprise-grade **Generative AI and Agentic AI applications** on **SAP Business Technology Platform (BTP)**.
+
+As part of the **Customer Engagement & Adoption (CE&A) – Global Delivery Hub**, you will work closely with solution architects and customer teams to implement scalable, production-ready AI solutions that accelerate AI adoption across SAP landscapes.
+
+This role focuses on **hands-on solution development and implementation**, translating architectural designs and business requirements into robust, high-performing AI applications for enterprise deployment.
+
+**Key Responsibilities**
+
+* Develop and implement scalable Generative AI and agentic AI applications aligned with defined solution architectures.
+* Translate business and architectural requirements into production-ready AI application components and services.
+* Build and optimize RAG pipelines, retrieval workflows, and hybrid AI solutions for enterprise scenarios.
+* Implement multi-agent orchestration, tool integrations, and A2A/MCP interaction patterns.
+* Develop and integrate AI services with SAP BTP, AI Core, Joule, SAP HANA, S/4HANA, and SAP integration services.
+* Implement LLMOps/MLOps pipelines supporting model deployment, monitoring, and lifecycle management.
+* Build reusable AI components, services, and accelerators to support rapid solution delivery.
+* Optimize AI applications for scalability, performance, reliability, and cost efficiency.
+* Ensure Responsible AI principles, data privacy, security, and compliance requirements are implemented in delivered solutions.
+* Collaborate closely with architects, product teams, and cross-functional engineering teams to deliver customer AI adoption programs.
+* Support troubleshooting, performance tuning, and continuous improvement of deployed AI solutions.
+* Continuously evaluate emerging tools and frameworks to improve development productivity and solution quality.
+
+**Required Skills & Experience**
+
+* 8–16 years of experience in AI/ML or enterprise software deveopment with hands-on solution delivery experience.
+* Strong experience building Generative AI applications, including RAG pipelines, agent workflows, and prompt engineering.
+* Experience implementing agentic workflows, tool integration, and multi-agent collaboration patterns.
+* Hands-on experience with frameworks such as LangChain, LangGraph, CrewAI, or equivalent.
+* Experience designing and implementing Business AI solutions.
+* Strong foundation in software engineering, distributed systems, and scalable application development.
+* Experience developing cloud-native applications and services.
+* Strong proficiency in Python; working knowledge of JavaScript/TypeScript is advantageous.
+* Experience working with vector databases, semantic retrieval, and knowledge graph integrations.
+* Experience implementing model deployment, monitoring, and lifecycle workflows using MLOps/LLMOps practices.
+* Experience working with SAP BTP or hyperscaler cloud platforms is beneficial.
+* Familiarity with SAP S/4HANA, HANA DB, and SAP AI offerings is advantageous.
+* Ability to collaborate effectively in customer-facing and cross-functional delivery environments.
+* Strong problem-solving mindset and commitment to delivering production-quality solutions.
+* Strong learning orientation and ability to rapidly adopt emerging AI development technologies.
+
+**Education**
+
+Bachelor’s or Master’s degree in Computer Science, Engineering, Data Science, or a related discipline.
+
+#AI26
+
+#DevConsultantT4PF
+
+#TechConsultantT4PF
+
+**Bring out your best**  
+SAP innovations help more than four hundred thousand customers worldwide work together more efficiently and use business insight more effectively. Originally known for leadership in enterprise resource planning (ERP) software, SAP has evolved to become a market leader in end-to-end business application software and related services for database, analytics, intelligent technologies, and experience management. As a cloud company with two hundred million users and more than one hundred thousand employees worldwide, we are purpose-driven and future-focused, with a highly collaborative team ethic and commitment to personal development. Whether connecting global industries, people, or platforms, we help ensure every challenge gets the solution it deserves. At SAP, you can bring out your best.
+  
+  
+**We win with inclusion**  
+SAP’s culture of inclusion, focus on health and well-being, and flexible working models help ensure that everyone – regardless of background – feels included and can run at their best. At SAP, we believe we are made stronger by the unique capabilities and qualities that each person brings to our company, and we invest in our employees to inspire confidence and help everyone realize their full potential. We ultimately believe in unleashing all talent and creating a better world.  
+  
+SAP is committed to the values of Equal Employment Opportunity and provides accessibility accommodations to applicants with physical and/or mental disabilities. If you are interested in applying for employment with SAP and are in need of accommodation or special assistance to navigate our website or to complete your application, please send an e-mail with your request to Recruiting Operations Team: Careers@sap.com.  
+  
+For SAP employees: Only permanent roles are eligible for the SAP Employee Referral Program, according to the eligibility rules set in the SAP Referral Policy. Specific conditions may apply for roles in Vocational Training.  
+  
+Qualified applicants will receive consideration for employment without regard to their age, race, religion, national origin, ethnicity, gender (including pregnancy, childbirth, et al), sexual orientation, gender identity or expression, protected veteran status, or disability, in compliance with applicable federal, state, and local legal requirements.  
+  
+Successful candidates might be required to undergo a background verification with an external vendor.
+
+**AI Usage in the Recruitment Process**
+
+For information on the responsible use of AI in our recruitment process, please refer to our Guidelines for Ethical Usage of AI in the Recruiting Process.
+
+Please note that any violation of these guidelines may result in disqualification from the hiring process.  
+  
+Requisition ID: 446572 | Work Area: Consulting and Professional Services | Expected Travel: 0 - 10% | Career Status: Professional | Employment Type: Regular Full Time | Additional Locations: #LI-Hybrid",Internet And Software,https://in.indeed.com/cmp/SAP,https://d2q79iu7y748jz.cloudfront.net/s/_squarelogo/256x256/d17f7c102a43b1dce3ba341c8dbad2b0,http://jobs.sap.com,"Dietmar-Hopp-Allee 16
+Walldorf, 69190
+Germany","10,000+",more than $10B (USD),SAP's purpose is to help the world run better and improve people's lives with sustainability at the core.,,,,,,
