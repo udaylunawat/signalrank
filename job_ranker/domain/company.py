@@ -11,24 +11,20 @@ def _norm(s: str) -> str:
 
 class CompanyScorer:
     """
-    Deterministic, conservative company preference scorer.
+    Deterministic, tiered company preference scorer.
 
-    Rules:
-    - No hard filtering
-    - Small bounded influence
-    - Alias-aware
-    - User-configurable
+    Supports 5 tiers: tier_s, tier_a, tier_b, tier_c, tier_d.
+    Falls back to legacy preferred/deprioritized if tiers not configured.
+    Alias-aware, no hard filtering.
     """
+
+    # Ordered highest to lowest priority
+    _TIERS = ["tier_s", "tier_a", "tier_b", "tier_c", "tier_d"]
 
     def __init__(self, cfg: dict):
         c = cfg.get("company_scoring", {})
 
         self.default_weight = float(c.get("default_weight", 1.0))
-        self.preferred_weight = float(c.get("preferred_weight", 1.10))
-        self.deprioritized_weight = float(c.get("deprioritized_weight", 0.85))
-
-        self.preferred = {_norm(x) for x in c.get("preferred_companies", [])}
-        self.deprioritized = {_norm(x) for x in c.get("deprioritized_companies", [])}
 
         raw_aliases = c.get("aliases", {})
         self.aliases: Dict[str, str] = {
@@ -37,33 +33,40 @@ class CompanyScorer:
             if isinstance(k, str) and isinstance(v, str)
         }
 
+        # Build tier lookup: {normalized_name: tier_name}
+        self._tier_lookup: Dict[str, str] = {}
+        has_tiers = any(c.get(t) for t in self._TIERS)
+
+        if has_tiers:
+            for tier in self._TIERS:
+                for name in c.get(tier, []):
+                    self._tier_lookup[_norm(name)] = tier
+        else:
+            # Legacy fallback: preferred → tier_a, deprioritized → tier_d
+            for name in c.get("preferred_companies", []):
+                self._tier_lookup[_norm(name)] = "tier_a"
+            for name in c.get("deprioritized_companies", []):
+                self._tier_lookup[_norm(name)] = "tier_d"
+
     def _canonical(self, company: str) -> str:
         name = _norm(company)
         return self.aliases.get(name, name)
 
-    def score(self, company: str) -> float:
-        name = self._canonical(company)
-
-        for p in self.preferred:
-            if p and p in name:
-                return self.preferred_weight
-
-        for d in self.deprioritized:
-            if d and d in name:
-                return self.deprioritized_weight
-
-        return self.default_weight
-
     def classify(self, company: str) -> str:
-        """Returns 'preferred', 'deprioritized', or 'default'."""
+        """Returns tier name or 'default'."""
         name = self._canonical(company)
-
-        for p in self.preferred:
-            if p and p in name:
-                return "preferred"
-
-        for d in self.deprioritized:
-            if d and d in name:
-                return "deprioritized"
-
+        for key, tier in self._tier_lookup.items():
+            if key and key in name:
+                return tier
         return "default"
+
+    def score(self, company: str) -> float:
+        """Legacy weight for backward compatibility."""
+        tier = self.classify(company)
+        return {
+            "tier_s": 1.5,
+            "tier_a": 1.3,
+            "tier_b": 1.1,
+            "tier_c": 0.95,
+            "tier_d": 0.85,
+        }.get(tier, self.default_weight)

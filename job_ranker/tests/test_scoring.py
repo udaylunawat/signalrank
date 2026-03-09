@@ -48,13 +48,28 @@ class TestSkillsScore:
 # ---- Company dimension ----
 
 class TestCompanyScore:
-    def test_preferred(self):
-        assert company_score_0_100("preferred") == 100.0
+    def test_tier_s(self):
+        assert company_score_0_100("tier_s") == 100.0
+
+    def test_tier_a(self):
+        assert company_score_0_100("tier_a") == 85.0
+
+    def test_tier_b(self):
+        assert company_score_0_100("tier_b") == 65.0
+
+    def test_tier_c(self):
+        assert company_score_0_100("tier_c") == 45.0
+
+    def test_tier_d(self):
+        assert company_score_0_100("tier_d") == 15.0
 
     def test_default(self):
         assert company_score_0_100("default") == 50.0
 
-    def test_deprioritized(self):
+    def test_legacy_preferred(self):
+        assert company_score_0_100("preferred") == 100.0
+
+    def test_legacy_deprioritized(self):
         assert company_score_0_100("deprioritized") == 15.0
 
     def test_unknown_tier(self):

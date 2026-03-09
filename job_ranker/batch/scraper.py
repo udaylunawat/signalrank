@@ -191,6 +191,7 @@ def scrape(
     search: str,
     hours_old: int,
     force_refresh: bool,
+    jobspy_only: bool = False,
 ) -> pd.DataFrame:
     """
     Scrape jobs for a given user/use_case/search string.
@@ -209,10 +210,10 @@ def scrape(
     all_rows: List[dict] = []
 
     logger.info(
-        "[SCRAPE] Starting scrape: queries=%d workers=%d rapidapi=%s",
+        "[SCRAPE] Starting scrape: queries=%d rapidapi=%s jobspy_only=%s",
         len(queries),
-        min(len(queries), MAX_WORKERS),
         has_rapidapi,
+        jobspy_only,
     )
     logger.info(
         "[SCRAPE] Config: sites=%s max_results=%s force_refresh=%s",
@@ -222,11 +223,14 @@ def scrape(
     )
 
     # --------------------------------------------------
-    # Phase 1: RapidAPI (primary)
+    # Phase 1: RapidAPI (primary) — skip if jobspy_only
     # --------------------------------------------------
     failed_queries = []
 
-    if has_rapidapi:
+    if jobspy_only:
+        logger.info("[SCRAPE] --jobspy-only mode: skipping RapidAPI")
+        failed_queries = list(queries)
+    elif has_rapidapi:
         workers = min(len(queries), MAX_WORKERS)
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {
@@ -273,34 +277,26 @@ def scrape(
             len(failed_queries),
             failed_queries,
         )
-        with ThreadPoolExecutor(max_workers=min(len(failed_queries), MAX_WORKERS)) as pool:
-            futures = {
-                pool.submit(
-                    _scrape_single_query_jobspy,
+        for q in failed_queries:
+            try:
+                rows = _scrape_single_query_jobspy(
                     query=q,
                     scraping_cfg=scraping_cfg,
                     hours_old=hours_old,
-                ): q
-                for q in failed_queries
-            }
+                )
+            except Exception as e:
+                logger.warning(
+                    "[SCRAPE] ✖ JobSpy query=%r exception: %s", q, e
+                )
+                continue
 
-            for fut in as_completed(futures):
-                query = futures[fut]
-                try:
-                    rows = fut.result(timeout=MAX_QUERY_SECONDS + 10)
-                except Exception as e:
-                    logger.warning(
-                        "[SCRAPE] ✖ JobSpy query=%r exception: %s", query, e
-                    )
-                    continue
-
-                if rows:
-                    all_rows.extend(rows)
-                    logger.info(
-                        "[SCRAPE] ✔ JobSpy query=%r collected %d rows",
-                        query,
-                        len(rows),
-                    )
+            if rows:
+                all_rows.extend(rows)
+                logger.info(
+                    "[SCRAPE] ✔ JobSpy query=%r collected %d rows",
+                    q,
+                    len(rows),
+                )
 
     if not all_rows:
         logger.warning("[SCRAPE] No rows collected from any query")

@@ -52,6 +52,9 @@ _DESC_RE = re.compile(
 )
 _TAG_RE = re.compile(r"<[^>]+>")
 
+# First datetime attribute on the page is the job's posting date
+_DATE_RE = re.compile(r'datetime="(\d{4}-\d{2}-\d{2})"')
+
 
 class _TokenBucket:
     """Thread-safe token bucket rate limiter."""
@@ -96,8 +99,8 @@ def _get_headers(index: int) -> dict:
     return headers
 
 
-def _scrape_linkedin_description(job_url: str, worker_id: int) -> str | None:
-    """Scrape job description from a public LinkedIn job page."""
+def _scrape_linkedin_page(job_url: str, worker_id: int) -> Tuple[str | None, str | None]:
+    """Scrape description and posting date from a public LinkedIn job page."""
     global _consecutive_429
 
     for attempt in range(1, MAX_RETRIES + 1):
@@ -131,38 +134,49 @@ def _scrape_linkedin_description(job_url: str, worker_id: int) -> str | None:
                 _consecutive_429 = max(0, _consecutive_429 - 1)
 
             if r.status_code != 200:
-                return None
+                return None, None
 
             if "authwall" in r.url:
-                return None
+                return None, None
 
-            match = _DESC_RE.search(r.text)
-            if not match:
-                return None
+            html = r.text
 
-            clean = _TAG_RE.sub(" ", match.group(1))
-            clean = re.sub(r"\s+", " ", clean).strip()
-            return clean if len(clean) >= 50 else None
+            # Extract description
+            desc = None
+            match = _DESC_RE.search(html)
+            if match:
+                clean = _TAG_RE.sub(" ", match.group(1))
+                clean = re.sub(r"\s+", " ", clean).strip()
+                if len(clean) >= 50:
+                    desc = clean
+
+            # Extract posting date (first datetime attribute)
+            date_posted = None
+            date_match = _DATE_RE.search(html)
+            if date_match:
+                date_posted = date_match.group(1)
+
+            return desc, date_posted
 
         except requests.exceptions.Timeout:
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_BACKOFF * attempt)
         except requests.exceptions.RequestException:
-            return None
+            return None, None
 
-    return None
+    return None, None
 
 
-def _enrich_one(args: Tuple[int, str]) -> Tuple[str, str | None]:
-    """Enrich a single job. Returns (job_url, description or None)."""
+def _enrich_one(args: Tuple[int, str]) -> Tuple[str, str | None, str | None]:
+    """Enrich a single job. Returns (job_url, description or None, date or None)."""
     worker_id, job_url = args
-    desc = _scrape_linkedin_description(job_url, worker_id)
-    return job_url, desc
+    desc, date_posted = _scrape_linkedin_page(job_url, worker_id)
+    return job_url, desc, date_posted
 
 
-def enrich_empty_descriptions(db_con, *, batch_size: int = 5000) -> int:
+def enrich_linkedin_jobs(db_con, *, batch_size: int = 5000) -> int:
     """
-    Find LinkedIn jobs with empty descriptions and scrape them.
+    Find LinkedIn jobs missing descriptions or posting dates and scrape them.
 
     Args:
         db_con: DuckDB connection (read-write)
@@ -176,7 +190,10 @@ def enrich_empty_descriptions(db_con, *, batch_size: int = 5000) -> int:
         SELECT job_url
         FROM jobs_raw
         WHERE site = 'linkedin'
-          AND (description IS NULL OR LENGTH(description) <= 20)
+          AND (
+            (description IS NULL OR LENGTH(description) <= 20)
+            OR date_posted IS NULL
+          )
           AND job_url IS NOT NULL
           AND job_url LIKE '%linkedin.com/jobs/view/%'
         ORDER BY ingested_at DESC
@@ -209,17 +226,29 @@ def enrich_empty_descriptions(db_con, *, batch_size: int = 5000) -> int:
         for i, fut in enumerate(as_completed(futures), 1):
             url = futures[fut]
             try:
-                _, desc = fut.result(timeout=60)
+                _, desc, date_posted = fut.result(timeout=60)
             except Exception as e:
                 logger.info("[ENRICH] exception for %s: %s", url, e)
                 failed += 1
                 continue
 
+            got_something = False
+
             if desc:
                 db_con.execute(
-                    "UPDATE jobs_raw SET description = ? WHERE job_url = ?",
+                    "UPDATE jobs_raw SET description = ? WHERE job_url = ? AND (description IS NULL OR LENGTH(description) <= 20)",
                     [desc, url],
                 )
+                got_something = True
+
+            if date_posted:
+                db_con.execute(
+                    "UPDATE jobs_raw SET date_posted = ? WHERE job_url = ? AND date_posted IS NULL",
+                    [date_posted, url],
+                )
+                got_something = True
+
+            if got_something:
                 enriched += 1
             else:
                 failed += 1

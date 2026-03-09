@@ -38,8 +38,9 @@ dev = [
 [project.scripts]
 job-ranker = "job_ranker.entrypoint:main"
 
-[tool.setuptools]
-packages = ["job_ranker"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["job_ranker*"]
 
 [tool.setuptools.package-data]
 job_ranker = ["**/*"]

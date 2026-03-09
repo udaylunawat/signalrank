@@ -57,6 +57,8 @@ def main():
     p.add_argument("--hours-old", type=int)
     p.add_argument("--force-refresh", action="store_true")
     p.add_argument("--csv", help="Path to pre-scraped CSV")
+    p.add_argument("--jobspy-only", action="store_true",
+                   help="Skip RapidAPI, use only JobSpy for scraping")
 
     args = p.parse_args()
 
@@ -119,6 +121,7 @@ def main():
             hours_old=hours_old,
             force_refresh=force_refresh,
             csv_path=None,
+            jobspy_only=args.jobspy_only,
         )
     except RuntimeError as e:
         print(str(e).strip())

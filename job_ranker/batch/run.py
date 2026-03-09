@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from job_ranker.batch.context import resolve_context
-from job_ranker.batch.enrich import enrich_empty_descriptions
+from job_ranker.batch.enrich import enrich_linkedin_jobs
 from job_ranker.batch.ranker import rank
 from job_ranker.batch.scraper import scrape
 
@@ -55,6 +55,7 @@ def execute(
     force_refresh,
     no_scrape=False,
     csv_path=None,
+    jobspy_only=False,
 ):
     ctx = resolve_context(user, use_case)
 
@@ -141,6 +142,7 @@ def execute(
                     search=search,
                     hours_old=hours_old,
                     force_refresh=force_refresh,
+                    jobspy_only=jobspy_only,
                 )
 
         # ==================================================
@@ -155,7 +157,7 @@ def execute(
         # ==================================================
         # ENRICH empty descriptions (LinkedIn public pages)
         # ==================================================
-        enriched = enrich_empty_descriptions(store.con)
+        enriched = enrich_linkedin_jobs(store.con)
         if enriched:
             logger.info("[ENRICH] Enriched %d job descriptions", enriched)
 
