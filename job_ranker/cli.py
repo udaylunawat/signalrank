@@ -59,6 +59,8 @@ def main():
     p.add_argument("--csv", help="Path to pre-scraped CSV")
     p.add_argument("--jobspy-only", action="store_true",
                    help="Skip RapidAPI, use only JobSpy for scraping")
+    p.add_argument("--skip-enrich", action="store_true",
+                   help="Skip LinkedIn enrichment step (faster, no 429s)")
 
     args = p.parse_args()
 
@@ -122,6 +124,7 @@ def main():
             force_refresh=force_refresh,
             csv_path=None,
             jobspy_only=args.jobspy_only,
+            skip_enrich=args.skip_enrich,
         )
     except RuntimeError as e:
         print(str(e).strip())

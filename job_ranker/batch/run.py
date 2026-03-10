@@ -56,6 +56,7 @@ def execute(
     no_scrape=False,
     csv_path=None,
     jobspy_only=False,
+    skip_enrich=False,
 ):
     ctx = resolve_context(user, use_case)
 
@@ -157,9 +158,12 @@ def execute(
         # ==================================================
         # ENRICH empty descriptions (LinkedIn public pages)
         # ==================================================
-        enriched = enrich_linkedin_jobs(store.con)
-        if enriched:
-            logger.info("[ENRICH] Enriched %d job descriptions", enriched)
+        if skip_enrich:
+            logger.info("[ENRICH] Skipped (--skip-enrich flag set)")
+        else:
+            enriched = enrich_linkedin_jobs(store.con)
+            if enriched:
+                logger.info("[ENRICH] Enriched %d job descriptions", enriched)
 
         # ==================================================
         # RANKING + EMBEDDING PHASE

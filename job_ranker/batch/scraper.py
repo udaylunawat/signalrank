@@ -138,8 +138,9 @@ def _scrape_single_query_jobspy(
         ),
     }
 
-    # hours_old is supported by Indeed in JobSpy
-    if scraping_cfg.get("supports_hours_old", True):
+    # hours_old is supported by the speedyapply fork but not vanilla python-jobspy.
+    # Try with it first; if the version doesn't support it, retry without.
+    if scraping_cfg.get("supports_hours_old", True) and hours_old:
         kwargs["hours_old"] = hours_old
 
     logger.info("[SCRAPE] ▶ JobSpy starting query=%r", query)
@@ -161,8 +162,21 @@ def _scrape_single_query_jobspy(
     try:
         jobs = scrape_jobs(**kwargs)
     except TypeError as e:
-        logger.warning("[SCRAPE] ✖ JobSpy query=%r failed (TypeError): %s", query, e)
-        return []
+        if "hours_old" in str(e) and "hours_old" in kwargs:
+            # Installed JobSpy version doesn't support hours_old — retry without it
+            logger.warning(
+                "[SCRAPE] JobSpy version doesn't support hours_old — retrying without it. "
+                "Install speedyapply fork for hours_old support."
+            )
+            kwargs.pop("hours_old")
+            try:
+                jobs = scrape_jobs(**kwargs)
+            except Exception as e2:
+                logger.warning("[SCRAPE] ✖ JobSpy query=%r failed on retry: %s", query, e2)
+                return []
+        else:
+            logger.warning("[SCRAPE] ✖ JobSpy query=%r failed (TypeError): %s", query, e)
+            return []
     except Exception as e:
         logger.warning("[SCRAPE] ✖ JobSpy query=%r failed: %s", query, e)
         return []
