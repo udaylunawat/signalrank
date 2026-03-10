@@ -20,14 +20,17 @@ def run_batch(args):
 
     if args.search is not None:
         argv += ["--search", args.search]
-
     if args.hours_old is not None:
         argv += ["--hours-old", str(args.hours_old)]
-
     if args.force_refresh:
         argv.append("--force-refresh")
     if args.csv:
         argv += ["--csv", args.csv]
+    if args.jobspy_only:
+        argv.append("--jobspy-only")
+    if args.skip_enrich:
+        argv.append("--skip-enrich")
+
     sys.argv = argv
     cli_main()
 
@@ -90,6 +93,10 @@ def main():
     r.add_argument("--force-refresh", action="store_true")
     r.add_argument("--no-scrape", action="store_true")
     r.add_argument("--csv", help="Path to pre-scraped CSV")
+    r.add_argument("--jobspy-only", action="store_true",
+                   help="Skip RapidAPI, use only JobSpy/Indeed for scraping")
+    r.add_argument("--skip-enrich", action="store_true",
+                   help="Skip LinkedIn description enrichment (faster, no 429s)")
     r.set_defaults(fn=run_batch)
 
     # ---------------- ui ----------------

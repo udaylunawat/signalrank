@@ -33,6 +33,13 @@ MAX_WORKERS = 4
 DEFAULT_RESULTS_WANTED = 25
 MIN_DESC_LEN = 20
 
+# Google Jobs scraper — optional, works from residential IPs or with proxies
+try:
+    from job_ranker.scrapers.google_jobs.scraper import GoogleJobsScraper
+    _GOOGLE_JOBS_AVAILABLE = True
+except ImportError:
+    _GOOGLE_JOBS_AVAILABLE = False
+
 # Observability / safety
 MAX_QUERY_SECONDS = 180
 LOG_HEARTBEAT_SECONDS = 15
@@ -346,6 +353,12 @@ def scrape(
         except Exception as e:
             logger.warning("[SCRAPE] ✖ Free APIs query=%r exception: %s", q, e)
 
+    # --------------------------------------------------
+    # Phase 4: Google Jobs (optional, residential IP only)
+    # Enable via config: scraping.google_jobs.enabled: true
+    # --------------------------------------------------
+    _scrape_google_jobs(queries, scraping_cfg, hours_old, all_rows)
+
     return _finalize(all_rows, scraping_cfg, ctx)
 
 
@@ -383,6 +396,66 @@ def _run_jobspy_sequential(
         if rows:
             all_rows.extend(rows)
             logger.info("[SCRAPE] ✔ JobSpy query=%r collected %d rows", q, len(rows))
+
+
+def _scrape_google_jobs(
+    queries: List[str],
+    scraping_cfg: dict,
+    hours_old: int,
+    all_rows: List[dict],
+) -> None:
+    """
+    Optional Phase: Google Jobs scraper.
+    Enabled via config: scraping.google_jobs.enabled: true
+    Requires residential IP or proxy — blocked on datacenter/Docker IPs.
+    """
+    if not _GOOGLE_JOBS_AVAILABLE:
+        logger.warning("[SCRAPE] Google Jobs scraper not available (import failed)")
+        return
+
+    google_cfg = scraping_cfg.get("google_jobs", {})
+    if not google_cfg.get("enabled", False):
+        return
+
+    proxy = google_cfg.get("proxy") or os.getenv("GOOGLE_JOBS_PROXY")
+    location = scraping_cfg.get("country", "India")
+    results_wanted = google_cfg.get("results_per_query", 50)
+    delay = google_cfg.get("delay", 2.0)
+
+    logger.info(
+        "[SCRAPE] Google Jobs phase: %d queries location=%r proxy=%s",
+        len(queries), location, bool(proxy)
+    )
+
+    scraper = GoogleJobsScraper(
+        proxies=[proxy] if proxy else None,
+        delay=delay,
+    )
+
+    for i, q in enumerate(queries):
+        if i > 0:
+            time.sleep(delay)
+        try:
+            jobs = scraper.scrape(
+                query=q,
+                location=location,
+                results_wanted=results_wanted,
+                hours_old=hours_old,
+            )
+            rows = [j.to_dict() for j in jobs]
+            if rows:
+                # Normalize to match job_ranker schema
+                for r in rows:
+                    r.setdefault("company", r.pop("company", ""))
+                    r.setdefault("job_url", r.get("job_url"))
+                all_rows.extend(rows)
+                logger.info(
+                    "[SCRAPE] ✔ Google Jobs query=%r collected %d rows", q, len(rows)
+                )
+            else:
+                logger.info("[SCRAPE] Google Jobs query=%r → 0 rows (may be blocked)", q)
+        except Exception as e:
+            logger.warning("[SCRAPE] ✖ Google Jobs query=%r exception: %s", q, e)
 
 
 def _finalize(all_rows: List[dict], scraping_cfg: dict, ctx) -> pd.DataFrame:

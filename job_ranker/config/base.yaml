@@ -135,6 +135,14 @@ scraping:
   # Useful for testing, debugging, or when RapidAPI keys are unavailable.
   jobspy_only: false
 
+  # Google Jobs scraper (Phase 4 — optional)
+  # Works from residential IPs only. Set enabled: true + proxy if running on a server.
+  google_jobs:
+    enabled: false           # set true to enable
+    results_per_query: 50
+    delay: 2.0               # seconds between paginated requests
+    proxy: null              # e.g. "user:pass@host:port" or set GOOGLE_JOBS_PROXY env var
+
   sites:
     enabled:
       - indeed
