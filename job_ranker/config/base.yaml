@@ -142,14 +142,7 @@ scraping:
   # Works from residential IPs (laptop) without proxy.
   # On servers/Docker: set proxy to a residential proxy.
   google_jobs:
-    enabled: true
-    results_per_query: 50
-    delay: 2.0
-    # Backend priority:
-    #   1. SerpAPI (reliable, any IP)  → set SERPAPI_KEY in .env  https://serpapi.com (100 free/month)
-    #   2. JobSpy Google (fallback, unreliable — Google blocks most IPs now)
-    #   3. Residential proxy (fallback) → set GOOGLE_JOBS_PROXY=user:pass@host:port
-    proxy: null
+    enabled: false   # Direct Google scraping blocked. Use Gmail Job Alerts instead.
 
   sites:
     enabled:
