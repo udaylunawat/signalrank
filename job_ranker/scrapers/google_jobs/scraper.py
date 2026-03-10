@@ -180,41 +180,51 @@ class GoogleJobsScraper:
             log.error("Initial request failed: %s", e)
             return None, []
 
-        # Detect IP blocking / CAPTCHA
-        if self._is_blocked(resp.text):
+        blocked, reason = self._is_blocked(resp.text)
+        if blocked:
             log.error(
-                "Google is blocking this request. This usually means:\n"
-                "  1. You are running from a datacenter/server IP (Docker, VPS, CI).\n"
-                "  2. Too many requests from this IP.\n"
-                "Fix: run from a residential IP (your laptop) or use --proxy with a residential proxy."
+                "Google is blocking this request (%s). "
+                "If running on your laptop, this may be a transient block — try again in a few minutes. "
+                "On servers/Docker, use --proxy with a residential proxy.",
+                reason,
             )
             return None, []
 
         cursor = self._extract_cursor(resp.text)
         jobs = self._parse_initial_html(resp.text)
+
+        # Debug: log what we found
+        has_widget = "Yust4d" in resp.text or "data-async-fc" in resp.text
+        log.debug(
+            "Initial page: status=%s len=%d has_widget=%s cursor=%s jobs=%d",
+            getattr(resp, "status_code", "?"), len(resp.text), has_widget, bool(cursor), len(jobs)
+        )
         return cursor, jobs
 
-    def _is_blocked(self, html: str) -> bool:
-        """Detect Google blocking / CAPTCHA / empty jobs response."""
-        blocked_signals = [
-            "detected unusual traffic",
-            "To continue, please click the box below",
-            "g-recaptcha",
-            "captcha",
-            "SG_REL",                    # Google redirect error
-            "/sorry/index",              # Google "sorry" page
-        ]
+    def _is_blocked(self, html: str) -> tuple[bool, str]:
+        """
+        Detect actual Google blocking / CAPTCHA.
+        Only returns True for clear hard-block signals — not for missing widget markers
+        (the widget may just not appear for certain queries/regions).
+        """
+        # Hard block signals only — things that definitively mean we're blocked
+        hard_blocks = {
+            "detected unusual traffic": "unusual traffic detected",
+            "our systems have detected unusual": "unusual traffic detected",
+            "g-recaptcha": "CAPTCHA challenge",
+            "/sorry/index": "Google sorry page",
+            "sorry/index?continue": "Google sorry page",
+        }
         lower = html.lower()
-        # Also check: page has no jobs widget markers at all
-        has_jobs_widget = "Yust4d" in html or "AF_initDataCallback" in html or "data-async-fc" in html
-        if not has_jobs_widget:
-            for sig in blocked_signals:
-                if sig.lower() in lower:
-                    return True
-            # If response looks like a normal Google page but no jobs widget
-            if len(html) < 5000 or "unusual traffic" in lower:
-                return True
-        return False
+        for signal, reason in hard_blocks.items():
+            if signal in lower:
+                return True, reason
+
+        # Soft signal: page is very short (< 2000 chars) — likely a redirect/error
+        if len(html) < 2000:
+            return True, f"response too short ({len(html)} chars)"
+
+        return False, ""
 
     def _fetch_next_page(self, cursor: str) -> tuple[list[Job], Optional[str]]:
         """Fetch a paginated batch, return (jobs, next_cursor)."""
