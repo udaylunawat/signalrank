@@ -1,2 +1,40 @@
-OPENROUTER_API_KEY='sk-'
-RAPIDAPI_KEY='dd'
+# ============================================================
+# Job Ranker — Environment Variables Template
+# Copy this file to .env and fill in your values.
+# NEVER commit .env to git.
+# ============================================================
+
+# ----------------------------------------------------------
+# SCRAPING — RapidAPI
+# Disabled by default (jobspy_only=true in base.yaml)
+# Subscribe at: https://rapidapi.com
+# ----------------------------------------------------------
+RAPIDAPI_KEY=your_rapidapi_key_here
+
+# ----------------------------------------------------------
+# SCRAPING — Google Jobs via SerpAPI
+# 100 free searches/month, no credit card required
+# Get key at: https://serpapi.com/manage-api-key
+# ----------------------------------------------------------
+SERPAPI_KEY=your_serpapi_key_here
+
+# ----------------------------------------------------------
+# SCRAPING — Google Jobs via Gmail Job Alerts (coming soon)
+# Reads job alert emails from your Gmail label
+# Requires Gmail API credentials (see SETUP.md)
+# ----------------------------------------------------------
+GMAIL_USER=your@gmail.com
+GMAIL_CREDENTIALS=job_ranker/gmail_credentials.json
+
+# ----------------------------------------------------------
+# LLM — OpenRouter (for veto/enrichment/ranking advisory)
+# Get key at: https://openrouter.ai/keys
+# Enable in base.yaml: ranking.llm_veto.enabled: true
+# ----------------------------------------------------------
+OPENROUTER_API_KEY=your_openrouter_key_here
+
+# ----------------------------------------------------------
+# SCRAPING — Google Jobs proxy (alternative to SerpAPI)
+# Use a residential proxy if running on a server/Docker
+# ----------------------------------------------------------
+# GOOGLE_JOBS_PROXY=user:pass@host:port
