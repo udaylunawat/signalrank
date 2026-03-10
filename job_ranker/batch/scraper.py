@@ -234,8 +234,9 @@ def scrape(
 
     Strategy depends on config `scraping.jobspy_only`:
 
-    jobspy_only: true  → ONLY JobSpy (Indeed). Serialized, one query at a time
-                         with a short delay to avoid 403s. No RapidAPI, no free APIs.
+    jobspy_only: true  → JobSpy (Indeed) + Google Jobs (if enabled in config).
+                         Serialized, one query at a time with delay to avoid 403s.
+                         No RapidAPI, no free APIs (Himalayas/Remotive/Jobicy).
 
     jobspy_only: false (default) → All sources in parallel:
         1. RapidAPI sources (if RAPIDAPI_KEY valid)
@@ -271,8 +272,8 @@ def scrape(
 
     if jobspy_only:
         logger.info(
-            "[SCRAPE] jobspy_only=true — skipping all RapidAPI and free-API sources. "
-            "Running JobSpy/Indeed sequentially (1 query at a time)."
+            "[SCRAPE] jobspy_only=true — skipping RapidAPI and free-API sources. "
+            "Running JobSpy/Indeed sequentially + Google Jobs (if enabled)."
         )
         _run_jobspy_sequential(
             queries=queries,
@@ -281,6 +282,8 @@ def scrape(
             all_rows=all_rows,
             sites_override=["indeed"],
         )
+        # Google Jobs is NOT a RapidAPI source — run it even in jobspy_only mode
+        _scrape_google_jobs(queries, scraping_cfg, hours_old, all_rows)
         return _finalize(all_rows, scraping_cfg, ctx)
 
     # --------------------------------------------------
