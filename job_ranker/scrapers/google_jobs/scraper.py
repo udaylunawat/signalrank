@@ -164,12 +164,18 @@ class GoogleJobsScraper:
             return self._session.get(url, headers=headers, params=params)
         return self._session.get(url, headers=headers, params=params, timeout=self.timeout)
 
+    def _check_status(self, resp) -> None:
+        """Raise on bad status — works for both requests and tls_client responses."""
+        status = getattr(resp, "status_code", None)
+        if status and status >= 400:
+            raise Exception(f"HTTP {status}")
+
     def _fetch_initial(self, query: str) -> tuple[Optional[str], list[Job]]:
         """Fetch first page, return (cursor, jobs)."""
         params = {"q": query, "udm": "8"}
         try:
             resp = self._get(GOOGLE_SEARCH_URL, HEADERS_INITIAL, params)
-            resp.raise_for_status()
+            self._check_status(resp)
         except requests.RequestException as e:
             log.error("Initial request failed: %s", e)
             return None, []
@@ -218,7 +224,7 @@ class GoogleJobsScraper:
             "async": [ASYNC_PARAM],
         }
         resp = self._get(GOOGLE_ASYNC_URL, HEADERS_JOBS_PAGE, params)
-        resp.raise_for_status()
+        self._check_status(resp)
         return self._parse_async_response(resp.text)
 
     def _extract_cursor(self, html: str) -> Optional[str]:
