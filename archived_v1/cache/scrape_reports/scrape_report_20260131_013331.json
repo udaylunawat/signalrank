@@ -1,0 +1,117 @@
+{
+  "generated_at": "2026-01-31T01:33:12.435790",
+  "queries": [
+    {
+      "query": "senior mloops engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "linkedin",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "senior machine learning operations engineer",
+      "results": []
+    },
+    {
+      "query": "lead mloops engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "linkedin",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "senior mloops specialist",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "linkedin",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "principal mloops engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "linkedin",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    }
+  ],
+  "by_site": {
+    "indeed": 44,
+    "glassdoor": 27
+  }
+}

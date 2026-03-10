@@ -37,6 +37,9 @@ MIN_DESC_LEN = 20
 MAX_QUERY_SECONDS = 180
 LOG_HEARTBEAT_SECONDS = 15
 
+# JobSpy serialization: delay between sequential Indeed requests to avoid 403
+JOBSPY_INTER_QUERY_DELAY = 3.0  # seconds between queries when serialized
+
 
 # --------------------------------------------------
 # Internal helpers
@@ -114,15 +117,18 @@ def _scrape_single_query_jobspy(
     query: str,
     scraping_cfg: dict,
     hours_old: int,
+    sites_override: list[str] | None = None,
 ) -> List[dict]:
     """
-    Run a single JobSpy query.
+    Run a single JobSpy query (serialized, one at a time).
 
-    This function is intentionally synchronous and noisy.
-    If it blocks, we want to know exactly where.
+    sites_override: if provided, use this instead of config sites.
+                    Typically ["indeed"] when jobspy_only=true.
     """
+    sites = sites_override or scraping_cfg.get("sites", {}).get("enabled", ["indeed"])
+
     kwargs = {
-        "site_name": scraping_cfg.get("sites", {}).get("enabled", ["indeed"]),
+        "site_name": sites,
         "search_term": query,
         "location": scraping_cfg.get("country", "India"),
         "country_indeed": scraping_cfg.get("country", "India"),
@@ -132,8 +138,8 @@ def _scrape_single_query_jobspy(
         ),
     }
 
-    # Only pass hours_old if explicitly supported
-    if scraping_cfg.get("supports_hours_old", False):
+    # hours_old is supported by Indeed in JobSpy
+    if scraping_cfg.get("supports_hours_old", True):
         kwargs["hours_old"] = hours_old
 
     logger.info("[SCRAPE] ▶ JobSpy starting query=%r", query)
@@ -185,6 +191,15 @@ def _scrape_single_query_jobspy(
 # --------------------------------------------------
 # Public API
 # --------------------------------------------------
+
+def _is_valid_api_key(key: str | None) -> bool:
+    """Return True only if key looks like a real credential (not a placeholder)."""
+    if not key:
+        return False
+    placeholders = {"dd", "sk-", "your_key", "xxx", "test", "none", "null", ""}
+    return key.strip().lower() not in placeholders and len(key.strip()) > 8
+
+
 def scrape(
     *,
     ctx,
@@ -196,9 +211,17 @@ def scrape(
     """
     Scrape jobs for a given user/use_case/search string.
 
-    Strategy:
-    1. Try RapidAPI first (reliable, no IP blocking)
-    2. Fall back to JobSpy if RapidAPI yields nothing
+    Strategy depends on config `scraping.jobspy_only`:
+
+    jobspy_only: true  → ONLY JobSpy (Indeed). Serialized, one query at a time
+                         with a short delay to avoid 403s. No RapidAPI, no free APIs.
+
+    jobspy_only: false (default) → All sources in parallel:
+        1. RapidAPI sources (if RAPIDAPI_KEY valid)
+        2. JobSpy Indeed — serialized sequentially to avoid 403
+        3. Free direct APIs (Himalayas, Remotive, Jobicy) — always run
+
+    All phases run; results are merged and deduplicated.
     """
     queries = [q.strip() for q in search.split("|") if q.strip()]
     if not queries:
@@ -206,31 +229,48 @@ def scrape(
         return pd.DataFrame()
 
     scraping_cfg = ctx.config.get("scraping", {})
-    has_rapidapi = bool(os.getenv("RAPIDAPI_KEY"))
+    jobspy_only = scraping_cfg.get("jobspy_only", False)
+    rapidapi_key = os.getenv("RAPIDAPI_KEY", "")
+    has_rapidapi = _is_valid_api_key(rapidapi_key) and not jobspy_only
     all_rows: List[dict] = []
 
     logger.info(
-        "[SCRAPE] Starting scrape: queries=%d rapidapi=%s jobspy_only=%s",
+        "[SCRAPE] Starting scrape: queries=%d jobspy_only=%s rapidapi=%s",
         len(queries),
-        has_rapidapi,
         jobspy_only,
+        has_rapidapi,
     )
     logger.info(
-        "[SCRAPE] Config: sites=%s max_results=%s force_refresh=%s",
+        "[SCRAPE] Config: sites=%s max_results=%s hours_old=%s force_refresh=%s",
         scraping_cfg.get("sites", {}).get("enabled"),
         scraping_cfg.get("max_results"),
+        hours_old,
         force_refresh,
     )
 
-    # --------------------------------------------------
-    # Phase 1: RapidAPI (primary) — skip if jobspy_only
-    # --------------------------------------------------
-    failed_queries = []
-
     if jobspy_only:
-        logger.info("[SCRAPE] --jobspy-only mode: skipping RapidAPI")
-        failed_queries = list(queries)
-    elif has_rapidapi:
+        logger.info(
+            "[SCRAPE] jobspy_only=true — skipping all RapidAPI and free-API sources. "
+            "Running JobSpy/Indeed sequentially (1 query at a time)."
+        )
+        _run_jobspy_sequential(
+            queries=queries,
+            scraping_cfg=scraping_cfg,
+            hours_old=hours_old,
+            all_rows=all_rows,
+            sites_override=["indeed"],
+        )
+        return _finalize(all_rows, scraping_cfg, ctx)
+
+    # --------------------------------------------------
+    # Phase 1: RapidAPI (optional, when key is valid)
+    # --------------------------------------------------
+    if not has_rapidapi:
+        logger.warning(
+            "[SCRAPE] ⚠ RAPIDAPI_KEY is missing or invalid — "
+            "RapidAPI sources skipped. JobSpy + free APIs will still run."
+        )
+    else:
         workers = min(len(queries), MAX_WORKERS)
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {
@@ -242,69 +282,104 @@ def scrape(
                 ): q
                 for q in queries
             }
-
             for fut in as_completed(futures):
                 query = futures[fut]
                 try:
                     rows = fut.result(timeout=MAX_QUERY_SECONDS + 10)
                 except Exception as e:
-                    logger.warning(
-                        "[SCRAPE] ✖ RapidAPI query=%r exception: %s", query, e
-                    )
-                    failed_queries.append(query)
+                    logger.warning("[SCRAPE] ✖ RapidAPI query=%r exception: %s", query, e)
                     continue
-
-                if not rows:
-                    logger.info(
-                        "[SCRAPE] RapidAPI query=%r yielded no rows", query
-                    )
-                    failed_queries.append(query)
-                    continue
-
-                all_rows.extend(rows)
-                logger.info(
-                    "[SCRAPE] ✔ query=%r collected %d rows", query, len(rows)
-                )
-    else:
-        failed_queries = list(queries)
+                if rows:
+                    all_rows.extend(rows)
+                    logger.info("[SCRAPE] ✔ RapidAPI query=%r collected %d rows", query, len(rows))
+                else:
+                    logger.info("[SCRAPE] RapidAPI query=%r yielded no rows", query)
 
     # --------------------------------------------------
-    # Phase 2: JobSpy fallback for failed queries
+    # Phase 2: JobSpy Indeed    # --------------------------------------------------
+    # Phase 2: JobSpy Indeed — serialized to avoid 403
     # --------------------------------------------------
-    if failed_queries:
-        logger.info(
-            "[SCRAPE] JobSpy fallback for %d queries: %s",
-            len(failed_queries),
-            failed_queries,
-        )
-        for q in failed_queries:
-            try:
-                rows = _scrape_single_query_jobspy(
-                    query=q,
-                    scraping_cfg=scraping_cfg,
-                    hours_old=hours_old,
-                )
-            except Exception as e:
-                logger.warning(
-                    "[SCRAPE] ✖ JobSpy query=%r exception: %s", q, e
-                )
-                continue
+    _run_jobspy_sequential(
+        queries=queries,
+        scraping_cfg=scraping_cfg,
+        hours_old=hours_old,
+        all_rows=all_rows,
+        sites_override=["indeed"],
+    )
 
-            if rows:
-                all_rows.extend(rows)
+    # --------------------------------------------------
+    # Phase 3: Free direct APIs — always run (no key needed)
+    # --------------------------------------------------
+    logger.info("[SCRAPE] Running free direct APIs (Himalayas, Remotive, Jobicy)")
+    _free_scraper = LinkedInRapidAPIScraper(
+        api_key="__no_key__",
+        cfg=ctx.config,
+        logger=logger,
+    )
+    for q in queries:
+        try:
+            rows_h = _free_scraper._search_himalayas(q, scraping_cfg.get("max_results", 50))
+            rows_r = _free_scraper._search_remotive(q)
+            rows_j = _free_scraper._search_jobicy(q)
+            free_rows = rows_h + rows_r + rows_j
+            if free_rows:
+                all_rows.extend(free_rows)
                 logger.info(
-                    "[SCRAPE] ✔ JobSpy query=%r collected %d rows",
-                    q,
-                    len(rows),
+                    "[SCRAPE] ✔ Free APIs query=%r collected %d rows "
+                    "(himalayas=%d remotive=%d jobicy=%d)",
+                    q, len(free_rows), len(rows_h), len(rows_r), len(rows_j),
                 )
+        except Exception as e:
+            logger.warning("[SCRAPE] ✖ Free APIs query=%r exception: %s", q, e)
 
+    return _finalize(all_rows, scraping_cfg, ctx)
+
+
+def _run_jobspy_sequential(
+    *,
+    queries: List[str],
+    scraping_cfg: dict,
+    hours_old: int,
+    all_rows: List[dict],
+    sites_override: list[str] | None = None,
+) -> None:
+    """
+    Run JobSpy queries one at a time (serialized) to avoid Indeed 403s.
+    Adds JOBSPY_INTER_QUERY_DELAY seconds between each request.
+    """
+    logger.info(
+        "[SCRAPE] JobSpy sequential phase: %d queries (delay=%.1fs between each)",
+        len(queries),
+        JOBSPY_INTER_QUERY_DELAY,
+    )
+    for i, q in enumerate(queries):
+        if i > 0:
+            logger.info("[SCRAPE] JobSpy inter-query delay %.1fs", JOBSPY_INTER_QUERY_DELAY)
+            time.sleep(JOBSPY_INTER_QUERY_DELAY)
+        try:
+            rows = _scrape_single_query_jobspy(
+                query=q,
+                scraping_cfg=scraping_cfg,
+                hours_old=hours_old,
+                sites_override=sites_override,
+            )
+        except Exception as e:
+            logger.warning("[SCRAPE] ✖ JobSpy query=%r exception: %s", q, e)
+            continue
+        if rows:
+            all_rows.extend(rows)
+            logger.info("[SCRAPE] ✔ JobSpy query=%r collected %d rows", q, len(rows))
+
+
+def _finalize(all_rows: List[dict], scraping_cfg: dict, ctx) -> pd.DataFrame:
+    """
+    Normalize, deduplicate, filter, and persist the collected rows.
+    Shared by all scrape strategies.
+    """
     if not all_rows:
         logger.warning("[SCRAPE] No rows collected from any query")
         return pd.DataFrame()
 
-    # --------------------------------------------------
-    # Normalize + filter
-    # --------------------------------------------------
     df = pd.DataFrame.from_records(all_rows)
     if df.empty:
         return df
@@ -321,15 +396,11 @@ def scrape(
     if "job_url_direct" not in df.columns:
         df["job_url_direct"] = None
 
-    # Deduplicate by canonical job URL if present
+    # Deduplicate by canonical job URL
     if "job_url" in df.columns:
         before = len(df)
         df = df.drop_duplicates(subset=["job_url"])
-        logger.info(
-            "[SCRAPE] Deduplicated by job_url: kept %d / %d",
-            len(df),
-            before,
-        )
+        logger.info("[SCRAPE] Deduplicated by job_url: kept %d / %d", len(df), before)
 
     # Optional hard title blocklist (scrape-time)
     blocklist = ctx.config.get("ranking", {}).get("hard_title_blocklist", [])
@@ -340,16 +411,13 @@ def scrape(
         )
         before = len(df)
         df = df[~df["title"].str.contains(rx, na=False)]
-        logger.info(
-            "[SCRAPE] Title blocklist applied: kept %d / %d",
-            len(df),
-            before,
-        )
+        logger.info("[SCRAPE] Title blocklist applied: kept %d / %d", len(df), before)
 
     df = df.reset_index(drop=True)
-
     logger.info("[SCRAPE] Final rows=%d", len(df))
 
-    df.to_csv(f"scraped_{ctx.user}_{ctx.use_case}_{pd.Timestamp.utcnow().strftime('%Y%m%d_%H%M%S')}.csv", index=False)
-
+    df.to_csv(
+        f"scraped_{ctx.user}_{ctx.use_case}_{pd.Timestamp.utcnow().strftime('%Y%m%d_%H%M%S')}.csv",
+        index=False,
+    )
     return df

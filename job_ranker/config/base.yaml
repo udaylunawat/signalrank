@@ -128,6 +128,13 @@ scraping:
   max_results: 1500
   min_description_length: 0
   use_multiprocessing: true
+  supports_hours_old: true
+
+  # Set jobspy_only: true to disable ALL sources except JobSpy/Indeed.
+  # Queries run sequentially (one at a time) with a small delay to avoid 403s.
+  # Useful for testing, debugging, or when RapidAPI keys are unavailable.
+  jobspy_only: false
+
   sites:
     enabled:
       - indeed

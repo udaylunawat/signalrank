@@ -1,0 +1,15 @@
+users:
+  example:
+    default_profile: senior_ic
+    default_use_case: default
+    resume_path: users/example/resume.tex
+
+    use_cases:
+      default:
+        description: "General ML / GenAI roles (legacy behavior)"
+        resume_path: users/example/resume.tex
+        profile: senior_ic
+
+      ml:
+        profile: senior_ic
+        resume_path: users/Example_Candidate/resume.tex

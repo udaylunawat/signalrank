@@ -1,8 +1,27 @@
-archived_v1/
-digest*.txt
-.ruff_cache
-__pycache__
-cache
-job_ranker.egg-info
-**/.DS_Store
-.env.worktrees/
+# Data files — too large for git
+*.csv
+*.parquet
+*.db
+*.duckdb
+*.duckdb.wal
+duckdb
+duckdb.wal
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Env
+.env
+*.env
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+uv.lock

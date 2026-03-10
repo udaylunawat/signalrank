@@ -23,11 +23,13 @@ import requests
 logger = logging.getLogger(__name__)
 
 # ── Concurrency & rate limiting ──────────────────────────────────
-MAX_WORKERS = 5
-REQUESTS_PER_SECOND = 3  # global rate across all workers
+# Lower workers + slower rate = fewer 429s from LinkedIn
+# Tradeoff: slower enrichment but more reliable
+MAX_WORKERS = 2            # was 5 — reduced to cut LinkedIn 429s
+REQUESTS_PER_SECOND = 1   # was 3 — 1 req/s is well under LinkedIn's limit
 TIMEOUT = 15
 MAX_RETRIES = 3
-RETRY_BACKOFF = 3  # seconds
+RETRY_BACKOFF = 6  # was 3 — longer backoff on retry
 
 # Rotating user-agents to reduce fingerprinting
 _USER_AGENTS = [
@@ -89,8 +91,17 @@ class _TokenBucket:
 _limiter = _TokenBucket(REQUESTS_PER_SECOND)
 
 # Track consecutive 429s — if we get too many, back off globally
+# Reset on each enrich() call via reset_rate_state()
 _consecutive_429 = 0
 _429_lock = threading.Lock()
+
+
+def _reset_rate_state():
+    """Reset module-level rate state between runs."""
+    global _consecutive_429, _limiter
+    with _429_lock:
+        _consecutive_429 = 0
+    _limiter = _TokenBucket(REQUESTS_PER_SECOND)
 
 
 def _get_headers(index: int) -> dict:
@@ -212,6 +223,9 @@ def enrich_linkedin_jobs(db_con, *, batch_size: int = 5000) -> int:
         "[ENRICH] Enriching %d LinkedIn jobs (workers=%d, rate=%d req/s)",
         total, MAX_WORKERS, REQUESTS_PER_SECOND,
     )
+
+    # Reset rate-limiter state from any previous run
+    _reset_rate_state()
 
     enriched = 0
     failed = 0

@@ -1,0 +1,65 @@
+{
+  "unitedhealth": {
+    "ats": "workday",
+    "api": "none",
+    "format": null,
+    "url": null
+  },
+  "optum": {
+    "ats": "workday",
+    "api": "none",
+    "format": null,
+    "url": null
+  },
+  "mastercard": {
+    "ats": "workday",
+    "api": "legacy",
+    "format": "xml",
+    "url": "https://mastercard.wd1.myworkdayjobs.com/CorporateCareers/wday/jobs.json"
+  },
+  "roche": {
+    "ats": "workday",
+    "api": "none",
+    "url": null
+  },
+  "pfizer": {
+    "ats": "workday",
+    "api": "none",
+    "url": null
+  },
+  "eli lilly": {
+    "ats": "workday",
+    "api": "none",
+    "url": null
+  },
+  "merck": {
+    "ats": "workday",
+    "api": "none",
+    "url": null
+  },
+  "capital one": {
+    "ats": "workday",
+    "api": "none",
+    "url": null
+  },
+  "visa": {
+    "ats": "workday",
+    "api": "none",
+    "url": null
+  },
+  "blackrock": {
+    "ats": "workday",
+    "api": "none",
+    "url": null
+  },
+  "goldman sachs": {
+    "ats": "workday",
+    "api": "none",
+    "url": null
+  },
+  "msci": {
+    "ats": "workday",
+    "api": "none",
+    "url": null
+  }
+}

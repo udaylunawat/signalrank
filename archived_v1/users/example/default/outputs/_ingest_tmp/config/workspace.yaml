@@ -1,0 +1,5 @@
+workspace:
+  template: '{workspaces_dir}/{user}/{profile}'
+  persist:
+    distilled_resume: true
+    resume_embedding: true

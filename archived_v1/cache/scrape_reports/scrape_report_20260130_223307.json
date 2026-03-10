@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-01-30T22:32:56.473431",
+  "queries": [
+    {
+      "query": "\"network automation engineer\"",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 4,
+          "kept": 4,
+          "meta_only": 0,
+          "status": "ok"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 4,
+          "kept": 4,
+          "meta_only": 0,
+          "status": "ok"
+        },
+        {
+          "site": "linkedin",
+          "raw": 2,
+          "kept": 0,
+          "meta_only": 2,
+          "status": "pruned"
+        },
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    }
+  ],
+  "by_site": {
+    "indeed": 4,
+    "glassdoor": 4
+  }
+}

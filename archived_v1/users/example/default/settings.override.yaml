@@ -1,0 +1,58 @@
+profiles:
+  senior_ic:
+    exclude_keywords:
+    - cyber
+    - cybersecurity
+    - soc
+    - siem
+    - incident
+    - forensics
+    - qa
+    - test
+    - quality
+    - product manager
+    - program manager
+    deprioritized_companies:
+    - amazon
+    - uber
+    - wipro
+    - infosys
+    - tcs
+    - hcl
+    - tech mahindra
+    - cognizant
+    - capgemini
+    - ibm
+    - globallogic
+    - nagarro
+    - citius
+    - fractal
+company_scoring:
+  preferred_companies:
+  - uhg
+  - roche
+  - pfizer
+  - abbvie
+  - ubs
+  - walmart
+  - servicenow
+  - atlassian
+  - merck
+  - msci
+  - siemens
+  - optum
+  - unitedhealth
+  - eli lilly
+  - philips
+  - ge healthcare
+  - visa
+  - mastercard
+  - capital one
+  - intuit
+  - workday
+  - salesforce
+  - john deere
+  - goldman
+  - microsoft
+  - google
+  - apple

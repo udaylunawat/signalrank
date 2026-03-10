@@ -1,0 +1,6 @@
+cache:
+  queries:
+    max_files: 50
+    max_age_hours: 72
+  role_classification:
+    ttl_days: 7

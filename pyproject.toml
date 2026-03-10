@@ -12,7 +12,8 @@ dependencies = [
   "duckdb",
   "pandas",
   "numpy",
-  "python-jobspy",
+  # speedyapply fork — has hours_old support for Indeed
+# "python-jobspy",  # original PyPI version (no hours_old)
   "sentence-transformers",
   "fastembed",
   "onnxruntime",
