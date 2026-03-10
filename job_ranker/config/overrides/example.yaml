@@ -222,5 +222,5 @@ experience:
 scraping:
   gmail_alerts:
     enabled: true
-    days_back: 7
-    max_emails: 20
+    days_back: 30
+    max_emails: 30
