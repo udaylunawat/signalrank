@@ -215,3 +215,12 @@ title_blocklist:
 # --------------------
 experience:
   max_yoe: 10
+
+# --------------------
+# SCRAPING OVERRIDES
+# --------------------
+scraping:
+  gmail_alerts:
+    enabled: true
+    days_back: 7
+    max_emails: 20
