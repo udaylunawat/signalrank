@@ -396,6 +396,80 @@ def _run_jobspy_sequential(
             logger.info("[SCRAPE] ✔ JobSpy query=%r collected %d rows", q, len(rows))
 
 
+def _scrape_google_jobs_serpapi(
+    query: str,
+    location: str,
+    results_wanted: int,
+    hours_old: int,
+    api_key: str,
+) -> List[dict]:
+    """
+    Scrape Google Jobs via SerpAPI.
+    Reliable from any IP — SerpAPI handles proxy rotation.
+    Free tier: 100 searches/month. Get key at https://serpapi.com
+    """
+    import requests as _requests
+
+    # Map hours_old to Google's date_posted chip
+    if hours_old <= 24:
+        date_posted = "today"
+    elif hours_old <= 72:
+        date_posted = "3days"
+    elif hours_old <= 168:
+        date_posted = "week"
+    else:
+        date_posted = "month"
+
+    params = {
+        "engine": "google_jobs",
+        "q": f"{query} jobs in {location}",
+        "api_key": api_key,
+        "chips": f"date_posted:{date_posted}",
+        "num": min(results_wanted, 10),  # SerpAPI returns up to 10 per page
+        "hl": "en",
+        "gl": "in",
+    }
+
+    rows = []
+    start = 0
+
+    while len(rows) < results_wanted:
+        params["start"] = start
+        try:
+            resp = _requests.get(
+                "https://serpapi.com/search",
+                params=params,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.warning("[GOOGLE/SERPAPI] Request failed: %s", e)
+            break
+
+        jobs = data.get("jobs_results", [])
+        if not jobs:
+            break
+
+        for job in jobs:
+            rows.append({
+                "title": job.get("title", ""),
+                "company": job.get("company_name", ""),
+                "location": job.get("location", ""),
+                "description": job.get("description", ""),
+                "job_url": (job.get("related_links") or [{}])[0].get("link", ""),
+                "date_posted": job.get("detected_extensions", {}).get("posted_at", ""),
+                "source": "google",
+                "is_remote": "remote" in job.get("location", "").lower(),
+            })
+
+        if len(jobs) < 10:
+            break  # no more pages
+        start += 10
+
+    return rows[:results_wanted]
+
+
 def _scrape_google_jobs(
     queries: List[str],
     scraping_cfg: dict,
@@ -403,18 +477,67 @@ def _scrape_google_jobs(
     all_rows: List[dict],
 ) -> None:
     """
-    Placeholder — Google Jobs scraping via Gmail Job Alerts (coming soon).
-    Direct Google scraping is unreliable (blocked on all IPs).
-    See: job_ranker/scrapers/gmail_alerts.py
+    Optional Phase: Google Jobs.
+    Enabled via config: scraping.google_jobs.enabled: true
+
+    Backend priority:
+    1. SerpAPI  — if SERPAPI_KEY is set (reliable from any IP, 100 free/month)
+       Get key: https://serpapi.com
+    2. JobSpy   — fallback (unreliable, Google blocks most IPs now)
     """
     google_cfg = scraping_cfg.get("google_jobs", {})
     if not google_cfg.get("enabled", False):
         return
 
+    location = scraping_cfg.get("country", "India")
+    results_wanted = google_cfg.get("results_per_query", 50)
+    delay = google_cfg.get("delay", 2.0)
+    serpapi_key = os.getenv("SERPAPI_KEY") or google_cfg.get("serpapi_key")
+    proxy = google_cfg.get("proxy") or os.getenv("GOOGLE_JOBS_PROXY")
+
+    if serpapi_key:
+        backend = "SerpAPI"
+    else:
+        backend = "JobSpy (unreliable — set SERPAPI_KEY for reliable results)"
+
     logger.info(
-        "[SCRAPE] Google Jobs: direct scraping disabled (blocked). "
-        "Use Gmail Job Alerts scraper instead — see SETUP.md."
+        "[SCRAPE] Google Jobs phase: %d queries location=%r backend=%s",
+        len(queries), location, backend,
     )
+
+    for i, q in enumerate(queries):
+        if i > 0:
+            time.sleep(delay)
+        try:
+            if serpapi_key:
+                rows = _scrape_google_jobs_serpapi(
+                    query=q,
+                    location=location,
+                    results_wanted=results_wanted,
+                    hours_old=hours_old,
+                    api_key=serpapi_key,
+                )
+            else:
+                # Fallback: JobSpy Google (works sporadically)
+                df = scrape_jobs(
+                    site_name=["google"],
+                    google_search_term=f"{q} jobs in {location}",
+                    results_wanted=results_wanted,
+                    proxies=[proxy] if proxy else None,
+                )
+                rows = _normalize_jobs(df) if df is not None and not df.empty else []
+
+            if rows:
+                all_rows.extend(rows)
+                logger.info("[SCRAPE] ✔ Google Jobs query=%r collected %d rows", q, len(rows))
+            else:
+                logger.warning(
+                    "[SCRAPE] Google Jobs query=%r → 0 rows. "
+                    "Set SERPAPI_KEY in .env for reliable results (https://serpapi.com — 100 free/month)",
+                    q,
+                )
+        except Exception as e:
+            logger.warning("[SCRAPE] ✖ Google Jobs query=%r exception: %s", q, e)
 
 
 def _finalize(all_rows: List[dict], scraping_cfg: dict, ctx) -> pd.DataFrame:
