@@ -457,9 +457,9 @@ def _scrape_google_jobs_serpapi(
         "q": f"{query} jobs in {location}",
         "api_key": api_key,
         "chips": f"date_posted:{date_posted}",
-        "num": min(results_wanted, 10),  # SerpAPI returns up to 10 per page
         "hl": "en",
         "gl": "in",
+        # Note: no "num" param — Google Jobs returns 10 per page fixed
     }
 
     rows = []
