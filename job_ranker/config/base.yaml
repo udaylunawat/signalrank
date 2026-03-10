@@ -151,6 +151,15 @@ scraping:
     #   3. Residential proxy (fallback) → set GOOGLE_JOBS_PROXY=user:pass@host:port
     proxy: null
 
+  # Gmail Job Alerts (read-only IMAP)
+  # Reads Google Job Alert emails from your Gmail label.
+  # Setup: enable IMAP in Gmail + create App Password (see SETUP.md)
+  # Then add GMAIL_USER + GMAIL_APP_PASSWORD to .env and set enabled: true
+  gmail_alerts:
+    enabled: false
+    days_back: 7       # how many days of emails to read
+    max_emails: 20     # max alert emails to parse per run
+
   sites:
     enabled:
       - indeed

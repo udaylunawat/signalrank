@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 from jobspy import scrape_jobs
 
 from job_ranker.scrapers.linkedin_api import LinkedInRapidAPIScraper
+from job_ranker.scrapers.gmail_alerts import scrape_gmail_alerts
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -279,6 +280,19 @@ def scrape(
         )
         # Google Jobs is NOT a RapidAPI source — run it even in jobspy_only mode
         _scrape_google_jobs(queries, scraping_cfg, hours_old, all_rows)
+        # Gmail Alerts also runs regardless of jobspy_only
+        gmail_cfg = scraping_cfg.get("gmail_alerts", {})
+        if gmail_cfg.get("enabled", False):
+            try:
+                gmail_rows = scrape_gmail_alerts(
+                    days_back=gmail_cfg.get("days_back", 7),
+                    max_emails=gmail_cfg.get("max_emails", 20),
+                )
+                if gmail_rows:
+                    all_rows.extend(gmail_rows)
+                    logger.info("[SCRAPE] ✔ Gmail Alerts collected %d jobs", len(gmail_rows))
+            except Exception as e:
+                logger.warning("[SCRAPE] ✖ Gmail Alerts exception: %s", e)
         return _finalize(all_rows, scraping_cfg, ctx)
 
     # --------------------------------------------------
@@ -356,6 +370,24 @@ def scrape(
     # Enable via config: scraping.google_jobs.enabled: true
     # --------------------------------------------------
     _scrape_google_jobs(queries, scraping_cfg, hours_old, all_rows)
+
+    # --------------------------------------------------
+    # Phase 5: Gmail Job Alerts (read-only IMAP)
+    # Enable via config: scraping.gmail_alerts.enabled: true
+    # Requires GMAIL_USER + GMAIL_APP_PASSWORD in .env
+    # --------------------------------------------------
+    gmail_cfg = scraping_cfg.get("gmail_alerts", {})
+    if gmail_cfg.get("enabled", False):
+        days_back = gmail_cfg.get("days_back", 7)
+        max_emails = gmail_cfg.get("max_emails", 20)
+        logger.info("[SCRAPE] Gmail Alerts phase: days_back=%d max_emails=%d", days_back, max_emails)
+        try:
+            gmail_rows = scrape_gmail_alerts(days_back=days_back, max_emails=max_emails)
+            if gmail_rows:
+                all_rows.extend(gmail_rows)
+                logger.info("[SCRAPE] ✔ Gmail Alerts collected %d jobs", len(gmail_rows))
+        except Exception as e:
+            logger.warning("[SCRAPE] ✖ Gmail Alerts exception: %s", e)
 
     return _finalize(all_rows, scraping_cfg, ctx)
 
