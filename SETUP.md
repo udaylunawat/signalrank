@@ -52,7 +52,11 @@ RAPIDAPI_KEY=your_key_here
 # Required for LLM veto/enrichment (optional)
 OPENROUTER_API_KEY=your_key_here
 
-# Optional: residential proxy for Google Jobs on servers
+# Google Jobs via SerpAPI (100 free searches/month — most reliable option)
+# Get key at: https://serpapi.com/manage-api-key
+SERPAPI_KEY=your_serpapi_key_here
+
+# Alternative: residential proxy for Google Jobs (if no SerpAPI key)
 # GOOGLE_JOBS_PROXY=user:pass@host:port
 ```
 
