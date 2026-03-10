@@ -15,9 +15,11 @@ __pycache__/
 dist/
 build/
 
-# Env
+# Env — never commit real credentials
 .env
-*.env
+# Allow the template/copy
+!.env\ copy
+!job_ranker/.env\ copy
 
 # Logs
 *.log
