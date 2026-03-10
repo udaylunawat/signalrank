@@ -33,12 +33,7 @@ MAX_WORKERS = 4
 DEFAULT_RESULTS_WANTED = 25
 MIN_DESC_LEN = 20
 
-# Google Jobs scraper — optional, works from residential IPs or with proxies
-try:
-    from job_ranker.scrapers.google_jobs.scraper import GoogleJobsScraper
-    _GOOGLE_JOBS_AVAILABLE = True
-except ImportError:
-    _GOOGLE_JOBS_AVAILABLE = False
+# Google Jobs uses JobSpy's built-in Google scraper (no separate import needed)
 
 # Observability / safety
 MAX_QUERY_SECONDS = 180
@@ -408,14 +403,10 @@ def _scrape_google_jobs(
     all_rows: List[dict],
 ) -> None:
     """
-    Optional Phase: Google Jobs scraper.
+    Optional Phase: Google Jobs via JobSpy's built-in Google scraper.
     Enabled via config: scraping.google_jobs.enabled: true
-    Requires residential IP or proxy — blocked on datacenter/Docker IPs.
+    Requires residential IP or proxy — Google blocks datacenter/Docker IPs.
     """
-    if not _GOOGLE_JOBS_AVAILABLE:
-        logger.warning("[SCRAPE] Google Jobs scraper not available (import failed)")
-        return
-
     google_cfg = scraping_cfg.get("google_jobs", {})
     if not google_cfg.get("enabled", False):
         return
@@ -430,33 +421,29 @@ def _scrape_google_jobs(
         len(queries), location, bool(proxy)
     )
 
-    scraper = GoogleJobsScraper(
-        proxies=[proxy] if proxy else None,
-        delay=delay,
-    )
+    proxies = [proxy] if proxy else None
 
     for i, q in enumerate(queries):
         if i > 0:
             time.sleep(delay)
         try:
-            jobs = scraper.scrape(
-                query=q,
-                location=location,
+            # Use JobSpy's built-in Google scraper — it handles HTML parsing correctly
+            google_search_term = f"{q} jobs in {location}"
+            df = scrape_jobs(
+                site_name=["google"],
+                google_search_term=google_search_term,
                 results_wanted=results_wanted,
-                hours_old=hours_old,
+                proxies=proxies,
             )
-            rows = [j.to_dict() for j in jobs]
-            if rows:
-                # Normalize to match job_ranker schema
-                for r in rows:
-                    r.setdefault("company", r.pop("company", ""))
-                    r.setdefault("job_url", r.get("job_url"))
+            if df is not None and not df.empty:
+                rows = _normalize_jobs(df)
                 all_rows.extend(rows)
-                logger.info(
-                    "[SCRAPE] ✔ Google Jobs query=%r collected %d rows", q, len(rows)
-                )
+                logger.info("[SCRAPE] ✔ Google Jobs query=%r collected %d rows", q, len(rows))
             else:
-                logger.info("[SCRAPE] Google Jobs query=%r → 0 rows (may be blocked)", q)
+                logger.info(
+                    "[SCRAPE] Google Jobs query=%r → 0 rows "
+                    "(blocked on datacenter IP — works on residential IP/laptop)", q
+                )
         except Exception as e:
             logger.warning("[SCRAPE] ✖ Google Jobs query=%r exception: %s", q, e)
 
