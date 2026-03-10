@@ -463,23 +463,28 @@ def _scrape_google_jobs_serpapi(
     }
 
     rows = []
-    start = 0
+    next_page_token = None
 
     while len(rows) < results_wanted:
-        params["start"] = start
+        # First page: no token. Subsequent pages: use next_page_token
+        page_params = {k: v for k, v in params.items()}
+        if next_page_token:
+            page_params["next_page_token"] = next_page_token
+
         try:
             resp = _requests.get(
                 "https://serpapi.com/search",
-                params=params,
+                params=page_params,
                 timeout=20,
             )
             if resp.status_code == 400:
                 err = resp.json().get("error", resp.text[:300])
-                # chips param can cause 400 on some account types — retry without it
-                if "chips" in params:
-                    logger.warning("[GOOGLE/SERPAPI] 400 with chips=%r — retrying without date filter", params["chips"])
-                    params.pop("chips")
-                    resp = _requests.get("https://serpapi.com/search", params=params, timeout=20)
+                # chips param can cause 400 — retry without it
+                if "chips" in page_params:
+                    logger.warning("[GOOGLE/SERPAPI] 400 with chips — retrying without date filter")
+                    page_params.pop("chips")
+                    params.pop("chips", None)
+                    resp = _requests.get("https://serpapi.com/search", params=page_params, timeout=20)
                 if resp.status_code != 200:
                     logger.warning("[GOOGLE/SERPAPI] %d error: %s", resp.status_code, err)
                     break
@@ -506,9 +511,10 @@ def _scrape_google_jobs_serpapi(
                 "is_remote": "remote" in job.get("location", "").lower(),
             })
 
-        if len(jobs) < 10:
-            break  # no more pages
-        start += 10
+        # Use next_page_token for pagination (start param discontinued)
+        next_page_token = data.get("serpapi_pagination", {}).get("next_page_token")
+        if not next_page_token:
+            break
 
     return rows[:results_wanted]
 
