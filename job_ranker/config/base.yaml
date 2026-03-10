@@ -133,7 +133,7 @@ scraping:
   # Set jobspy_only: true to disable ALL sources except JobSpy/Indeed.
   # Queries run sequentially (one at a time) with a small delay to avoid 403s.
   # Useful for testing, debugging, or when RapidAPI keys are unavailable.
-  jobspy_only: false
+  jobspy_only: true   # RapidAPI disabled until subscriptions are sorted
 
   # Google Jobs scraper (Phase 4 — optional)
   # Works from residential IPs only. Set enabled: true + proxy if running on a server.
