@@ -471,9 +471,20 @@ def _scrape_google_jobs_serpapi(
             resp = _requests.get(
                 "https://serpapi.com/search",
                 params=params,
-                timeout=15,
+                timeout=20,
             )
-            resp.raise_for_status()
+            if resp.status_code == 400:
+                err = resp.json().get("error", resp.text[:300])
+                # chips param can cause 400 on some account types — retry without it
+                if "chips" in params:
+                    logger.warning("[GOOGLE/SERPAPI] 400 with chips=%r — retrying without date filter", params["chips"])
+                    params.pop("chips")
+                    resp = _requests.get("https://serpapi.com/search", params=params, timeout=20)
+                if resp.status_code != 200:
+                    logger.warning("[GOOGLE/SERPAPI] %d error: %s", resp.status_code, err)
+                    break
+            else:
+                resp.raise_for_status()
             data = resp.json()
         except Exception as e:
             logger.warning("[GOOGLE/SERPAPI] Request failed: %s", e)
