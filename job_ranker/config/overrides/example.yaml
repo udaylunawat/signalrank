@@ -20,6 +20,12 @@ resume:
 # --------------------
 ranking:
   default_role: mlops_llmops
+  scoring_weights:
+    skills_match: 0.45
+    company_fit: 0.15
+    seniority: 0.15
+    location: 0.15
+    recency: 0.10
   functional_role_penalties:
     agentic_systems: 1.2
     mlops_llmops: 1.2
@@ -209,6 +215,11 @@ title_blocklist:
   - sales
   - trainer
   - junior
+  # Over-senior / non-IC
+  - director
+  - head of
+  - vice president
+  - vp of
 
 # --------------------
 # EXPERIENCE CONSTRAINT
