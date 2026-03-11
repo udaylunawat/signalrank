@@ -179,11 +179,17 @@ functional_role_taxonomy:
       - enterprise architect
       - platform architect
       - solution architect
+      - solutions architect
+      - field solutions architect
   customer_facing:
     keywords:
       - solutions engineer
       - pre-sales
       - sales engineer
+      - customer engineer
+      - field solutions
+      - forward deployed engineer
+      - forward deployed
 
 functional_role_thresholds:
   security_min_terms: 2
