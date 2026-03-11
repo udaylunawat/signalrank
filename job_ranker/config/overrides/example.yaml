@@ -221,6 +221,4 @@ experience:
 # --------------------
 scraping:
   gmail_alerts:
-    enabled: true
-    days_back: 30
-    max_emails: 30
+    enabled: false   # links go to Google Jobs search (CAPTCHA) — no direct apply URLs

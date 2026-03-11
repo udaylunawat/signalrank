@@ -36,85 +36,79 @@ logger = logging.getLogger(__name__)
 
 GMAIL_IMAP_HOST = "imap.gmail.com"
 GMAIL_IMAP_PORT = 993
-SENDER_FILTER = "jobalerts-noreply@google.com"
+SENDER_FILTER = "notify-noreply@google.com"
 
 
 # ─────────────────────────────────────────────
 # HTML parser — extracts job cards from alert emails
 # ─────────────────────────────────────────────
 
-class _JobCardParser(HTMLParser):
+def _parse_jobs_from_html(html: str) -> list[dict]:
     """
-    Parses Google Job Alert email HTML.
+    Parse Google Job Alert email HTML.
 
-    Email structure (simplified):
-      <table> ... <a href="apply_url">
-        <span>Job Title</span>
-        <span>Company Name</span>
-        <span>Location</span>
-      </a> ...
+    Email structure (actual):
+      <a href="https://notifications.googleapis.com/email/redirect?...">
+        ...
+        <td data-f=XXXXXXX>
+          <div>
+            <span style="cursor: pointer; color: #212121...">Job Title</span>
+            <div style="color: black...">Company Name</div>
+            <div style="color: #8A8A8A...">Location, Country</div>
+            <div style="color: #8A8A8A...">via Source</div>
+            <div>...<span>Date posted</span>...</div>
+          </div>
+        </td>
+      </a>
     """
+    jobs = []
 
-    def __init__(self):
-        super().__init__()
-        self.jobs: list[dict] = []
-        self._current_link: Optional[str] = None
-        self._current_texts: list[str] = []
-        self._in_job_link = False
-        self._depth = 0
+    # Split on job card links (notifications.googleapis.com redirect links)
+    card_split = re.split(
+        r'<a[^>]+href="(https://notifications\.googleapis\.com/email/redirect[^"]+)"',
+        html
+    )
 
-    def handle_starttag(self, tag, attrs):
-        attrs_dict = dict(attrs)
-        if tag == "a":
-            href = attrs_dict.get("href", "")
-            # Google job alert links go through google.com/url?q=actual_url
-            # or directly to the job posting
-            if href and ("google.com/search" in href or "google.com/url" in href
-                         or "linkedin.com" in href or "indeed.com" in href
-                         or "glassdoor" in href or "lever.co" in href
-                         or "greenhouse.io" in href or "workday" in href
-                         or "/jobs/" in href):
-                self._current_link = href
-                self._current_texts = []
-                self._in_job_link = True
-                self._depth = 1
-            elif self._in_job_link:
-                self._depth += 1
-        elif self._in_job_link and tag in ("span", "div", "td", "p"):
-            pass
+    # card_split: [pre, url1, chunk1, url2, chunk2, ...]
+    for i in range(1, len(card_split), 2):
+        redirect_url = card_split[i]
+        chunk = card_split[i + 1] if i + 1 < len(card_split) else ""
 
-    def handle_endtag(self, tag):
-        if tag == "a" and self._in_job_link:
-            self._depth -= 1
-            if self._depth <= 0:
-                self._in_job_link = False
-                texts = [t.strip() for t in self._current_texts if t.strip()]
-                if texts and self._current_link:
-                    self.jobs.append({
-                        "title": texts[0] if len(texts) > 0 else "",
-                        "company": texts[1] if len(texts) > 1 else "",
-                        "location": texts[2] if len(texts) > 2 else "",
-                        "description": " — ".join(texts[3:]) if len(texts) > 3 else "",
-                        "job_url": _clean_google_url(self._current_link),
-                    })
-                self._current_link = None
-                self._current_texts = []
+        # Only process chunks that have job card content (data-f attribute)
+        if 'data-f=' not in chunk:
+            continue
 
-    def handle_data(self, data):
-        if self._in_job_link:
-            text = data.strip()
-            if text:
-                self._current_texts.append(text)
+        # Strip all tags to get text content in order
+        # Extract in sequence: title, company, location, via, date
+        texts = re.findall(r'>([^<]{2,})<', chunk)
+        texts = [t.strip() for t in texts if t.strip() and not t.strip().startswith('http')]
 
+        # Filter out noise (single chars, numbers, icons alt text)
+        texts = [t for t in texts if len(t) > 2 and not re.match(r'^[\d\s]+$', t)
+                 and t not in ("Time icon", "Work icon", "W", "G", "M", "A")]
 
-def _clean_google_url(url: str) -> str:
-    """Extract the real URL from Google's redirect wrapper."""
-    # Pattern: /url?q=https://actual-url&...
-    match = re.search(r'[?&]q=([^&]+)', url)
-    if match:
-        import urllib.parse
-        return urllib.parse.unquote(match.group(1))
-    return url
+        if not texts:
+            continue
+
+        title = texts[0] if len(texts) > 0 else ""
+        company = texts[1] if len(texts) > 1 else ""
+        location = texts[2] if len(texts) > 2 else ""
+
+        # date: find "N Mar" / "N Feb" pattern
+        date_match = re.search(r'\b(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec))\b', chunk)
+        date_posted = date_match.group(1) if date_match else ""
+
+        if title and company:
+            jobs.append({
+                "title": title,
+                "company": company,
+                "location": location,
+                "description": "",
+                "job_url": redirect_url,  # Google redirect URL (resolves to actual job)
+                "date_posted": date_posted,
+            })
+
+    return jobs
 
 
 # ─────────────────────────────────────────────
@@ -273,14 +267,12 @@ class GmailAlertsScraper:
             return []
 
         # Parse job cards
-        parser = _JobCardParser()
-        parser.feed(html_body)
-
         jobs = []
-        for job in parser.jobs:
+        for job in _parse_jobs_from_html(html_body):
             if job.get("title") and job.get("job_url"):
                 job["source"] = "google_alerts"
-                job["date_posted"] = date_seen
+                if not job.get("date_posted"):
+                    job["date_posted"] = date_seen
                 jobs.append(job)
 
         return jobs
