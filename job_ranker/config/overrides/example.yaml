@@ -92,6 +92,11 @@ company_scoring:
     - chroma
     - replit
     - cognition
+    - adobe
+    - salesforce
+    - palantir
+    - netflix
+    - stripe
 
   # ── Tier A: High-Leverage Product AI Companies ──
   # Massive AI systems at scale, strong ML platform work
@@ -103,14 +108,9 @@ company_scoring:
     - capital one
     - servicenow
     - atlassian
-    - salesforce
-    - adobe
     - workday
-    - palantir
     - bloomberg
-    - stripe
     - airbnb
-    - netflix
     - spotify
     - shopify
     - jpmorgan chase
