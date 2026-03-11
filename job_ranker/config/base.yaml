@@ -138,7 +138,20 @@ scraping:
   # RapidAPI is disabled by default until subscriptions are active.
   jobspy_only: true
 
-    # Gmail Job Alerts (read-only IMAP)
+  # Google Jobs scraper (Phase 4)
+  # Works from residential IPs (laptop) without proxy.
+  # On servers/Docker: set proxy to a residential proxy.
+  google_jobs:
+    enabled: true
+    results_per_query: 50
+    delay: 2.0
+    # Backend priority:
+    #   1. SerpAPI (reliable, any IP)  → set SERPAPI_KEY in .env  https://serpapi.com (100 free/month)
+    #   2. JobSpy Google (fallback, unreliable — Google blocks most IPs now)
+    #   3. Residential proxy (fallback) → set GOOGLE_JOBS_PROXY=user:pass@host:port
+    proxy: null
+
+  # Gmail Job Alerts (read-only IMAP)
   # Reads Google Job Alert emails from your Gmail label.
   # Setup: enable IMAP in Gmail + create App Password (see SETUP.md)
   # Then add GMAIL_USER + GMAIL_APP_PASSWORD to .env and set enabled: true
