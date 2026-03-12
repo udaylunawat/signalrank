@@ -121,6 +121,13 @@ company_scoring:
     - samsung research
     - qualcomm
     - oracle
+    - barclays
+    - citi
+    - autodesk
+    - zendesk
+    - priceline
+    - vodafone
+    - nielseniq
     # India-based serious tech
     - razorpay
     - phonepe
@@ -143,6 +150,13 @@ company_scoring:
     - merck
     - philips
     - ubs
+    - wolters kluwer
+    - pubmatic
+    - husqvarna
+    - persistent systems
+    - luxoft
+    - fluke
+    - mahindra
 
   # ── Tier C: Industrial AI Ecosystem ──
   # AI supports physical infrastructure, less LLM/platform focus
@@ -153,6 +167,11 @@ company_scoring:
     - john deere
     - bosch
     - nxp semiconductors
+    - webengage
+    - birlasoft
+    - ltimindtree
+    - expleo
+    - bridgeai
 
   # ── Tier D: Legacy Enterprise / IT Services ──
   # Consulting-driven, slower innovation, limited skill growth
@@ -188,6 +207,16 @@ company_scoring:
     huggingface: hugging face
     jp morgan: jpmorgan chase
     jpmc: jpmorgan chase
+    citibank: citi
+    citigroup: citi
+    priceline.com: priceline
+    mahindra & mahindra: mahindra
+    mahindra & mahindra ltd: mahindra
+    luxoft india: luxoft
+    expleo group: expleo
+    bristlecone india limited.(mahindra group of company): mahindra
+    persistent systems limited: persistent systems
+    nielsen: nielseniq
 
 # --------------------
 # LOCATION PREFERENCES

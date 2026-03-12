@@ -417,6 +417,20 @@ def rank(ctx, jobs_df: pd.DataFrame) -> pd.DataFrame:
         + df["company"].str.strip().str.lower()
     )
     df = df.drop_duplicates(subset="_dedup_key", keep="first")
-    df = df.drop(columns=["_dedup_key"]).reset_index(drop=True)
+
+    # ---- Fuzzy dedup: strip seniority prefixes from title for near-duplicate detection
+    _SENIORITY_SUFFIXES = re.compile(
+        r"\s*[-–—]\s*(?:vice president|assistant vice president|"
+        r"senior vice president|vp|avp|svp|associate|"
+        r"senior associate|principal associate)\s*$",
+        re.I,
+    )
+    df["_fuzzy_key"] = (
+        df["title"].str.strip().str.lower()
+        .str.replace(_SENIORITY_SUFFIXES, "", regex=True)
+        .str.strip() + "|" + df["company"].str.strip().str.lower()
+    )
+    df = df.drop_duplicates(subset="_fuzzy_key", keep="first")
+    df = df.drop(columns=["_dedup_key", "_fuzzy_key"]).reset_index(drop=True)
 
     return df
