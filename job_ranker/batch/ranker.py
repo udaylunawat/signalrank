@@ -18,6 +18,7 @@ import pandas as pd
 
 from job_ranker.batch.veto import apply_llm_veto
 from job_ranker.domain.additive_scoring import (
+    apply_company_semantic_floor,
     company_score_0_100,
     compute_weighted_score,
     location_score_0_100,
@@ -155,6 +156,16 @@ def apply_additive_scoring(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         axis=1,
     )
     df["company_score"] = df["company_tier"].apply(company_score_0_100)
+
+    # Apply semantic floor to company score
+    semantic_floor = cfg.get("ranking", {}).get("company_semantic_floor", 0.60)
+    df["company_score"] = df.apply(
+        lambda r: apply_company_semantic_floor(
+            r["company_score"], r["semantic_score"], semantic_floor
+        ),
+        axis=1,
+    )
+
     df["seniority_score_dim"] = df["seniority_score"].apply(seniority_score_0_100)
     df["location_score"] = df["location_weight"].apply(location_score_0_100)
     df["recency_score"] = df["date_posted"].apply(recency_score_0_100)
@@ -370,11 +381,18 @@ def rank(ctx, jobs_df: pd.DataFrame) -> pd.DataFrame:
     df = apply_caps_and_veto(df, ctx, role_intent)
     _log_distribution(df, "final_score", "after_caps")
 
-    # ---- Dedup
+    # ---- Dedup by URL
     df = (
         df.sort_values("final_score", ascending=False)
         .drop_duplicates(subset=["job_url"])
-        .reset_index(drop=True)
     )
+
+    # ---- Dedup by title+company (same job from different sources)
+    df["_dedup_key"] = (
+        df["title"].str.strip().str.lower() + "|"
+        + df["company"].str.strip().str.lower()
+    )
+    df = df.drop_duplicates(subset="_dedup_key", keep="first")
+    df = df.drop(columns=["_dedup_key"]).reset_index(drop=True)
 
     return df

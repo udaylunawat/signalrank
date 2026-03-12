@@ -52,7 +52,18 @@ def company_score_0_100(tier: str) -> float:
         # Legacy compatibility
         "preferred": 100.0,
         "deprioritized": 15.0,
-    }.get(tier, 50.0)
+    }.get(tier, 40.0)
+
+
+def apply_company_semantic_floor(
+    company_score: float, semantic_score: float, floor: float
+) -> float:
+    """Scale down company_score when semantic_score is below the floor."""
+    if floor <= 0:
+        return company_score
+    if semantic_score >= floor:
+        return company_score
+    return company_score * (semantic_score / floor)
 
 
 def seniority_score_0_100(multiplier: float) -> float:
@@ -67,13 +78,16 @@ def location_score_0_100(weight: float) -> float:
 
 def recency_score_0_100(date_posted) -> float:
     if date_posted is None:
-        return 50.0
+        return 30.0
 
     try:
         posted = datetime.fromisoformat(str(date_posted).replace("Z", "+00:00"))
+        # Ensure timezone-aware comparison
+        if posted.tzinfo is None:
+            posted = posted.replace(tzinfo=timezone.utc)
         age_days = (datetime.now(timezone.utc) - posted).days
     except Exception:
-        return 50.0
+        return 30.0
 
     if age_days < 0:
         return 100.0

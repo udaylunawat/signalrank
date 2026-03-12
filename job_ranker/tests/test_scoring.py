@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from job_ranker.domain.additive_scoring import (
+    apply_company_semantic_floor,
     company_score_0_100,
     compute_weighted_score,
     location_score_0_100,
@@ -216,3 +217,28 @@ class TestSeniorityScoring:
             self.BASE_CFG, title="Principal Engineer", description="", user_yoe=7
         )
         assert score >= 1.0
+
+
+class TestCompanySemanticFloor:
+    """company_score should be scaled down when semantic_score is below the floor."""
+
+    def test_above_floor_unchanged(self):
+        assert apply_company_semantic_floor(100.0, 0.70, 0.60) == pytest.approx(100.0)
+
+    def test_at_floor_unchanged(self):
+        assert apply_company_semantic_floor(100.0, 0.60, 0.60) == pytest.approx(100.0)
+
+    def test_below_floor_scaled(self):
+        result = apply_company_semantic_floor(100.0, 0.50, 0.60)
+        assert result == pytest.approx(83.333, abs=0.1)
+
+    def test_low_semantic_heavy_scaling(self):
+        result = apply_company_semantic_floor(100.0, 0.40, 0.60)
+        assert result == pytest.approx(66.667, abs=0.1)
+
+    def test_tier_a_below_floor(self):
+        result = apply_company_semantic_floor(85.0, 0.50, 0.60)
+        assert result == pytest.approx(85.0 * 0.50 / 0.60, abs=0.1)
+
+    def test_zero_floor_no_scaling(self):
+        assert apply_company_semantic_floor(100.0, 0.30, 0.0) == pytest.approx(100.0)
