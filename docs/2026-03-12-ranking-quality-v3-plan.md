@@ -1,7 +1,7 @@
 # Ranking Quality v3 — Incremental Improvements
 
 **Date**: 2026-03-12
-**Status**: Complete (A, B, C, D all done)
+**Status**: Complete (A-F all done)
 **Prerequisite**: Ranking Quality v2 (completed, see `docs/completed/`)
 
 ## Improvements (ROI-ordered)
@@ -53,12 +53,31 @@ Changed `company_semantic_floor` from `0.60` to `0.65` in `base.yaml`.
 
 ---
 
-## Validation Plan
+### E) Company Tier Expansion — DONE
+**Effort**: Config-only | **Impact**: Fixes 20+ untiered companies in top 100
 
-After implementing C and D:
-1. Re-run batch: `uv run python -m job_ranker.batch.run`
-2. Pull top 20 and verify:
-   - No QA/test/automation roles
-   - High-semantic unknown company jobs rank closer to top 20
-   - Contract/part-time jobs flagged or penalized
-3. Compare top 5 against resume for relevance
+Added to `example.yaml`:
+- **tier_a**: Barclays, Citi, Autodesk, Zendesk, Priceline, Vodafone, NielsenIQ
+- **tier_b**: Wolters Kluwer, PubMatic, Husqvarna, Persistent Systems, Luxoft, Fluke, Mahindra
+- **tier_c**: WebEngage, Birlasoft, LTIMindtree, Expleo, BridgeAi
+- **aliases**: Priceline.com→Priceline, Luxoft India→Luxoft, Mahindra & Mahindra→Mahindra, etc.
+
+---
+
+### F) Fuzzy Seniority-Level Dedup — DONE
+**Effort**: Code change (~10 min) | **Impact**: Removes near-duplicate postings
+
+**Problem**: Citi "VP" and "AVP" versions of the same role both appeared in top 5 (same description, different seniority suffix).
+
+**Fix**: After exact title+company dedup, strip seniority suffixes (VP, AVP, SVP, Associate, Senior Associate, Principal Associate) from title before a second dedup pass. Keeps highest-scoring variant.
+
+---
+
+## Validation Results (post v3)
+
+- Top 10: all IC AI/ML/platform roles at tiered companies (Citi, Zendesk, Barclays, Priceline, Autodesk, Vodafone, Wolters Kluwer)
+- Hidden gems: BuzzBoard (sem=0.780) at #7 despite unknown tier
+- Contract flagged: 53/3209 (1.7%), VWorker dropped #23→#175
+- Near-duplicates removed: Citi VP/AVP collapsed
+- Zero dupes in top 50
+- Top 20 tier distribution: tier_a=9, default=6, tier_b=5
