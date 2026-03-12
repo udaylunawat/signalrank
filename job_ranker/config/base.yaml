@@ -28,7 +28,7 @@ ranking:
   recency_half_life_days: 21
   min_keyword_overlap: 0
   min_quality_multiplier: 0.80
-  company_semantic_floor: 0.60
+  company_semantic_floor: 0.65
   role_semantic_thresholds:
     software_general: 0.65
     platform_devops: 0.55

@@ -218,6 +218,12 @@ title_blocklist:
   # Over-senior / non-IC (no VP — finance companies use VP for senior IC)
   - director
   - head of
+  # QA / test / non-engineering
+  - automation engineer
+  - qa engineer
+  - test engineer
+  - quality engineer
+  - sdet
 
 # --------------------
 # EXPERIENCE CONSTRAINT
