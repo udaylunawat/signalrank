@@ -333,9 +333,12 @@ def rank(ctx, jobs_df: pd.DataFrame) -> pd.DataFrame:
     df["semantic_score"] *= df["skill_overlap"].apply(bounded_skill_boost)
 
     # ---- Phase 4
-    df["functional_role"] = (
-        df["title"].fillna("") + " " + df["description"].fillna("")
-    ).apply(lambda t: classify_functional_role(t, cfg))
+    df["functional_role"] = df.apply(
+        lambda r: classify_functional_role(
+            r["title"] or "", r["description"] or "", cfg
+        ),
+        axis=1,
+    )
 
     df["role_skill_score"] = df.apply(
         lambda r: calculate_role_and_skill_match_score(

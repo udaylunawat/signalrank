@@ -8,27 +8,31 @@ PORT FROM v1:
 # domain/roles.py
 
 
-def classify_functional_role(text: str, cfg: dict) -> str:
-    t = (text or "").lower()
+def classify_functional_role(title: str, description: str, cfg: dict) -> str:
+    title_lower = (title or "").lower()
+    desc_lower = (description or "").lower()
+    full_text = f"{title_lower} {desc_lower}"
 
     taxonomy = cfg.get("functional_role_taxonomy", {})
-    thresholds = cfg.get("functional_role_thresholds", {})
 
-    # Explicit taxonomy wins
+    # Explicit taxonomy wins (checks full text)
     for role, block in taxonomy.items():
         for kw in block.get("keywords", []):
-            if kw in t:
+            if kw in full_text:
                 return role
 
+    # Heuristic fallback — title terms count 3×
     terms = cfg.get("functional_role_terms", {})
+    title_weight = 3
 
     ai_terms = terms.get("ai", [])
     devops_terms = terms.get("devops", [])
     security_terms = terms.get("security", [])
 
-    ai = sum(k in t for k in ai_terms)
-    devops = sum(k in t for k in devops_terms)
-    sec = sum(k in t for k in security_terms)
+    ai = sum(k in title_lower for k in ai_terms) * title_weight + sum(k in desc_lower for k in ai_terms)
+    devops = sum(k in title_lower for k in devops_terms) * title_weight + sum(k in desc_lower for k in devops_terms)
+    sec = sum(k in title_lower for k in security_terms) * title_weight + sum(k in desc_lower for k in security_terms)
+
     thresholds = cfg.get("functional_role_thresholds", {})
 
     if sec >= thresholds.get("security_min_terms"):

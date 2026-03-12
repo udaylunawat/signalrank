@@ -242,3 +242,70 @@ class TestCompanySemanticFloor:
 
     def test_zero_floor_no_scaling(self):
         assert apply_company_semantic_floor(100.0, 0.30, 0.0) == pytest.approx(100.0)
+
+
+from job_ranker.domain.roles import classify_functional_role
+
+
+class TestTitleWeightedClassification:
+    """Title keywords should count 3x more than description keywords in heuristic fallback."""
+
+    BASE_CFG = {
+        "functional_role_taxonomy": {
+            "architecture_strategy": {
+                "keywords": ["enterprise architect", "solution architect"],
+            },
+            "customer_facing": {
+                "keywords": ["customer engineer", "sales engineer"],
+            },
+        },
+        "functional_role_terms": {
+            "ai": ["llm", "agent", "rag", "embedding", "inference"],
+            "devops": ["kubernetes", "terraform", "ci/cd", "pipeline"],
+            "security": ["siem", "soc", "threat"],
+        },
+        "functional_role_thresholds": {
+            "security_min_terms": 2,
+            "agentic_min_terms": 3,
+            "mlops_ai_terms": 1,
+            "mlops_devops_terms": 1,
+            "platform_devops_min_terms": 2,
+        },
+    }
+
+    def test_taxonomy_match_still_works(self):
+        """Taxonomy match uses full text — should still catch 'customer engineer'."""
+        result = classify_functional_role(
+            "Customer Engineer", "Build AI solutions with LLM and RAG", self.BASE_CFG
+        )
+        assert result == "customer_facing"
+
+    def test_ai_title_gets_boosted(self):
+        """Title with AI terms should classify as agentic even with few description terms."""
+        result = classify_functional_role(
+            "LLM Agent Engineer",
+            "Work on embedding systems",
+            self.BASE_CFG,
+        )
+        # Title: llm(3) + agent(3) = 6, Desc: embedding(1) = 1, Total AI = 7 >= 3
+        assert result == "agentic_systems"
+
+    def test_generic_title_ai_description_not_agentic(self):
+        """Generic title + AI description shouldn't easily reach agentic threshold."""
+        result = classify_functional_role(
+            "Software Engineer",
+            "Work with llm and agent systems",
+            self.BASE_CFG,
+        )
+        # Title: 0 AI terms, Desc: llm(1) + agent(1) = 2, Total AI = 2 < 3
+        assert result != "agentic_systems"
+
+    def test_mlops_classification(self):
+        """Title with devops terms + description with AI -> mlops."""
+        result = classify_functional_role(
+            "Platform Engineer - Kubernetes",
+            "Deploy llm inference services",
+            self.BASE_CFG,
+        )
+        # Title: kubernetes(3), Desc: llm(1)+inference(1)=2. AI=2>=1, DevOps=3>=1 -> mlops
+        assert result == "mlops_llmops"
