@@ -119,6 +119,7 @@ def recency_score_0_100(date_posted) -> float:
 CONTRACT_SIGNALS = [
     "contract", "part-time", "part time", "freelance",
     "hours per day", "hrs/day", "hours/day", "hrs per day",
+    "hr/day", "hr per day",
     "temporary", "temp position", "fixed-term", "fixed term",
 ]
 
@@ -127,7 +128,8 @@ def detect_contract_type(title: str, description: str) -> bool:
     """Return True if the job appears to be contract/part-time."""
     title_lower = (title or "").lower()
     desc_prefix = (description or "")[:200].lower()
-    text = f"{title_lower} {desc_prefix}"
+    # Strip backslash escapes (common in markdown-formatted descriptions)
+    text = f"{title_lower} {desc_prefix}".replace("\\", "")
     return any(signal in text for signal in CONTRACT_SIGNALS)
 
 

@@ -306,6 +306,13 @@ class TestContractDetection:
     def test_temporary_in_title(self):
         assert detect_contract_type("Temporary Software Engineer", "") is True
 
+    def test_backslash_escaped_part_time(self):
+        """Markdown-escaped 'Part\\-Time' should still be detected."""
+        assert detect_contract_type("ML Engineer", "Type: \\- Part\\-Time") is True
+
+    def test_hr_per_day(self):
+        assert detect_contract_type("Data Scientist", "3 hr/day remote") is True
+
 
 from job_ranker.domain.roles import classify_functional_role
 
