@@ -66,6 +66,18 @@ def apply_company_semantic_floor(
     return company_score * (semantic_score / floor)
 
 
+def apply_hidden_gem_bonus(
+    company_score: float, tier: str, semantic_score: float,
+    threshold: float = 0.70, bonus_score: float = 60.0,
+) -> float:
+    """Bump company_score for unknown-tier jobs with high semantic fit."""
+    if tier not in ("default", "") and tier is not None:
+        return company_score
+    if semantic_score >= threshold:
+        return max(company_score, bonus_score)
+    return company_score
+
+
 def seniority_score_0_100(multiplier: float) -> float:
     # Linear map [0.4, 1.15] -> [10, 100]
     score = ((multiplier - 0.4) / 0.75) * 90 + 10
@@ -102,6 +114,21 @@ def recency_score_0_100(date_posted) -> float:
             return s0 + frac * (s1 - s0)
 
     return 10.0
+
+
+CONTRACT_SIGNALS = [
+    "contract", "part-time", "part time", "freelance",
+    "hours per day", "hrs/day", "hours/day", "hrs per day",
+    "temporary", "temp position", "fixed-term", "fixed term",
+]
+
+
+def detect_contract_type(title: str, description: str) -> bool:
+    """Return True if the job appears to be contract/part-time."""
+    title_lower = (title or "").lower()
+    desc_prefix = (description or "")[:200].lower()
+    text = f"{title_lower} {desc_prefix}"
+    return any(signal in text for signal in CONTRACT_SIGNALS)
 
 
 DEFAULT_WEIGHTS = {

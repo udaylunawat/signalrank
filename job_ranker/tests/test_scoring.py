@@ -7,8 +7,10 @@ import pytest
 
 from job_ranker.domain.additive_scoring import (
     apply_company_semantic_floor,
+    apply_hidden_gem_bonus,
     company_score_0_100,
     compute_weighted_score,
+    detect_contract_type,
     location_score_0_100,
     recency_score_0_100,
     seniority_score_0_100,
@@ -242,6 +244,67 @@ class TestCompanySemanticFloor:
 
     def test_zero_floor_no_scaling(self):
         assert apply_company_semantic_floor(100.0, 0.30, 0.0) == pytest.approx(100.0)
+
+
+class TestHiddenGemBonus:
+    """Unknown-tier companies with high semantic score get a company_score bump."""
+
+    def test_unknown_high_semantic_gets_bonus(self):
+        result = apply_hidden_gem_bonus(40.0, "default", 0.75)
+        assert result == 60.0
+
+    def test_unknown_low_semantic_no_bonus(self):
+        result = apply_hidden_gem_bonus(40.0, "default", 0.65)
+        assert result == 40.0
+
+    def test_known_tier_no_bonus(self):
+        """Tier_s company should not get the bonus even with high semantic."""
+        result = apply_hidden_gem_bonus(100.0, "tier_s", 0.80)
+        assert result == 100.0
+
+    def test_tier_a_no_bonus(self):
+        result = apply_hidden_gem_bonus(85.0, "tier_a", 0.80)
+        assert result == 85.0
+
+    def test_at_threshold_gets_bonus(self):
+        result = apply_hidden_gem_bonus(40.0, "default", 0.70)
+        assert result == 60.0
+
+    def test_none_tier_gets_bonus(self):
+        """None tier (unclassified) should also get the bonus."""
+        result = apply_hidden_gem_bonus(40.0, None, 0.75)
+        assert result == 60.0
+
+    def test_custom_threshold_and_bonus(self):
+        result = apply_hidden_gem_bonus(40.0, "default", 0.80, threshold=0.75, bonus_score=70.0)
+        assert result == 70.0
+
+
+class TestContractDetection:
+    """Detect contract/part-time signals in title and description prefix."""
+
+    def test_part_time_in_title(self):
+        assert detect_contract_type("Part-Time Data Scientist", "") is True
+
+    def test_contract_in_title(self):
+        assert detect_contract_type("Contract ML Engineer", "") is True
+
+    def test_freelance_in_title(self):
+        assert detect_contract_type("Freelance AI Developer", "") is True
+
+    def test_hours_per_day_in_description(self):
+        assert detect_contract_type("Data Scientist", "3 hours per day remote position") is True
+
+    def test_normal_job_no_signal(self):
+        assert detect_contract_type("Senior ML Engineer", "Full-time role at a fast-growing startup") is False
+
+    def test_signal_beyond_200_chars_ignored(self):
+        """Only first 200 chars of description are scanned."""
+        long_desc = "x" * 201 + " contract position"
+        assert detect_contract_type("ML Engineer", long_desc) is False
+
+    def test_temporary_in_title(self):
+        assert detect_contract_type("Temporary Software Engineer", "") is True
 
 
 from job_ranker.domain.roles import classify_functional_role

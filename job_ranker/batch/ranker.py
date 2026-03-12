@@ -19,8 +19,10 @@ import pandas as pd
 from job_ranker.batch.veto import apply_llm_veto
 from job_ranker.domain.additive_scoring import (
     apply_company_semantic_floor,
+    apply_hidden_gem_bonus,
     company_score_0_100,
     compute_weighted_score,
+    detect_contract_type,
     location_score_0_100,
     recency_score_0_100,
     seniority_score_0_100,
@@ -166,6 +168,17 @@ def apply_additive_scoring(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         axis=1,
     )
 
+    # Apply hidden gem bonus for unknown-tier companies with high semantic fit
+    gem_threshold = cfg.get("ranking", {}).get("hidden_gem_semantic_threshold", 0.70)
+    gem_bonus = cfg.get("ranking", {}).get("hidden_gem_company_bonus", 60)
+    df["company_score"] = df.apply(
+        lambda r: apply_hidden_gem_bonus(
+            r["company_score"], r["company_tier"], r["semantic_score"],
+            threshold=gem_threshold, bonus_score=gem_bonus,
+        ),
+        axis=1,
+    )
+
     df["seniority_score_dim"] = df["seniority_score"].apply(seniority_score_0_100)
     df["location_score"] = df["location_weight"].apply(location_score_0_100)
     df["recency_score"] = df["date_posted"].apply(recency_score_0_100)
@@ -188,6 +201,14 @@ def apply_additive_scoring(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     )
 
     df["final_score"] = df["final_score"].fillna(0.0)
+
+    # Contract/part-time penalty
+    contract_penalty = cfg.get("ranking", {}).get("contract_penalty", 0.9)
+    df["is_contract"] = df.apply(
+        lambda r: detect_contract_type(r["title"], r["description"]), axis=1
+    )
+    df.loc[df["is_contract"], "final_score"] *= contract_penalty
+
     df = df.drop(columns=["_consulting_damp"])
 
     return df

@@ -29,6 +29,9 @@ ranking:
   min_keyword_overlap: 0
   min_quality_multiplier: 0.80
   company_semantic_floor: 0.65
+  hidden_gem_semantic_threshold: 0.70
+  hidden_gem_company_bonus: 60
+  contract_penalty: 0.9
   role_semantic_thresholds:
     software_general: 0.65
     platform_devops: 0.55
@@ -131,7 +134,7 @@ skills:
 # ============================================================
 scraping:
   country: India
-  max_results: 1500
+  max_results: 3000
   min_description_length: 0
   use_multiprocessing: true
   supports_hours_old: true
