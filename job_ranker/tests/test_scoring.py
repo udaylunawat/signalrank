@@ -64,7 +64,7 @@ class TestCompanyScore:
         assert company_score_0_100("tier_d") == 15.0
 
     def test_default(self):
-        assert company_score_0_100("default") == 50.0
+        assert company_score_0_100("default") == 40.0
 
     def test_legacy_preferred(self):
         assert company_score_0_100("preferred") == 100.0
@@ -73,7 +73,7 @@ class TestCompanyScore:
         assert company_score_0_100("deprioritized") == 15.0
 
     def test_unknown_tier(self):
-        assert company_score_0_100("something_else") == 50.0
+        assert company_score_0_100("something_else") == 40.0
 
 
 # ---- Seniority dimension ----
@@ -120,7 +120,13 @@ class TestRecencyScore:
         assert 28 <= score <= 32
 
     def test_none(self):
-        assert recency_score_0_100(None) == 50.0
+        assert recency_score_0_100(None) == 30.0
+
+    def test_naive_datetime(self):
+        """Naive datetimes (no tz) should be treated as UTC, not return default."""
+        d = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+        score = recency_score_0_100(d)
+        assert 78 <= score <= 82  # ~80 for 7-day-old
 
     def test_very_old(self):
         d = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
@@ -156,3 +162,57 @@ class TestWeightedScore:
         }
         custom = {"skills_match": 1.0, "company_fit": 0, "seniority": 0, "location": 0, "recency": 0}
         assert compute_weighted_score(scores, custom) == pytest.approx(100.0)
+
+
+from job_ranker.domain.scoring import calculate_seniority_score
+
+
+class TestSeniorityScoring:
+    """Tests for calculate_seniority_score including over-seniority."""
+
+    BASE_CFG = {
+        "ranking": {
+            "seniority_penalty": {
+                "junior_multiplier": 0.4,
+                "low_yoe_multiplier": 0.5,
+                "over_senior_multiplier": 0.7,
+                "title_keywords": {
+                    "junior": ["intern", "junior", "entry"],
+                    "over_senior": ["director", "head of", "chief"],
+                },
+            },
+            "seniority_boosting_keywords": ["senior", "lead", "staff", "principal"],
+        },
+    }
+
+    def test_director_gets_penalty(self):
+        score = calculate_seniority_score(
+            self.BASE_CFG, title="Director of Engineering", description="", user_yoe=7
+        )
+        assert score == pytest.approx(0.7)
+
+    def test_vp_no_penalty(self):
+        """VP at finance companies is senior IC, not management."""
+        score = calculate_seniority_score(
+            self.BASE_CFG, title="VP of Engineering", description="", user_yoe=7
+        )
+        assert score >= 1.0  # Should get senior boost, not penalty
+
+    def test_head_of_gets_penalty(self):
+        score = calculate_seniority_score(
+            self.BASE_CFG, title="Head of AI Platform", description="", user_yoe=7
+        )
+        assert score == pytest.approx(0.7)
+
+    def test_senior_engineer_no_penalty(self):
+        score = calculate_seniority_score(
+            self.BASE_CFG, title="Senior Software Engineer", description="", user_yoe=7
+        )
+        assert score >= 1.0  # Gets a boost, not a penalty
+
+    def test_principal_engineer_no_penalty(self):
+        """Principal is senior-boosted, not over-senior penalized."""
+        score = calculate_seniority_score(
+            self.BASE_CFG, title="Principal Engineer", description="", user_yoe=7
+        )
+        assert score >= 1.0

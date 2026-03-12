@@ -58,6 +58,13 @@ def calculate_seniority_score(
         return scfg.get("low_yoe_multiplier", 0.5)
 
     # --------------------
+    # Over-senior penalties
+    # --------------------
+    over_senior_terms = scfg.get("title_keywords", {}).get("over_senior", [])
+    if any(k in t for k in over_senior_terms):
+        return scfg.get("over_senior_multiplier", 0.7)
+
+    # --------------------
     # Senior / lead boosts
     # --------------------
     senior_terms = ranking.get(

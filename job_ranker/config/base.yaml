@@ -36,11 +36,16 @@ ranking:
   seniority_penalty:
     junior_multiplier: 0.4
     low_yoe_multiplier: 0.5
+    over_senior_multiplier: 0.7
     title_keywords:
       junior:
         - intern
         - junior
         - entry
+      over_senior:
+        - director
+        - head of
+        - chief
 
   role_negative_keywords:
     software_general:
