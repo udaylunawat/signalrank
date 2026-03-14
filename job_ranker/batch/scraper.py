@@ -17,6 +17,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import List
 
 import pandas as pd
@@ -634,8 +635,10 @@ def _finalize(all_rows: List[dict], scraping_cfg: dict, ctx) -> pd.DataFrame:
     df = df.reset_index(drop=True)
     logger.info("[SCRAPE] Final rows=%d", len(df))
 
+    outputs_dir = Path("outputs")
+    outputs_dir.mkdir(exist_ok=True)
     df.to_csv(
-        f"scraped_{ctx.user}_{ctx.use_case}_{pd.Timestamp.utcnow().strftime('%Y%m%d_%H%M%S')}.csv",
+        outputs_dir / f"scraped_{ctx.user}_{ctx.use_case}_{pd.Timestamp.utcnow().strftime('%Y%m%d_%H%M%S')}.csv",
         index=False,
     )
     return df

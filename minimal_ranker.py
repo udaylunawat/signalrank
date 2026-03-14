@@ -1,5 +1,6 @@
 import csv
 import re
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -226,8 +227,10 @@ if __name__ == "__main__":
     print("\nTop 20 ranked jobs:\n")
     print(ranked[["title", "company", "location", "site", "final_score"]].head(20))
 
+    outputs_dir = Path("outputs")
+    outputs_dir.mkdir(exist_ok=True)
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    filename = f"ranked_jobs_{timestamp}.csv"
+    filename = outputs_dir / f"ranked_jobs_{timestamp}.csv"
 
     ranked.to_csv(
         filename,

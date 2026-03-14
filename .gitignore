@@ -1,5 +1,6 @@
 # Data files — too large for git
 *.csv
+outputs/
 *.parquet
 *.db
 *.duckdb
@@ -23,6 +24,9 @@ build/
 
 # Logs
 *.log
+
+# Mini ranker cache
+.mini_ranker_cache/
 
 # OS
 .DS_Store
