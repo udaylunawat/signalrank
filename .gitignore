@@ -27,3 +27,9 @@ build/
 # OS
 .DS_Store
 uv.lock
+
+# DuckDB databases (too large for GitHub)
+job_ranker/duckdb
+job_ranker/job_ranker/duckdb
+**/duckdb
+*.ddb
