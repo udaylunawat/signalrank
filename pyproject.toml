@@ -30,6 +30,7 @@ dependencies = [
   "pyyaml",
   "beautifulsoup4>=4.14.3",
   "lxml>=6.0.2",
+  "duckduckgo-search>=6.0.0",
 ]
 
 [project.optional-dependencies]

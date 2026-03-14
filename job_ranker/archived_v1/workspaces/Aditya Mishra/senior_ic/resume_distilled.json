@@ -1,0 +1,32 @@
+{
+  "core_capabilities": [
+    "Network Automation",
+    "Scripting (Groovy, Shell)",
+    "ServiceNow Integration",
+    "Automation Design & Implementation"
+  ],
+  "primary_focus": [],
+  "secondary_skills": [
+    "Firewall Decommissioning",
+    "SSL Certificate Management",
+    "Workflow Automation",
+    "DevOps Principles",
+    "Cloud (AWS Basics)",
+    "Containerization (Docker)"
+  ],
+  "non_focus": [
+    "Frontend Development",
+    "Database Administration",
+    "System Administration (non-automation)"
+  ],
+  "seniority_signals": [
+    "Network Engineer II",
+    "3+ Years Experience"
+  ],
+  "target_roles": [
+    "Network Automation Engineer",
+    "Automation Engineer",
+    "DevOps Engineer (Network Focus)",
+    "Infrastructure Automation Engineer"
+  ]
+}

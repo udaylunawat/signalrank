@@ -1,0 +1,16 @@
+{
+  "cfg_fingerprint": "6fc69ba0ab5fd9bab77ce0e2f53cfd33",
+  "resume_fingerprint": "6f550959872df124071add57b216d741a5e71faf93e25d75df9d46b6c6eb8370",
+  "skills": [
+    "automation design & implementation",
+    "cloud (aws basics)",
+    "containerization (docker)",
+    "devops principles",
+    "firewall decommissioning",
+    "network automation",
+    "scripting (groovy, shell)",
+    "servicenow integration",
+    "ssl certificate management",
+    "workflow automation"
+  ]
+}

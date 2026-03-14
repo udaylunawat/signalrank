@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(grep:*)",
+      "Bash(uv run:*)",
+      "Bash(curl:*)",
+      "Bash(lsof:*)",
+      "Bash(kill 31690:*)",
+      "Bash(ls -lah /Users/examplecandidate/Projects/job_ranker/*.csv)"
+    ]
+  }
+}

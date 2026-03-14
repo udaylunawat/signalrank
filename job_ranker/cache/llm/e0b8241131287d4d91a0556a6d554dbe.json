@@ -7,27 +7,28 @@
     "Reference Architecture Design",
     "Architecture Governance",
     "Innovation Architecture",
-    "Cloud Platform Design",
-    "Microservices Architecture",
-    "Generative AI"
+    "Strategic Technology Planning"
   ],
   "primary_focus": [
-    "Enterprise Architecture & Platform Strategy",
-    "IoT & Industrial Systems",
-    "Digital Transformation Programs",
-    "Innovation Governance"
+    "IoT Platforms",
+    "Industrial IoT",
+    "Smart Infrastructure",
+    "Generative AI",
+    "Platform Modernization"
   ],
   "secondary_skills": [
-    "Smart Infrastructure",
-    "Technology Strategy",
+    "Cloud Architecture (AWS/Azure)",
+    "Microservices",
+    "Data Pipelines",
+    "Robotics",
+    "Innovation Management",
     "Stakeholder Management",
-    "Pre-Sales Architecture",
-    "Innovation Lab Management"
+    "Pre-Sales Architecture"
   ],
   "non_focus": [
     "Frontend Development",
-    "Database Administration",
-    "Network Engineering"
+    "Mobile Development",
+    "Database Administration"
   ],
   "seniority_signals": [
     "Principal Solutions Architect",
@@ -41,6 +42,7 @@
     "Digital Architect",
     "Solution Architect",
     "Innovation Architect",
-    "Chief Architect"
+    "IoT Architect",
+    "Cloud Architect"
   ]
 }

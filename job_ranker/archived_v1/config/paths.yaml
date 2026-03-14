@@ -1,0 +1,7 @@
+paths:
+  project_root: .
+  cache_dir: cache
+  corpus_dir: corpus
+  outputs_dir: outputs
+  workspaces_dir: workspaces
+  users_dir: users

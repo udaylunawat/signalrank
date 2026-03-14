@@ -106,6 +106,18 @@ onboard:
 digest:
     uv run python job_ranker/helpers/generate_digest.py
 
+# Find recruiters from top 15 companies in the latest ranked CSV
+find-recruiter:
+    uv run job-ranker find-recruiter --csv ranked_jobs_20260225_045914.csv --top 15
+
+# Find recruiters from a specific CSV, top N companies
+find-recruiter-csv csv top="15":
+    uv run job-ranker find-recruiter --csv "{{csv}}" --top {{top}}
+
+# Find recruiter for a single company
+find-recruiter-company company="Adobe":
+    uv run job-ranker find-recruiter --company "{{company}}"
+
 # -----------------------------------------------------
 # Cleanup
 # -----------------------------------------------------

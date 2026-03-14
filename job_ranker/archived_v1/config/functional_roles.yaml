@@ -1,0 +1,70 @@
+functional_role_terms:
+  ai:
+  - llm
+  - agent
+  - agents
+  - rag
+  - embedding
+  - prompt
+  - inference
+  - evaluation
+  - orchestration
+  - langchain
+  - langgraph
+  - vector
+  devops:
+  - kubernetes
+  - terraform
+  - ci/cd
+  - pipeline
+  - monitoring
+  - grafana
+  - prometheus
+  - sre
+  - availability
+  - mttr
+  security:
+  - threat
+  - siem
+  - soc
+  - incident
+  - attack
+  - mitre
+  - edr
+  - forensics
+
+functional_role_taxonomy:
+  architecture_strategy:
+    keywords:
+      - enterprise architect
+      - solution architect
+      - platform architect
+      - reference architecture
+      - target architecture
+
+  innovation_rnd:
+    keywords:
+      - innovation lead
+      - r&d lead
+      - innovation lab
+      - incubation
+
+  product_strategy:
+    keywords:
+      - product strategy
+      - product roadmap
+      - platform roadmap
+
+  customer_facing:
+    keywords:
+      - solutions engineer
+      - pre-sales
+      - sales engineer
+      - proof of concept
+
+functional_role_thresholds:
+  security_min_terms: 2
+  agentic_min_terms: 3
+  mlops_ai_terms: 1
+  mlops_devops_terms: 1
+  platform_devops_min_terms: 2

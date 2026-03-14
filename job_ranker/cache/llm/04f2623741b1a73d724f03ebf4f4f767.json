@@ -6,7 +6,7 @@
     "Data Engineering",
     "Software Development",
     "DevOps",
-    "Security Architecture"
+    "Security Engineering"
   ],
   "primary_focus": [
     "Building and scaling AI platforms",
@@ -16,16 +16,16 @@
   ],
   "secondary_skills": [
     "Python",
-    "Data Pipelines",
+    "Data Analysis",
+    "Machine Learning",
     "CI/CD",
     "Containerization (Docker, Kubernetes)",
-    "SQL",
-    "Data Visualization (Tableau, Streamlit)"
+    "SQL"
   ],
   "non_focus": [
     "Frontend Development",
     "Mobile Development",
-    "Embedded Systems"
+    "Database Administration"
   ],
   "seniority_signals": [
     "Senior AI Platform Engineer",

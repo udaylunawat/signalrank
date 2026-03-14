@@ -1,0 +1,219 @@
+%!TEX TS-program = xelatex
+%!TEX encoding = UTF-8 Unicode
+
+%-------------------------------------------------------------------------------
+% CONFIGURATIONS
+%-------------------------------------------------------------------------------
+\documentclass[11pt, a4paper]{awesome-cv}
+
+% Configure page margins
+\geometry{left=1.4cm, top=.8cm, right=1.4cm, bottom=1.8cm, footskip=.5cm}
+
+% Specify the location of the included fonts
+\fontdir[fonts/]
+
+% Color for highlights
+\colorlet{awesome}{awesome-darknight}
+
+% Set false if you don't want to highlight section with awesome color
+\setbool{acvSectionColorHighlight}{true}
+
+% If you would like to change the social information separator from a pipe (|) to something else
+\renewcommand{\acvHeaderSocialSep}{\quad\textbar\quad}
+
+%-------------------------------------------------------------------------------
+%	PERSONAL INFORMATION
+%-------------------------------------------------------------------------------
+\name{}{\href{examplecandidate.github.io}{Example Candidate}}
+\position{\textbf{Senior AI Platform Engineer | Fractal AI, Pune}}
+\mobile{\href{https://wa.me/917020901969}{(+91) 7020901969}}
+\email{examplecandidate@gmail.com}
+\homepage{examplecandidate.github.io}
+\github{examplecandidate}
+\linkedin{example-candidate}
+
+\usepackage{hyperref}
+
+%-------------------------------------------------------------------------------
+\begin{document}
+
+% Print the header
+\makecvheader[C]
+
+% Print the footer
+\makecvfooter
+  {}
+  {Example Candidate~~~·~~~Résumé}
+  {\thepage}
+
+%-------------------------------------------------------------------------------
+%	SUMMARY
+%-------------------------------------------------------------------------------
+\vspace{-1.0em}
+\cvsection{Summary}
+
+\begin{cvparagraph}
+Senior AI Platform Engineer with nearly \textbf{7 years of experience} building \textbf{secure, governed, and scalable AI infrastructure} for enterprise environments. Specialized in transforming experimental GenAI initiatives into \textbf{production-grade platforms} with a focus on \textbf{FinOps}, \textbf{RBAC security}, and \textbf{operational resilience}.
+
+Proven track record designing \textbf{multi-agent orchestration layers} and \textbf{automated CI/CD pipelines} across \textbf{GCP, AWS, and Hybrid Clouds}. Trusted partner to \textbf{Fortune 500 enterprises} for deploying AI systems that meet strict governance while optimizing infrastructure costs.
+\end{cvparagraph}
+
+\vspace{-1.0em}
+
+%-------------------------------------------------------------------------------
+%	WORK EXPERIENCE
+%-------------------------------------------------------------------------------
+\cvsection{Work Experience}
+\vspace{-0.5em}
+
+\begin{cventries}
+
+%---------------------------------------------------------
+\cventry
+  {\underline{Tech Stack}: \textbf{Python, GCP, LangGraph, FastAPI, Jenkins, SQLModel, Alembic, Langfuse}}
+  {Senior Machine Learning / AI Engineer (AI Platforms, LLMOps, FinOps) – \underline{\href{https://fractal.ai/}{Fractal AI}}}
+  {\textbf{Nov 2024 – Present}}
+  {Pune}
+  {
+    \begin{cvitems}
+      \item {Led the consolidation of fragmented GenAI prototypes into a \textbf{unified, production-grade AI platform} for a \textbf{Fortune 5 U.S. Telecom}, enabling secure cross-functional scalability.}
+      \item {Architected a \textbf{LangGraph-based multi-agent orchestration layer}, enabling complex, stateful reasoning workflows.}
+      \item {Designed and enforced \textbf{Enterprise RBAC and Secret Isolation}, eliminating static credentials and enabling secure multi-team agent sharing.}
+      \item {Engineered a \textbf{modular Jenkins CI/CD pipeline} that unifies backend services, RAG pipelines, and SDKs, enforcing consistent code quality.}
+      \item {Automated Cloud Run provisioning, slashing environment setup time from \textbf{days to \~90 seconds}, significantly increasing developer velocity.}
+      \item {Scaled platform adoption to support \textbf{13,000+ automated deployments} and \textbf{300+ agents}, ensuring stability for production workloads.}
+    \end{cvitems}
+  }
+
+\vspace{1.0em}
+
+%---------------------------------------------------------
+\cventry
+  {\underline{Tech Stack}: \textbf{Python, GCP, MLFlow, Seldon Core, TensorFlow, Label Studio, Flask, Docker}}
+  {Senior Machine Learning Engineer (Human-in-the-Loop AI Systems) – \underline{\href{https://www.hcltech.com/}{HCL}}}
+  {\textbf{Apr 2024 – Jun 2024}}
+  {Bangalore}
+  {
+    \begin{cvitems}
+      \item {Architected \textbf{human-in-the-loop (HITL) evaluation frameworks} for enterprise NLP models, integrating synthetic and human feedback for model validation.}
+      \item {Developed scalable annotation pipelines using \textbf{Label Studio} and containerized Flask microservices on GCP, ensuring reliable data quality for model retraining.}
+      \item {Established baseline metrics for model performance monitoring, providing data-driven insights for model promotion to production environments.}
+    \end{cvitems}
+  }
+
+\vspace{1.0em}
+
+%---------------------------------------------------------
+\cventry
+  {\underline{Tech Stack}: \textbf{Python, AWS, MLFlow, Label Studio, nbdev, Quantization}}
+  {Machine Learning Engineer (AI Systems \& Infrastructure) – \underline{Chugani}}
+  {\textbf{Feb 2022 – May 2023}}
+  {Bangalore}
+  {
+    \begin{cvitems}
+      \item {Engineered a \textbf{real-time liveness detection system}, optimizing face recognition models via pruning and quantization to achieve \textbf{sub-second inference latency}.}
+      \item {Modernized ML infrastructure by implementing \textbf{MLFlow for experiment tracking} and model registry, transitioning the team to standardized production workflows.}
+      \item {Refactored legacy codebases into \textbf{modular Python packages (nbdev)}, improving test coverage, maintainability, and facilitating cross-team collaboration.}
+    \end{cvitems}
+  }
+
+\vspace{1.0em}
+
+%---------------------------------------------------------
+\cventry
+  {\underline{Tech Stack}: \textbf{Python, Tableau, Streamlit, Airflow, AWS, ETL}}
+  {Machine Learning \& ETL Engineer – \underline{Yang}}
+  {\textbf{Apr 2019 – Jan 2022}}
+  {Bangalore}
+  {
+    \begin{cvitems}
+      \item {Built an \textbf{automated AI audit system} processing real-time factory data streams, utilizing anomaly detection to improve global quality control standards.}
+      \item {Designed and deployed \textbf{operational dashboards} that automated reporting for 20+ vendor sites, saving over \textbf{200 manual hours per week}.}
+      \item {Orchestrated data pipelines across distributed teams in \textbf{12 countries}, ensuring high data availability and reliability for global stakeholders.}
+    \end{cvitems}
+  }
+
+\vspace{1.0em}
+
+%---------------------------------------------------------
+\cventry
+  {}
+  {Associate Software Engineer / Intern – \underline{\href{https://www.tcs.com/}{TCS}} \& \underline{\href{https://www.infosys.com/}{Infosys}}}
+  {\textbf{Jan 2018 – Mar 2019}}
+  {}
+  {
+    % \begin{cvitems}
+    %   \item {Developed a foundational understanding of \textbf{enterprise SDLC} through contributions to large-scale banking and retail IT modernization projects.}
+    %   \item {Assisted in building data migration scripts and automated testing modules, ensuring zero-defect delivery during critical release cycles.}
+    % \end{cvitems}
+  }
+
+\end{cventries}
+
+\vspace{-3.5em}
+
+%-------------------------------------------------------------------------------
+%	OPEN SOURCE
+%-------------------------------------------------------------------------------
+\cvsection{Open Source \& Projects}
+\vspace{-0.5em}
+\begin{cventries}
+  \cventry
+    {\underline{Tech}: HuggingFace, Gradio, Gemini, OpenAI, Streamlit}
+    {
+      \href{https://github.com/examplecandidate/Automatic-License-Plate-Recognition}{ALPR (Streamlit Hall of Fame)} \,\textbf{|}\, 
+      \href{https://github.com/examplecandidate/Data-Science-Projects/tree/master/NotebookLM_clone/PDF2Podcast}{PDF2Podcast (RAG)} \,\textbf{|}\, 
+      \href{https://github.com/examplecandidate/Whats-this-rock}{RockReveal AI}
+    }
+    {}
+    {}
+    {}
+\end{cventries}
+
+\vspace{-1.5em}
+
+%-------------------------------------------------------------------------------
+%	SKILLS
+%-------------------------------------------------------------------------------
+\cvsection{Skills}
+
+\newenvironment{mylist}[1]
+  {\begin{description}[labelwidth=#1,align=right,labelsep=1em,itemsep=-0.2em]}
+  {\end{description}}
+
+\begin{cventries}
+\small
+\vspace{-2.5em}
+
+\cventry
+    {}
+    {}
+    {}
+    {}
+    {
+      \begin{mylist}{4.05cm}
+        \item[Languages :] \textbf{Python}, SQL, Groovy, Bash
+        \item[Cloud \& DevOps :] \textbf{GCP (Cloud Run, Vertex AI)}, AWS, Docker, Kubernetes, Jenkins, Terraform
+        \item[AI Platforms :] LangGraph, MLFlow, FastAPI, Seldon Core, Langfuse, Vector DBs
+        \item[Governance & Security :] RBAC, Secret Management, PII Redaction, Environment Isolation
+        \item[Libraries :] Pandas, NumPy, TensorFlow, PyTorch, Hugging Face, Tableau, Streamlit
+      \end{mylist}
+    }
+
+\end{cventries}
+\vspace{-1.5em}
+%-------------------------------------------------------------------------------
+%	EDUCATION
+%-------------------------------------------------------------------------------
+\cvsection{Education}
+
+\begin{cventries}
+  \cventry
+    {}
+    {\href{https://www.rknec.edu/}{B.Tech. in Information Technology - RCOEM, Nagpur}}
+    {July 2014 - April 2018}
+    {}
+    {}
+\end{cventries}
+
+\end{document}

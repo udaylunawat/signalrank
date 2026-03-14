@@ -1,0 +1,34 @@
+# Data files — too large for git
+*.csv
+outputs/
+*.parquet
+*.db
+*.duckdb
+*.duckdb.wal
+duckdb
+duckdb.wal
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Env — never commit real credentials
+.env
+# Allow the template/copy
+!.env\ copy
+!job_ranker/.env\ copy
+
+# Logs
+*.log
+
+# Mini ranker cache
+.mini_ranker_cache/
+
+# OS
+.DS_Store
+uv.lock
+duckdb copy
