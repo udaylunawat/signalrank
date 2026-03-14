@@ -1,0 +1,20 @@
+version: 2
+includes:
+- config/paths.yaml
+- config/resume.yaml
+- config/workspace.yaml
+- config/ranking.yaml
+- config/functional_roles.yaml
+- config/company_scoring.yaml
+- config/profiles.yaml
+- config/embeddings.yaml
+- config/llm.yaml
+- config/scraping.yaml
+- config/cache.yaml
+- config/outputs.yaml
+- config/scheduler.yaml
+- config/logging.yaml
+- config/environment.yaml
+- config/search.yaml
+- config/skills.yaml
+- config/users.yaml

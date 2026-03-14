@@ -1,0 +1,8 @@
+environment:
+  omp_num_threads: 1
+  mkl_num_threads: 1
+  openblas_num_threads: 1
+  veclib_maximum_threads: 1
+  numexpr_num_threads: 1
+  torch_num_threads: 1
+  tokenizers_parallelism: false

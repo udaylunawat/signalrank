@@ -1,17 +1,13 @@
 {
   "permissions": {
     "allow": [
+      "Bash(git:*)",
+      "Bash(grep:*)",
       "Bash(uv run:*)",
-      "WebSearch",
-      "Bash(xargs kill)",
-      "Read(//Users/examplecandidate/Projects/job_ranker/**)",
-      "Bash(ls:*)",
-      "Bash(pkill:*)",
-      "Bash(just digest:*)",
-      "Bash(printf \\\\n\\\\n:*)",
-      "Bash(printf \\\\n\\\\n\\\\n\\\\n\\\\n\\\\n\\\\n\\\\n:*)",
-      "Bash(uv pip:*)",
-      "Bash(PYTHONPATH=. uv run:*)"
+      "Bash(curl:*)",
+      "Bash(lsof:*)",
+      "Bash(kill 31690:*)",
+      "Bash(ls -lah /Users/examplecandidate/Projects/job_ranker/*.csv)"
     ]
   }
 }

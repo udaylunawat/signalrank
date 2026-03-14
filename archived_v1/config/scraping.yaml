@@ -1,0 +1,36 @@
+scraping:
+  cache_ttl_hours: 6
+  max_retries: 3
+  base_backoff_seconds: 2.0
+  jitter_range_seconds: [0.3, 1.5]
+  min_description_length: 100
+  use_multiprocessing: true
+
+  volume:
+    max_jobs_per_query: 500
+    max_pages: 10
+
+  sites:
+    india:
+      enabled: [indeed, glassdoor, linkedin] # bayt, # google
+    global:
+      enabled: [indeed, glassdoor, linkedin, google]
+
+  linkedin_api:
+    enabled: true
+    max_requests_per_minute: 30
+    page_limit: 3
+    timeout_seconds: 20
+    max_results_per_query: 70
+    sources:
+      - active-jb-7d
+      - active-ats-7d
+
+  # ✅ MOVE HERE
+  query_clusters:
+    mlops:
+      match: [mlops]
+    genai:
+      match: [llmops, genai]
+    swe:
+      match: [software engineer, swe]

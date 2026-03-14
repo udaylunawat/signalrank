@@ -1,0 +1,212 @@
+{
+  "generated_at": "2026-01-30T21:08:38.233259",
+  "queries": [
+    {
+      "query": "senior mloops engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        },
+        {
+          "site": "linkedin",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        },
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "genai engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 6,
+          "kept": 6,
+          "status": "ok"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 46,
+          "kept": 27,
+          "status": "ok"
+        },
+        {
+          "site": "linkedin",
+          "raw": 50,
+          "kept": 0,
+          "status": "pruned"
+        },
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "llmops engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 3,
+          "kept": 0,
+          "status": "pruned"
+        },
+        {
+          "site": "linkedin",
+          "raw": 50,
+          "kept": 0,
+          "status": "pruned"
+        },
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "senior generative ai engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 4,
+          "kept": 4,
+          "status": "ok"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 32,
+          "kept": 0,
+          "status": "pruned"
+        },
+        {
+          "site": "linkedin",
+          "raw": 50,
+          "kept": 0,
+          "status": "pruned"
+        },
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "senior software engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 23,
+          "kept": 23,
+          "status": "ok"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 50,
+          "kept": 26,
+          "status": "ok"
+        },
+        {
+          "site": "linkedin",
+          "raw": 50,
+          "kept": 0,
+          "status": "pruned"
+        },
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "forward deployed engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 1,
+          "kept": 0,
+          "status": "pruned"
+        },
+        {
+          "site": "linkedin",
+          "raw": 50,
+          "kept": 0,
+          "status": "pruned"
+        },
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "sweiii",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        },
+        {
+          "site": "linkedin",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        },
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "status": "empty"
+        }
+      ]
+    }
+  ],
+  "by_site": {
+    "indeed": 33,
+    "glassdoor": 53
+  }
+}

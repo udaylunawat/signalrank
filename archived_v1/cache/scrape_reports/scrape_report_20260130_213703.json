@@ -1,0 +1,66 @@
+{
+  "generated_at": "2026-01-30T21:37:00.994063",
+  "queries": [
+    {
+      "query": "senior machine learning engineer",
+      "results": [
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "senior ml engineer",
+      "results": [
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "lead machine learning engineer",
+      "results": [
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "senior data scientist machine learning",
+      "results": [
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "principal machine learning engineer",
+      "results": [
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    }
+  ],
+  "by_site": {}
+}

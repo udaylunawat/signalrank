@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 from jobspy import scrape_jobs
 
 from job_ranker.scrapers.linkedin_api import LinkedInRapidAPIScraper
+from job_ranker.scrapers.gmail_alerts import scrape_gmail_alerts
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ logger = logging.getLogger(__name__)
 MAX_WORKERS = 4
 DEFAULT_RESULTS_WANTED = 25
 MIN_DESC_LEN = 20
+
+# Google Jobs uses JobSpy's built-in Google scraper (no separate import needed)
 
 # Observability / safety
 MAX_QUERY_SECONDS = 180
@@ -138,8 +141,9 @@ def _scrape_single_query_jobspy(
         ),
     }
 
-    # hours_old is supported by Indeed in JobSpy
-    if scraping_cfg.get("supports_hours_old", True):
+    # hours_old is supported by the speedyapply fork but not vanilla python-jobspy.
+    # Try with it first; if the version doesn't support it, retry without.
+    if scraping_cfg.get("supports_hours_old", True) and hours_old:
         kwargs["hours_old"] = hours_old
 
     logger.info("[SCRAPE] ▶ JobSpy starting query=%r", query)
@@ -161,8 +165,21 @@ def _scrape_single_query_jobspy(
     try:
         jobs = scrape_jobs(**kwargs)
     except TypeError as e:
-        logger.warning("[SCRAPE] ✖ JobSpy query=%r failed (TypeError): %s", query, e)
-        return []
+        if "hours_old" in str(e) and "hours_old" in kwargs:
+            # Installed JobSpy version doesn't support hours_old — retry without it
+            logger.warning(
+                "[SCRAPE] JobSpy version doesn't support hours_old — retrying without it. "
+                "Install speedyapply fork for hours_old support."
+            )
+            kwargs.pop("hours_old")
+            try:
+                jobs = scrape_jobs(**kwargs)
+            except Exception as e2:
+                logger.warning("[SCRAPE] ✖ JobSpy query=%r failed on retry: %s", query, e2)
+                return []
+        else:
+            logger.warning("[SCRAPE] ✖ JobSpy query=%r failed (TypeError): %s", query, e)
+            return []
     except Exception as e:
         logger.warning("[SCRAPE] ✖ JobSpy query=%r failed: %s", query, e)
         return []
@@ -213,8 +230,9 @@ def scrape(
 
     Strategy depends on config `scraping.jobspy_only`:
 
-    jobspy_only: true  → ONLY JobSpy (Indeed). Serialized, one query at a time
-                         with a short delay to avoid 403s. No RapidAPI, no free APIs.
+    jobspy_only: true  → JobSpy (Indeed) + Google Jobs (if enabled in config).
+                         Serialized, one query at a time with delay to avoid 403s.
+                         No RapidAPI, no free APIs (Himalayas/Remotive/Jobicy).
 
     jobspy_only: false (default) → All sources in parallel:
         1. RapidAPI sources (if RAPIDAPI_KEY valid)
@@ -250,8 +268,8 @@ def scrape(
 
     if jobspy_only:
         logger.info(
-            "[SCRAPE] jobspy_only=true — skipping all RapidAPI and free-API sources. "
-            "Running JobSpy/Indeed sequentially (1 query at a time)."
+            "[SCRAPE] jobspy_only=true — skipping RapidAPI and free-API sources. "
+            "Running JobSpy/Indeed sequentially + Google Jobs (if enabled)."
         )
         _run_jobspy_sequential(
             queries=queries,
@@ -260,6 +278,21 @@ def scrape(
             all_rows=all_rows,
             sites_override=["indeed"],
         )
+        # Google Jobs is NOT a RapidAPI source — run it even in jobspy_only mode
+        _scrape_google_jobs(queries, scraping_cfg, hours_old, all_rows)
+        # Gmail Alerts also runs regardless of jobspy_only
+        gmail_cfg = scraping_cfg.get("gmail_alerts", {})
+        if gmail_cfg.get("enabled", False):
+            try:
+                gmail_rows = scrape_gmail_alerts(
+                    days_back=gmail_cfg.get("days_back", 7),
+                    max_emails=gmail_cfg.get("max_emails", 20),
+                )
+                if gmail_rows:
+                    all_rows.extend(gmail_rows)
+                    logger.info("[SCRAPE] ✔ Gmail Alerts collected %d jobs", len(gmail_rows))
+            except Exception as e:
+                logger.warning("[SCRAPE] ✖ Gmail Alerts exception: %s", e)
         return _finalize(all_rows, scraping_cfg, ctx)
 
     # --------------------------------------------------
@@ -332,6 +365,30 @@ def scrape(
         except Exception as e:
             logger.warning("[SCRAPE] ✖ Free APIs query=%r exception: %s", q, e)
 
+    # --------------------------------------------------
+    # Phase 4: Google Jobs (optional, residential IP only)
+    # Enable via config: scraping.google_jobs.enabled: true
+    # --------------------------------------------------
+    _scrape_google_jobs(queries, scraping_cfg, hours_old, all_rows)
+
+    # --------------------------------------------------
+    # Phase 5: Gmail Job Alerts (read-only IMAP)
+    # Enable via config: scraping.gmail_alerts.enabled: true
+    # Requires GMAIL_USER + GMAIL_APP_PASSWORD in .env
+    # --------------------------------------------------
+    gmail_cfg = scraping_cfg.get("gmail_alerts", {})
+    if gmail_cfg.get("enabled", False):
+        days_back = gmail_cfg.get("days_back", 7)
+        max_emails = gmail_cfg.get("max_emails", 20)
+        logger.info("[SCRAPE] Gmail Alerts phase: days_back=%d max_emails=%d", days_back, max_emails)
+        try:
+            gmail_rows = scrape_gmail_alerts(days_back=days_back, max_emails=max_emails)
+            if gmail_rows:
+                all_rows.extend(gmail_rows)
+                logger.info("[SCRAPE] ✔ Gmail Alerts collected %d jobs", len(gmail_rows))
+        except Exception as e:
+            logger.warning("[SCRAPE] ✖ Gmail Alerts exception: %s", e)
+
     return _finalize(all_rows, scraping_cfg, ctx)
 
 
@@ -369,6 +426,167 @@ def _run_jobspy_sequential(
         if rows:
             all_rows.extend(rows)
             logger.info("[SCRAPE] ✔ JobSpy query=%r collected %d rows", q, len(rows))
+
+
+def _scrape_google_jobs_serpapi(
+    query: str,
+    location: str,
+    results_wanted: int,
+    hours_old: int,
+    api_key: str,
+) -> List[dict]:
+    """
+    Scrape Google Jobs via SerpAPI.
+    Reliable from any IP — SerpAPI handles proxy rotation.
+    Free tier: 100 searches/month. Get key at https://serpapi.com
+    """
+    import requests as _requests
+
+    # Map hours_old to Google's date_posted chip
+    if hours_old <= 24:
+        date_posted = "today"
+    elif hours_old <= 72:
+        date_posted = "3days"
+    elif hours_old <= 168:
+        date_posted = "week"
+    else:
+        date_posted = "month"
+
+    params = {
+        "engine": "google_jobs",
+        "q": f"{query} jobs in {location}",
+        "api_key": api_key,
+        "chips": f"date_posted:{date_posted}",
+        "hl": "en",
+        "gl": "in",
+        # Note: no "num" param — Google Jobs returns 10 per page fixed
+    }
+
+    rows = []
+    next_page_token = None
+
+    while len(rows) < results_wanted:
+        # First page: no token. Subsequent pages: use next_page_token
+        page_params = {k: v for k, v in params.items()}
+        if next_page_token:
+            page_params["next_page_token"] = next_page_token
+
+        try:
+            resp = _requests.get(
+                "https://serpapi.com/search",
+                params=page_params,
+                timeout=20,
+            )
+            if resp.status_code == 400:
+                err = resp.json().get("error", resp.text[:300])
+                # chips param can cause 400 — retry without it
+                if "chips" in page_params:
+                    logger.warning("[GOOGLE/SERPAPI] 400 with chips — retrying without date filter")
+                    page_params.pop("chips")
+                    params.pop("chips", None)
+                    resp = _requests.get("https://serpapi.com/search", params=page_params, timeout=20)
+                if resp.status_code != 200:
+                    logger.warning("[GOOGLE/SERPAPI] %d error: %s", resp.status_code, err)
+                    break
+            else:
+                resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.warning("[GOOGLE/SERPAPI] Request failed: %s", e)
+            break
+
+        jobs = data.get("jobs_results", [])
+        if not jobs:
+            break
+
+        for job in jobs:
+            rows.append({
+                "title": job.get("title", ""),
+                "company": job.get("company_name", ""),
+                "location": job.get("location", ""),
+                "description": job.get("description", ""),
+                "job_url": (job.get("related_links") or [{}])[0].get("link", ""),
+                "date_posted": job.get("detected_extensions", {}).get("posted_at", ""),
+                "source": "google",
+                "is_remote": "remote" in job.get("location", "").lower(),
+            })
+
+        # Use next_page_token for pagination (start param discontinued)
+        next_page_token = data.get("serpapi_pagination", {}).get("next_page_token")
+        if not next_page_token:
+            break
+
+    return rows[:results_wanted]
+
+
+def _scrape_google_jobs(
+    queries: List[str],
+    scraping_cfg: dict,
+    hours_old: int,
+    all_rows: List[dict],
+) -> None:
+    """
+    Optional Phase: Google Jobs.
+    Enabled via config: scraping.google_jobs.enabled: true
+
+    Backend priority:
+    1. SerpAPI  — if SERPAPI_KEY is set (reliable from any IP, 100 free/month)
+       Get key: https://serpapi.com
+    2. JobSpy   — fallback (unreliable, Google blocks most IPs now)
+    """
+    google_cfg = scraping_cfg.get("google_jobs", {})
+    if not google_cfg.get("enabled", False):
+        return
+
+    location = scraping_cfg.get("country", "India")
+    results_wanted = google_cfg.get("results_per_query", 50)
+    delay = google_cfg.get("delay", 2.0)
+    serpapi_key = os.getenv("SERPAPI_KEY") or google_cfg.get("serpapi_key")
+    proxy = google_cfg.get("proxy") or os.getenv("GOOGLE_JOBS_PROXY")
+
+    if serpapi_key:
+        backend = "SerpAPI"
+    else:
+        backend = "JobSpy (unreliable — set SERPAPI_KEY for reliable results)"
+
+    logger.info(
+        "[SCRAPE] Google Jobs phase: %d queries location=%r backend=%s",
+        len(queries), location, backend,
+    )
+
+    for i, q in enumerate(queries):
+        if i > 0:
+            time.sleep(delay)
+        try:
+            if serpapi_key:
+                rows = _scrape_google_jobs_serpapi(
+                    query=q,
+                    location=location,
+                    results_wanted=results_wanted,
+                    hours_old=hours_old,
+                    api_key=serpapi_key,
+                )
+            else:
+                # Fallback: JobSpy Google (works sporadically)
+                df = scrape_jobs(
+                    site_name=["google"],
+                    google_search_term=f"{q} jobs in {location}",
+                    results_wanted=results_wanted,
+                    proxies=[proxy] if proxy else None,
+                )
+                rows = _normalize_jobs(df) if df is not None and not df.empty else []
+
+            if rows:
+                all_rows.extend(rows)
+                logger.info("[SCRAPE] ✔ Google Jobs query=%r collected %d rows", q, len(rows))
+            else:
+                logger.warning(
+                    "[SCRAPE] Google Jobs query=%r → 0 rows. "
+                    "Set SERPAPI_KEY in .env for reliable results (https://serpapi.com — 100 free/month)",
+                    q,
+                )
+        except Exception as e:
+            logger.warning("[SCRAPE] ✖ Google Jobs query=%r exception: %s", q, e)
 
 
 def _finalize(all_rows: List[dict], scraping_cfg: dict, ctx) -> pd.DataFrame:

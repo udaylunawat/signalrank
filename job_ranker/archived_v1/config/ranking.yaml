@@ -1,0 +1,43 @@
+ranking:
+  min_semantic_score: 0.30
+  min_semantic_score_by_profile:
+    senior_ic: 0.30
+    network_engineer: 0.10
+  semantic_company_floor: 0.65
+  max_yoe_cap: 20
+  yoe_penalty_threshold: 12
+  yoe_mismatch_penalty: 0.6
+  enable_recency_decay: true
+  recency_half_life_days: 21
+  job_desc_min_len: 500
+  short_description_penalty: 0.85
+  functional_role_penalties:
+    agentic_systems: 1.0
+    mlops_llmops: 1.0
+    platform_devops: 0.9
+    software_general: 0.85
+    ux: 0.6
+    product: 0.6
+    customer_facing: 0.65
+  skill_overlap:
+    enabled: true
+    alpha: 0.1
+    min_overlap: 1
+    cap_multiplier: 1.15
+    debug: true
+  hard_title_blocklist: []
+  seniority_penalty:
+    junior_multiplier: 0.4
+    low_yoe_multiplier: 0.5
+    title_keywords:
+      junior:
+      - associate
+      - junior
+      - entry
+      - intern
+  llm_veto:
+    enabled: true
+    top_n: 20
+    model_max_tokens: 200
+    hard_fail_on_error: false
+    penalty_multiplier: 0.65

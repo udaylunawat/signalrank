@@ -1,0 +1,49 @@
+{
+  "persona_label": "GenAI Architect with ML Expertise",
+  "resume_embedding_prefix": "genai_architect_ml_7yrs",
+  "functional_role_penalties": {
+    "data_scientist": 0.8,
+    "nlp_researcher": 0.7,
+    "ml_engineer": 0.6,
+    "ai_architect": 0.5
+  },
+  "functional_role_terms": {
+    "genai_architect": [
+      "generative ai",
+      "llm",
+      "large language models",
+      "graph neural networks",
+      "vector database",
+      "gans",
+      "van",
+      "deep learning",
+      "neural networks"
+    ],
+    "ml_engineer": [
+      "machine learning",
+      "ml",
+      "deep learning",
+      "neural networks",
+      "gans",
+      "van"
+    ],
+    "nlp_researcher": [
+      "nlp",
+      "natural language processing",
+      "text data",
+      "language models"
+    ],
+    "data_scientist": [
+      "data scientist",
+      "data analysis",
+      "data challenges",
+      "image processing"
+    ]
+  },
+  "title_blocklist": [
+    "system engineer",
+    "system engineer trainee",
+    "senior system engineer"
+  ],
+  "notes": "Focus on generative AI, LLMs, and graph neural networks. Prioritize roles with architect or research focus. Exclude system engineering roles."
+}

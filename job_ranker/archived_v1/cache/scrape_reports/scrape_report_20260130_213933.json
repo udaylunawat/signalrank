@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-01-30T21:39:33.469828",
+  "queries": [
+    {
+      "query": "\"ml engineer\"",
+      "results": [
+        {
+          "site": "google",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    }
+  ],
+  "by_site": {}
+}

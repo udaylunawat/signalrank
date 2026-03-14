@@ -1,0 +1,5 @@
+logging:
+  level: INFO
+  format: '[%(levelname)s] %(message)s'
+  log_to_file: true
+  log_file: job_ranker.log

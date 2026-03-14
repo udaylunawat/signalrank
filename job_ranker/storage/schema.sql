@@ -66,3 +66,18 @@ CREATE TABLE IF NOT EXISTS scrape_log (
   scraped_at TIMESTAMP,
   PRIMARY KEY (user, use_case, query, hours_old)
 );
+
+-- Recruiter contacts found via RecruiterFinder waterfall
+CREATE TABLE IF NOT EXISTS recruiters (
+  id          TEXT PRIMARY KEY,      -- sha256(job_url + email/linkedin_url)
+  job_url     TEXT,
+  company     TEXT,
+  domain      TEXT,
+  name        TEXT,
+  title       TEXT,
+  email       TEXT,
+  linkedin_url TEXT,
+  source      TEXT,                  -- hunter_io | linkedin_people_search | etc.
+  confidence  TEXT,                  -- high | medium | low
+  found_at    TIMESTAMP
+);

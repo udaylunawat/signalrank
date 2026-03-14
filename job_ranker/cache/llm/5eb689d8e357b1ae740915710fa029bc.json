@@ -1,0 +1,46 @@
+{
+  "persona_label": "Enterprise Innovation Architect",
+  "resume_embedding_prefix": "Enterprise Architecture & Digital Transformation",
+  "functional_role_penalties": {
+    "Consulting": 0.8,
+    "Sales": 0.9,
+    "Management": 1.0,
+    "Development": 0.7,
+    "Operations": 0.6
+  },
+  "functional_role_terms": {
+    "Architecture": [
+      "Enterprise Architecture",
+      "Platform Architecture",
+      "Solution Architecture",
+      "Reference Architecture",
+      "Innovation Architecture",
+      "Digital Architecture"
+    ],
+    "Strategy": [
+      "Strategy",
+      "Roadmap",
+      "Governance",
+      "Design",
+      "Planning"
+    ],
+    "Technology": [
+      "IoT",
+      "Industrial IoT",
+      "GenAI",
+      "Smart Infrastructure",
+      "Cloud Platforms",
+      "Data Pipelines",
+      "Digital Transformation",
+      "Innovation Labs"
+    ]
+  },
+  "title_blocklist": [
+    "Sales Engineer",
+    "Business Analyst",
+    "Project Manager",
+    "IT Manager",
+    "Data Scientist"
+  ],
+  "notes": "This persona prioritizes experience in Enterprise Architecture, Platform Architecture, and Digital Transformation, particularly within IoT and emerging technologies. The high experience level (11 years) suggests a strong understanding of architectural principles and the ability to translate business needs into scalable platform solutions. Focus on roles involving innovation and strategic technology adoption."
+}

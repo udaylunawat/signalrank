@@ -1,0 +1,89 @@
+{
+  "generated_at": "2026-01-31T15:05:04.328844",
+  "queries": [
+    {
+      "query": "senior mloops engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "linkedin",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "genai engineer",
+      "results": []
+    },
+    {
+      "query": "llmops engineer",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    },
+    {
+      "query": "senior generative ai engineer",
+      "results": []
+    },
+    {
+      "query": "senior software engineer",
+      "results": []
+    },
+    {
+      "query": "forward deployed engineer",
+      "results": []
+    },
+    {
+      "query": "sweiii",
+      "results": [
+        {
+          "site": "indeed",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "glassdoor",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        },
+        {
+          "site": "linkedin",
+          "raw": 0,
+          "kept": 0,
+          "meta_only": 0,
+          "status": "empty"
+        }
+      ]
+    }
+  ],
+  "by_site": {
+    "indeed": 23,
+    "glassdoor": 53
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "persona_label": "Senior NLP & GenAI Specialist",
+  "resume_embedding_prefix": "nlp_genai_architect",
+  "functional_role_penalties": {
+    "data_scientist": 0.8,
+    "software_engineer": 0.9,
+    "ml_engineer": 0.7,
+    "research_scientist": 0.6,
+    "data_engineer": 1.1
+  },
+  "functional_role_terms": {
+    "nlp": [
+      "BERT",
+      "LSTM",
+      "RAG",
+      "LLM",
+      "transformers",
+      "NER",
+      "sentiment",
+      "semantic search"
+    ],
+    "genai": [
+      "generative ai",
+      "openai",
+      "vertex ai",
+      "mistral",
+      "lama",
+      "peft",
+      "rag",
+      "chatqa"
+    ],
+    "cv": [
+      "yolo",
+      "opencv",
+      "image segmentation",
+      "cnn",
+      "object detection"
+    ],
+    "ml": [
+      "bert",
+      "lstm",
+      "cnn",
+      "gnn",
+      "regression",
+      "classification",
+      "lime",
+      "explainable ai"
+    ],
+    "infra": [
+      "flask",
+      "django",
+      "keycloak",
+      "azure",
+      "vector database",
+      "neo4j"
+    ]
+  },
+  "title_blocklist": [
+    "intern",
+    "junior",
+    "associate",
+    "trainee",
+    "data analyst"
+  ],
+  "notes": "Focus on senior-level NLP/GenAI roles with architecture and research components. Prioritize positions involving LLMs, RAG, and custom deep learning models. Avoid entry-level or non-technical titles."
+}

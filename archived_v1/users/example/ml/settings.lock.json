@@ -1,0 +1,988 @@
+{
+  "fingerprint": "a70b781d8d47ec92e19c2288d95d22b1",
+  "generated_at": "2026-01-31T01:43:11.032006+00:00",
+  "settings": {
+    "cache": {
+      "queries": {
+        "max_age_hours": 72,
+        "max_files": 50
+      },
+      "role_classification": {
+        "ttl_days": 7
+      }
+    },
+    "company_scoring": {
+      "aliases": {
+        "capitalone": "capital one",
+        "eli lilly": "eli lilly",
+        "ge healthineers": "ge healthcare",
+        "goldman": "goldman sachs",
+        "lilly": "eli lilly",
+        "uhg": "unitedhealth",
+        "united health group": "unitedhealth"
+      },
+      "default_weight": 0.4,
+      "preferred_companies": [
+        "uhg",
+        "roche",
+        "pfizer",
+        "abbvie",
+        "ubs",
+        "walmart",
+        "servicenow",
+        "atlassian",
+        "merck",
+        "msci",
+        "siemens",
+        "optum",
+        "unitedhealth",
+        "eli lilly",
+        "philips",
+        "ge healthcare",
+        "visa",
+        "mastercard",
+        "capital one",
+        "intuit",
+        "workday",
+        "salesforce",
+        "john deere",
+        "goldman",
+        "microsoft",
+        "google",
+        "apple"
+      ],
+      "tiers_file": "config/company_tiers.yaml"
+    },
+    "embeddings": {
+      "device": "cpu",
+      "embedding_dim": 384,
+      "faiss": {
+        "index_file": "jobs.faiss",
+        "metadata_file": "jobs_meta.json",
+        "read_only_corpus": true
+      },
+      "model_name": "sentence-transformers/all-MiniLM-L6-v2",
+      "text": {
+        "max_chars": 2000,
+        "normalize_embeddings": true
+      }
+    },
+    "environment": {
+      "mkl_num_threads": 1,
+      "numexpr_num_threads": 1,
+      "omp_num_threads": 1,
+      "openblas_num_threads": 1,
+      "tokenizers_parallelism": false,
+      "torch_num_threads": 1,
+      "veclib_maximum_threads": 1
+    },
+    "functional_role_taxonomy": {
+      "architecture_strategy": {
+        "keywords": [
+          "enterprise architect",
+          "solution architect",
+          "platform architect",
+          "reference architecture",
+          "target architecture"
+        ]
+      },
+      "customer_facing": {
+        "keywords": [
+          "solutions engineer",
+          "pre-sales",
+          "sales engineer",
+          "proof of concept"
+        ]
+      },
+      "innovation_rnd": {
+        "keywords": [
+          "innovation lead",
+          "r&d lead",
+          "innovation lab",
+          "incubation"
+        ]
+      },
+      "product_strategy": {
+        "keywords": [
+          "product strategy",
+          "product roadmap",
+          "platform roadmap"
+        ]
+      }
+    },
+    "functional_role_terms": {
+      "ai": [
+        "llm",
+        "agent",
+        "agents",
+        "rag",
+        "embedding",
+        "prompt",
+        "inference",
+        "evaluation",
+        "orchestration",
+        "langchain",
+        "langgraph",
+        "vector"
+      ],
+      "devops": [
+        "kubernetes",
+        "terraform",
+        "ci/cd",
+        "pipeline",
+        "monitoring",
+        "grafana",
+        "prometheus",
+        "sre",
+        "availability",
+        "mttr"
+      ],
+      "security": [
+        "threat",
+        "siem",
+        "soc",
+        "incident",
+        "attack",
+        "mitre",
+        "edr",
+        "forensics"
+      ]
+    },
+    "functional_role_thresholds": {
+      "agentic_min_terms": 3,
+      "mlops_ai_terms": 1,
+      "mlops_devops_terms": 1,
+      "platform_devops_min_terms": 2,
+      "security_min_terms": 2
+    },
+    "llm": {
+      "api_key_env": "OPENROUTER_API_KEY",
+      "cache": {
+        "enabled": true,
+        "ttl_seconds": 86400
+      },
+      "model_pool": [
+        "google/gemini-2.0-flash-exp:free",
+        "google/gemma-3-4b-it:free",
+        "mistralai/devstral-2512:free",
+        "google/gemini-2.5-flash-lite"
+      ],
+      "provider": "openrouter",
+      "rate_limits": {
+        "call_cooldown_seconds": 3.0,
+        "max_concurrency": 2
+      }
+    },
+    "logging": {
+      "format": "[%(levelname)s] %(message)s",
+      "level": "INFO",
+      "log_file": "job_ranker.log",
+      "log_to_file": true
+    },
+    "outputs": {
+      "overwrite": true,
+      "preview": {
+        "drop_columns": [
+          "description",
+          "company_url",
+          "job_url",
+          "job_url_direct",
+          "company_logo"
+        ],
+        "enabled": true,
+        "rows": 5
+      },
+      "preview_file": "ranked_jobs_head.csv",
+      "ranked_corpus_file": "ranked_corpus.csv",
+      "ranked_jobs_file": "ranked_jobs.csv",
+      "retain_previous_runs": false
+    },
+    "paths": {
+      "cache_dir": "cache",
+      "corpus_dir": "corpus",
+      "outputs_dir": "outputs",
+      "project_root": ".",
+      "users_dir": "users",
+      "workspaces_dir": "workspaces"
+    },
+    "profiles": {
+      "senior_ic": {
+        "deprioritized_companies": [
+          "amazon",
+          "uber",
+          "wipro",
+          "infosys",
+          "tcs",
+          "hcl",
+          "tech mahindra",
+          "cognizant",
+          "capgemini",
+          "ibm",
+          "globallogic",
+          "nagarro",
+          "citius",
+          "fractal"
+        ],
+        "description": "Senior individual contributor roles. IC-only. Calm-first.",
+        "exclude_keywords": [
+          "cyber",
+          "cybersecurity",
+          "soc",
+          "siem",
+          "incident",
+          "forensics",
+          "qa",
+          "test",
+          "quality",
+          "product manager",
+          "program manager"
+        ],
+        "llm": {
+          "use_match_explanations": true,
+          "use_search_expansion": true,
+          "use_skill_normalization": true
+        },
+        "skip_junior_roles": true,
+        "skip_manager_roles": true
+      }
+    },
+    "ranking": {
+      "enable_recency_decay": true,
+      "functional_role_penalties": {
+        "agentic_systems": 1.0,
+        "customer_facing": 0.65,
+        "mlops_llmops": 1.0,
+        "platform_devops": 0.9,
+        "product": 0.6,
+        "software_general": 0.85,
+        "ux": 0.6
+      },
+      "hard_title_blocklist": [],
+      "job_desc_min_len": 500,
+      "llm_veto": {
+        "enabled": true,
+        "hard_fail_on_error": false,
+        "model_max_tokens": 200,
+        "penalty_multiplier": 0.65,
+        "top_n": 20
+      },
+      "max_yoe_cap": 20,
+      "min_semantic_score": 0.3,
+      "min_semantic_score_by_profile": {
+        "network_engineer": 0.1,
+        "senior_ic": 0.3
+      },
+      "recency_half_life_days": 21,
+      "semantic_company_floor": 0.65,
+      "seniority_penalty": {
+        "junior_multiplier": 0.4,
+        "low_yoe_multiplier": 0.5,
+        "title_keywords": {
+          "junior": [
+            "associate",
+            "junior",
+            "entry",
+            "intern"
+          ]
+        }
+      },
+      "short_description_penalty": 0.85,
+      "skill_overlap": {
+        "alpha": 0.1,
+        "cap_multiplier": 1.15,
+        "debug": true,
+        "enabled": true,
+        "min_overlap": 1
+      },
+      "yoe_mismatch_penalty": 0.6,
+      "yoe_penalty_threshold": 12
+    },
+    "resume": {
+      "allowed_formats": [
+        "pdf",
+        "tex"
+      ],
+      "default_path": "users/example/default/resume/resume.tex",
+      "embedding": {
+        "mode": "prefix_plus_skills",
+        "separator": " "
+      },
+      "embedding_prefix": "Agentic AI, LLM systems, inference, evaluation, orchestration.\n",
+      "embedding_prefix_by_use_case": {
+        "ml": "Machine learning engineering, model training, deployment, ML pipelines, production ML systems.\n",
+        "network_engineer": "Network automation, network infrastructure, routing, switching, firewalls, network operations, reliability engineering, scripting, infrastructure automation.\n"
+      },
+      "latex": {
+        "collapse_whitespace": true,
+        "strip_comments": true
+      },
+      "pdf": {
+        "max_pages": 20
+      }
+    },
+    "scheduler": {
+      "auto_start_streamlit": true,
+      "check_interval_seconds": 86400,
+      "enabled": true,
+      "lockfile": "outputs/.run.lock",
+      "stale_after_hours": 24
+    },
+    "scraping": {
+      "base_backoff_seconds": 2.0,
+      "cache_ttl_hours": 6,
+      "jitter_range_seconds": [
+        0.3,
+        1.5
+      ],
+      "linkedin_api": {
+        "enabled": true,
+        "max_requests_per_minute": 30,
+        "max_results_per_query": 70,
+        "page_limit": 3,
+        "sources": [
+          "active-jb-7d",
+          "active-ats-7d"
+        ],
+        "timeout_seconds": 20
+      },
+      "max_retries": 3,
+      "min_description_length": 100,
+      "query_clusters": {
+        "genai": {
+          "match": [
+            "llmops",
+            "genai"
+          ]
+        },
+        "mlops": {
+          "match": [
+            "mlops"
+          ]
+        },
+        "swe": {
+          "match": [
+            "software engineer",
+            "swe"
+          ]
+        }
+      },
+      "sites": {
+        "global": {
+          "enabled": [
+            "indeed",
+            "glassdoor",
+            "linkedin",
+            "google"
+          ]
+        },
+        "india": {
+          "enabled": [
+            "indeed",
+            "glassdoor",
+            "linkedin"
+          ]
+        }
+      },
+      "use_multiprocessing": true,
+      "volume": {
+        "max_jobs_per_query": 500,
+        "max_pages": 10
+      }
+    },
+    "search": {
+      "anchors": [],
+      "invalid_tokens": [],
+      "literal_query_rules": {
+        "forbid_tokens": [
+          " or ",
+          "|"
+        ],
+        "min_words": 3
+      },
+      "min_query_length": 6,
+      "normalization": {},
+      "persona_overrides": {
+        "strategy": {
+          "extra_queries": [
+            "enterprise architect",
+            "platform architect",
+            "principal architect",
+            "digital transformation architect"
+          ]
+        }
+      },
+      "prompt": "Generate job search queries from this role intent.\n\nRules:\n- One role per query\n- No OR operators\n- Suitable for job boards\n- Senior IC focused\n- Use standard industry titles only\n\nReturn JSON:\n{ \"queries\": [...] }\n\nROLE:\n<<<TEXT>>>\n"
+    },
+    "skills": {
+      "equivalence_groups": {
+        "access_control": {
+          "canonical": "access control",
+          "variants": [
+            "access control",
+            "rbac",
+            "policy enforcement",
+            "tenant isolation"
+          ]
+        },
+        "agentic_ai": {
+          "canonical": "agentic ai",
+          "variants": [
+            "agentic ai",
+            "autonomous agents",
+            "ai agents",
+            "multi agent systems",
+            "multi-agent orchestration",
+            "tool using agents",
+            "stateful agents"
+          ]
+        },
+        "ai_governance": {
+          "canonical": "ai governance",
+          "variants": [
+            "ai governance",
+            "model governance",
+            "enterprise ai",
+            "compliance"
+          ]
+        },
+        "analytics_visualization": {
+          "canonical": "analytics and visualization",
+          "variants": [
+            "tableau",
+            "streamlit",
+            "dashboards",
+            "reporting"
+          ]
+        },
+        "audit_compliance": {
+          "canonical": "audit and compliance",
+          "variants": [
+            "audit logs",
+            "compliance controls",
+            "traceability",
+            "governance workflows"
+          ]
+        },
+        "backend_frameworks": {
+          "canonical": "backend frameworks",
+          "variants": [
+            "fastapi",
+            "flask",
+            "api development",
+            "inference api"
+          ]
+        },
+        "batch_processing": {
+          "canonical": "batch processing",
+          "variants": [
+            "batch jobs",
+            "offline inference",
+            "scheduled inference"
+          ]
+        },
+        "cicd": {
+          "canonical": "cicd",
+          "variants": [
+            "cicd",
+            "jenkins",
+            "github actions",
+            "gitlab ci",
+            "azure pipelines"
+          ]
+        },
+        "cloud_platforms": {
+          "canonical": "cloud platforms",
+          "variants": [
+            "gcp",
+            "google cloud",
+            "aws",
+            "hybrid cloud",
+            "multi cloud"
+          ]
+        },
+        "code_assistants": {
+          "canonical": "ai coding assistants",
+          "variants": [
+            "github copilot",
+            "copilot",
+            "copilot chat",
+            "ai pair programmer"
+          ]
+        },
+        "containerization": {
+          "canonical": "containerization",
+          "variants": [
+            "docker",
+            "containers",
+            "containerized services"
+          ]
+        },
+        "data_annotation": {
+          "canonical": "data annotation",
+          "variants": [
+            "data annotation",
+            "labeling",
+            "label studio",
+            "annotation pipelines"
+          ]
+        },
+        "data_pipelines": {
+          "canonical": "data pipelines",
+          "variants": [
+            "etl",
+            "data pipelines",
+            "data orchestration",
+            "streaming data"
+          ]
+        },
+        "data_quality": {
+          "canonical": "data quality",
+          "variants": [
+            "data validation",
+            "data quality checks",
+            "schema validation",
+            "data drift"
+          ]
+        },
+        "databases": {
+          "canonical": "databases",
+          "variants": [
+            "sql",
+            "postgresql",
+            "sqlmodel",
+            "alembic"
+          ]
+        },
+        "deep_learning": {
+          "canonical": "deep learning",
+          "variants": [
+            "deep learning",
+            "neural networks",
+            "ann",
+            "dnn",
+            "cnn",
+            "rnn",
+            "transformers",
+            "representation learning"
+          ]
+        },
+        "deployment_tools": {
+          "canonical": "deployment tools",
+          "variants": [
+            "seldon",
+            "cloud run",
+            "kubernetes deployment"
+          ]
+        },
+        "embedding_models": {
+          "canonical": "embedding models",
+          "variants": [
+            "embeddings",
+            "text embeddings",
+            "sentence embeddings",
+            "dense retrieval"
+          ]
+        },
+        "experiment_tools": {
+          "canonical": "experiment tools",
+          "variants": [
+            "mlflow",
+            "weights and biases",
+            "wandb",
+            "experiment tracking"
+          ]
+        },
+        "experiment_tracking": {
+          "canonical": "experiment tracking",
+          "variants": [
+            "experiment tracking",
+            "mlflow",
+            "wandb",
+            "weights and biases",
+            "neptune",
+            "comet"
+          ]
+        },
+        "feature_stores": {
+          "canonical": "feature store",
+          "variants": [
+            "feature store",
+            "offline features",
+            "online features",
+            "feature engineering"
+          ]
+        },
+        "feedback_loops": {
+          "canonical": "feedback loops",
+          "variants": [
+            "feedback loops",
+            "human feedback",
+            "automated feedback",
+            "eval pipelines"
+          ]
+        },
+        "finops": {
+          "canonical": "finops",
+          "variants": [
+            "finops",
+            "cost optimization",
+            "cloud cost management",
+            "resource optimization"
+          ]
+        },
+        "gcp_services": {
+          "canonical": "gcp services",
+          "variants": [
+            "cloud run",
+            "vertex ai",
+            "gcp iam",
+            "gcp secret manager"
+          ]
+        },
+        "hitl": {
+          "canonical": "human in the loop",
+          "variants": [
+            "human in the loop",
+            "hitl",
+            "human feedback",
+            "model validation",
+            "annotation workflow"
+          ]
+        },
+        "huggingface": {
+          "canonical": "huggingface ecosystem",
+          "variants": [
+            "huggingface",
+            "transformers",
+            "datasets",
+            "tokenizers"
+          ]
+        },
+        "infrastructure_as_code": {
+          "canonical": "infrastructure as code",
+          "variants": [
+            "terraform",
+            "infrastructure as code",
+            "iac"
+          ]
+        },
+        "kubernetes": {
+          "canonical": "kubernetes",
+          "variants": [
+            "kubernetes",
+            "k8s",
+            "helm"
+          ]
+        },
+        "llm": {
+          "canonical": "large language models",
+          "variants": [
+            "llm",
+            "large language model",
+            "foundation model",
+            "generative ai",
+            "genai"
+          ]
+        },
+        "llm_evaluation": {
+          "canonical": "llm evaluation",
+          "variants": [
+            "llm evaluation",
+            "prompt evaluation",
+            "response quality",
+            "faithfulness",
+            "hallucination detection"
+          ]
+        },
+        "llm_frameworks": {
+          "canonical": "llm framework",
+          "variants": [
+            "langchain",
+            "langgraph",
+            "llamaindex",
+            "semantic kernel",
+            "autogen",
+            "crewai",
+            "google adk",
+            "a2a"
+          ]
+        },
+        "llm_providers": {
+          "canonical": "llm providers",
+          "variants": [
+            "openai",
+            "openai api",
+            "chatgpt",
+            "gpt",
+            "claude",
+            "anthropic",
+            "openrouter",
+            "gemini",
+            "google gemini"
+          ]
+        },
+        "llmops": {
+          "canonical": "llmops",
+          "variants": [
+            "llmops",
+            "genai ops",
+            "ai platform",
+            "agent platform",
+            "inference governance"
+          ]
+        },
+        "logging_tracing": {
+          "canonical": "logging and tracing",
+          "variants": [
+            "structured logging",
+            "distributed tracing",
+            "open telemetry",
+            "otel"
+          ]
+        },
+        "machine_learning": {
+          "canonical": "machine learning",
+          "variants": [
+            "machine learning",
+            "ml",
+            "applied machine learning",
+            "predictive modeling",
+            "statistical learning",
+            "supervised learning",
+            "unsupervised learning",
+            "anomaly detection",
+            "model training",
+            "model evaluation"
+          ]
+        },
+        "metrics_monitoring": {
+          "canonical": "metrics monitoring",
+          "variants": [
+            "prometheus",
+            "metrics collection",
+            "custom metrics",
+            "slos",
+            "slis"
+          ]
+        },
+        "mlops": {
+          "canonical": "mlops",
+          "variants": [
+            "mlops",
+            "machine learning ops",
+            "model lifecycle",
+            "model governance",
+            "production ml"
+          ]
+        },
+        "model_evaluation": {
+          "canonical": "model evaluation",
+          "variants": [
+            "model evaluation",
+            "offline evaluation",
+            "online evaluation",
+            "benchmarking"
+          ]
+        },
+        "model_optimization": {
+          "canonical": "model optimization",
+          "variants": [
+            "model optimization",
+            "pruning",
+            "quantization",
+            "latency optimization",
+            "inference optimization",
+            "model compression"
+          ]
+        },
+        "model_registry": {
+          "canonical": "model registry",
+          "variants": [
+            "model registry",
+            "model versioning",
+            "model promotion"
+          ]
+        },
+        "model_serving": {
+          "canonical": "model serving",
+          "variants": [
+            "model serving",
+            "inference service",
+            "realtime inference",
+            "batch inference",
+            "online inference",
+            "seldon",
+            "seldon core"
+          ]
+        },
+        "observability": {
+          "canonical": "observability",
+          "variants": [
+            "observability",
+            "system observability",
+            "production monitoring"
+          ]
+        },
+        "orchestration": {
+          "canonical": "workflow orchestration",
+          "variants": [
+            "airflow",
+            "kubeflow pipelines",
+            "argo",
+            "prefect",
+            "dagster"
+          ]
+        },
+        "planning_reasoning": {
+          "canonical": "reasoning systems",
+          "variants": [
+            "chain of thought",
+            "cot",
+            "reasoning",
+            "planning",
+            "tool calling",
+            "workflow reasoning"
+          ]
+        },
+        "prompt_engineering": {
+          "canonical": "prompt engineering",
+          "variants": [
+            "prompt engineering",
+            "system prompts",
+            "few shot prompting",
+            "instruction tuning",
+            "prompt templates"
+          ]
+        },
+        "pytorch": {
+          "canonical": "deep learning framework",
+          "variants": [
+            "pytorch",
+            "torch",
+            "torchscript",
+            "torchserve",
+            "lightning",
+            "pytorch lightning"
+          ]
+        },
+        "realtime_systems": {
+          "canonical": "realtime systems",
+          "variants": [
+            "realtime inference",
+            "low latency systems",
+            "async processing"
+          ]
+        },
+        "retrieval_augmented_generation": {
+          "canonical": "rag",
+          "variants": [
+            "rag",
+            "retrieval augmented generation",
+            "retrieval-augmented generation",
+            "document retrieval",
+            "context augmentation"
+          ]
+        },
+        "security": {
+          "canonical": "security",
+          "variants": [
+            "rbac",
+            "role based access control",
+            "secret management",
+            "pii redaction",
+            "credential isolation"
+          ]
+        },
+        "serverless_compute": {
+          "canonical": "serverless compute",
+          "variants": [
+            "serverless",
+            "cloud run",
+            "modal",
+            "function as a service",
+            "faas"
+          ]
+        },
+        "tensorflow": {
+          "canonical": "deep learning framework",
+          "variants": [
+            "tensorflow",
+            "tf",
+            "keras",
+            "tf keras"
+          ]
+        },
+        "vector_databases": {
+          "canonical": "vector database",
+          "variants": [
+            "vector database",
+            "faiss",
+            "pinecone",
+            "weaviate",
+            "chroma",
+            "qdrant",
+            "milvus"
+          ]
+        },
+        "visualization_alerting": {
+          "canonical": "monitoring dashboards",
+          "variants": [
+            "grafana",
+            "dashboards",
+            "alerting",
+            "on call monitoring"
+          ]
+        }
+      }
+    },
+    "users": {
+      "example": {
+        "default_profile": "senior_ic",
+        "default_use_case": "default",
+        "resume_path": "users/example/resume.tex",
+        "use_cases": {
+          "default": {
+            "description": "General ML / GenAI roles (legacy behavior)",
+            "profile": "senior_ic",
+            "resume_path": "users/example/resume.tex"
+          },
+          "ml": {
+            "profile": "senior_ic",
+            "resume_path": "users/Example_Candidate/resume.tex"
+          }
+        }
+      }
+    },
+    "version": 2,
+    "workspace": {
+      "persist": {
+        "distilled_resume": true,
+        "resume_embedding": true
+      },
+      "template": "{workspaces_dir}/{user}/{profile}"
+    }
+  },
+  "source_files": [
+    "config/cache.yaml",
+    "config/company_scoring.yaml",
+    "config/embeddings.yaml",
+    "config/environment.yaml",
+    "config/functional_roles.yaml",
+    "config/llm.yaml",
+    "config/logging.yaml",
+    "config/outputs.yaml",
+    "config/paths.yaml",
+    "config/profiles.yaml",
+    "config/ranking.yaml",
+    "config/resume.yaml",
+    "config/scheduler.yaml",
+    "config/scraping.yaml",
+    "config/search.yaml",
+    "config/skills.yaml",
+    "config/users.yaml",
+    "config/workspace.yaml",
+    "settings.yaml",
+    "users/example/ml/settings.override.yaml"
+  ],
+  "version": 2
+}

@@ -1,0 +1,43 @@
+{
+  "core_capabilities": [
+    "AI Platform Engineering",
+    "Large Language Model (LLM) Operations (LLMOps)",
+    "Cloud Infrastructure (GCP, AWS)",
+    "Data Engineering",
+    "Software Development",
+    "DevOps",
+    "Security Engineering"
+  ],
+  "primary_focus": [
+    "Building and scaling AI platforms",
+    "LLM orchestration and deployment",
+    "AI governance and security",
+    "FinOps for AI"
+  ],
+  "secondary_skills": [
+    "Python",
+    "Data Analysis",
+    "Machine Learning",
+    "CI/CD",
+    "Containerization (Docker, Kubernetes)",
+    "SQL"
+  ],
+  "non_focus": [
+    "Frontend Development",
+    "Mobile Development",
+    "Database Administration"
+  ],
+  "seniority_signals": [
+    "Senior AI Platform Engineer",
+    "7+ years experience",
+    "Leadership roles (architecting, leading teams)",
+    "Enterprise-level deployments"
+  ],
+  "target_roles": [
+    "Senior AI Platform Engineer",
+    "AI Platform Architect",
+    "LLMOps Engineer",
+    "Cloud AI Solutions Architect",
+    "Principal AI Engineer"
+  ]
+}
