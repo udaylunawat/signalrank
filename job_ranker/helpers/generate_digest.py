@@ -72,6 +72,7 @@ def main():
         "*.md",
         "uv.lock",
         "archived",
+        "archived_v1",
         "analyze_ranked.py",
         "minimal_ranked.py",
         "ingest_csv.py"

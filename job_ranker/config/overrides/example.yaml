@@ -224,16 +224,16 @@ company_scoring:
 location_scoring:
   preferred_weight: 1.2
   preferred_locations:
-    # - ka, in
+    - ka, in
     - mh, in
     - remote, in
     - pune
-    # - bangalore
-    # - bengaluru
-    # - hyderabad
+    - bangalore
+    - bengaluru
+    - hyderabad
     - remote
     - maharashtra
-    # - karnataka
+    - karnataka
 
 # --------------------
 # HARD FILTERS

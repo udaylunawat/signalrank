@@ -171,17 +171,25 @@ for col in ["title", "description", "company", "location"]:
 # ==================================================
 # Category (multi-valued)
 # ==================================================
-def classify_categories(text: str, cfg: dict) -> list[str]:
+def classify_categories(title: str, description: str, cfg: dict) -> list[str]:
     """
     Conservative multi-label wrapper.
-    Reuses existing classifier, but allows extension later.
     """
-    primary = classify_functional_role(text, cfg)
-    return [primary] if primary else []
+    primary = classify_functional_role(title, description, cfg)
+
+    if not primary:
+        return []
+
+    return [primary]
 
 
-df["Categories"] = (df["title"].fillna("") + " " + df["description"].fillna("")).apply(
-    lambda t: classify_categories(t, ctx.config)
+df["Categories"] = df.apply(
+    lambda r: classify_categories(
+        r.get("title", ""),
+        r.get("description", ""),
+        ctx.config
+    ),
+    axis=1
 )
 
 # Stable, display-only column
