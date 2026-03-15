@@ -207,6 +207,21 @@ def _parse_li_title(raw: str) -> Tuple[str, str]:
         return m.group(1).strip(), m.group(2).strip()
     return raw.strip(), ""
 
+def _clean_title(raw: str | None) -> str:
+    """Truncate DDG multi-person snippet noise to the first segment.
+
+    Splits on: newline, pipe (|), or ' - ' (spaced dash only).
+    Caps result at 120 chars. Does NOT split on bare hyphens (e.g. 'Recruiter-Cognizant').
+    Applied before _parse_li_title so it receives a single-person string.
+    """
+    if not raw:
+        return ""
+    for sep in ("\n", "|", " - "):
+        idx = raw.find(sep)
+        if idx > 0:
+            raw = raw[:idx]
+    return raw.strip()[:120]
+
 def search_linkedin_ddg(
     company: str, domain: Optional[str],
     job_url: str, job_title: str, job_score: str,
