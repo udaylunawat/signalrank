@@ -160,7 +160,7 @@ CONTRACT_SIGNALS = [
     "fixed-term", "fixed term",
 ]
 
-CONSULTING_KEYWORDS = {"consultant", "consulting", "engagement", "advisory", "client", "manager", "director"}
+CONSULTING_KEYWORDS = {"consultant", "consulting", "engagement", "advisory", "client", "manager", "director", "assistant manager", "senior manager"}
 STRONG_IC_KEYWORDS = {"engineer", "developer", "architect", "platform", "systems", "backend", "ml", "ai"}
 
 TAXONOMY = {
@@ -555,7 +555,7 @@ def company_score(company: str, semantic: float) -> float:
     gem_thresh = adv.get("hidden_gem_threshold", 0.70)
     gem_bonus = adv.get("hidden_gem_bonus", 60)
     if tier == "default" and semantic >= gem_thresh:
-        base = gem_bonus
+        base = max(base, gem_bonus)
 
     return max(0.0, min(base, 100.0))
 
@@ -578,7 +578,7 @@ def location_score(location: str) -> float:
 
 def recency_score(date_posted) -> float:
     if not date_posted or pd.isna(date_posted):
-        return 50.0
+        return 30.0
     try:
         posted = pd.to_datetime(date_posted, utc=True)
         age_days = (datetime.now(timezone.utc) - posted).days
@@ -667,12 +667,19 @@ def _seniority_multiplier(title: str, description: str) -> float:
 def extract_max_yoe(text: str) -> int | None:
     if not isinstance(text, str):
         return None
+    t = text.lower()
     found = []
-    for m in re.findall(r"(\d+)\s*\+?\s*years", text.lower()):
+    for m in re.findall(r"(\d+)\s*\+?\s*years", t):
         if m.isdigit():
             found.append(int(m))
-    for m in re.findall(r"(\d+)\s*-\s*(\d+)\s*years", text.lower()):
+    for m in re.findall(r"(\d+)\s*-\s*(\d+)\s*years", t):
         found.extend(int(x) for x in m if x.isdigit())
+    for m in re.findall(r"minimum\s+(\d+)\s*years", t):
+        if m.isdigit():
+            found.append(int(m))
+    for m in re.findall(r"at\s+least\s+(\d+)\s*years", t):
+        if m.isdigit():
+            found.append(int(m))
     return max(found) if found else None
 
 
@@ -796,10 +803,15 @@ def rank(df: pd.DataFrame, resume_text: str, use_cache: bool = True) -> tuple[pd
     non_ic_fail = non_ic_mask & (df["semantic_score"] < 0.75)
     df = df[~non_ic_fail].reset_index(drop=True)
 
-    # Role-aware thresholds
-    df = df[df.apply(
-        lambda r: r["semantic_score"] >= role_thresholds.get(r["functional_role"], semantic_floor), axis=1
-    )].reset_index(drop=True)
+    # Role-aware thresholds (software_general also requires description quality >= 0.9)
+    df["_dq"] = df["description"].apply(description_quality)
+    def _passes_role_gate(r):
+        threshold = role_thresholds.get(r["functional_role"], semantic_floor)
+        if r["functional_role"] == "software_general":
+            return r["semantic_score"] >= threshold and r["_dq"] >= 0.9
+        return r["semantic_score"] >= threshold
+    df = df[df.apply(_passes_role_gate, axis=1)].reset_index(drop=True)
+    df = df.drop(columns=["_dq"])
 
     # Negative keyword gate
     df = df[df.apply(
