@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from job_ranker.app.db import get_ui_db
+from job_ranker.app.tracking import load_tracking, set_tracking
 
 st.set_page_config(layout="wide", page_title="Recruiters")
 st.title("🤝 Recruiter Contacts")
@@ -66,6 +67,10 @@ df = load_recruiters()
 if df.empty:
     st.info("No recruiter contacts yet. Run `job-ranker find-recruiter --csv <path>` to populate.")
     st.stop()
+
+# ── Load tracking state into session (re-fetched from SQLite each page load) ─
+ids = df["id"].dropna().tolist()
+st.session_state["tracking_map"] = load_tracking(ids)
 
 # ── Metrics row ──────────────────────────────────────────────────────────────
 total       = len(df)
@@ -139,11 +144,25 @@ def conf_badge(v):
     badges = {"high": "🟢", "medium": "🟡", "low": "🔴", "none": "⚪"}
     return f"{badges.get(v, '⚪')} {v}"
 
+tracking_map = st.session_state.get("tracking_map", {})
+
 display = filtered[[
+    "id",  # temporary — dropped before render
     "company", "name", "title", "confidence",
     "email", "guessed_emails", "linkedin_url",
     "source", "job_title", "job_score",
 ]].copy()
+
+# Build tracking columns from the id column directly
+display["Applied"]   = display["id"].map(
+    lambda rid: "✅" if tracking_map.get(rid, {}).get("applied") else "—"
+)
+display["Connected"] = display["id"].map(
+    lambda rid: "✅" if tracking_map.get(rid, {}).get("connected") else "—"
+)
+
+# Drop id before rename/render
+display = display.drop(columns=["id"])
 
 display["confidence"]    = display["confidence"].apply(conf_badge)
 display["linkedin_url"]  = display["linkedin_url"].apply(make_li_link)
@@ -152,6 +171,7 @@ display.columns = [
     "Company", "Name", "Title", "Confidence",
     "Direct Email", "Guessed Emails", "LinkedIn",
     "Source", "Job Title", "Job Score",
+    "Applied", "Connected",
 ]
 
 st.dataframe(
@@ -176,9 +196,13 @@ for company, grp in filtered.groupby("company", sort=False):
 
     with st.expander(label, expanded=False):
         for _, row in grp.iterrows():
-            cols = st.columns([2, 3, 2, 2, 3])
+            rid = row.get("id") or ""
+            tracking = st.session_state["tracking_map"].get(rid, {})
+
+            cols = st.columns([2, 3, 2, 2, 2, 1.5, 1.5])
             cols[0].write(f"**{row.get('name') or '—'}**")
             cols[1].caption(row.get("title") or "")
+
             email = row.get("email") or ""
             guessed = row.get("guessed_emails") or ""
             if email:
@@ -186,10 +210,33 @@ for company, grp in filtered.groupby("company", sort=False):
             elif guessed:
                 for ge in guessed.split("|")[:3]:
                     cols[2].caption(f"~ {ge}")
+
             li = row.get("linkedin_url") or ""
             if li:
                 cols[3].markdown(f"[→ LinkedIn]({li})")
-            cols[4].caption(f"{row.get('source','')}, {row.get('confidence','')}")
+
+            cols[4].caption(f"{row.get('source', '')}, {row.get('confidence', '')}")
+
+            # Tracking checkboxes — unique keys required by Streamlit
+            applied_val = cols[5].checkbox(
+                "Applied", value=bool(tracking.get("applied")), key=f"applied_{rid}"
+            )
+            connected_val = cols[6].checkbox(
+                "Connected", value=bool(tracking.get("connected")), key=f"connected_{rid}"
+            )
+
+            # Write to SQLite on change; update session state to avoid re-read
+            if rid and (
+                applied_val != bool(tracking.get("applied"))
+                or connected_val != bool(tracking.get("connected"))
+            ):
+                set_tracking(rid, applied=applied_val, connected=connected_val)
+                st.session_state["tracking_map"][rid] = {
+                    "applied": applied_val,
+                    "connected": connected_val,
+                    "notes": tracking.get("notes", ""),
+                    "updated_at": "",
+                }
 
 # ── Export ───────────────────────────────────────────────────────────────────
 st.divider()
