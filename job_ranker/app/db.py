@@ -1,11 +1,8 @@
 # app/db.py
 from pathlib import Path
-
 import duckdb
 
-
 _DB_PATH = Path(__file__).resolve().parents[1] / "duckdb"
-
 
 def get_ui_db():
     """

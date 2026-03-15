@@ -151,7 +151,7 @@ scraping:
   # Works from residential IPs (laptop) without proxy.
   # On servers/Docker: set proxy to a residential proxy.
   google_jobs:
-    enabled: true
+    enabled: false
     results_per_query: 50
     delay: 2.0
     # Backend priority:

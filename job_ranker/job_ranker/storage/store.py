@@ -218,6 +218,12 @@ class Store:
             [user, use_case],
         ).fetchone()
 
+    def close(self):
+        """Release the database connection, freeing the write lock."""
+        if self.con:
+            self.con.close()
+            self.con = None
+
     @staticmethod
     def connect_readonly(db_path: Path):
         return duckdb.connect(str(db_path), read_only=True)
