@@ -30,6 +30,8 @@ def run_batch(args):
         argv.append("--jobspy-only")
     if args.skip_enrich:
         argv.append("--skip-enrich")
+    if args.skip_ai_analysis:
+        argv.append("--skip-ai-analysis")
 
     sys.argv = argv
     cli_main()
@@ -226,6 +228,11 @@ def main():
                    help="Skip RapidAPI, use only JobSpy/Indeed for scraping")
     r.add_argument("--skip-enrich", action="store_true",
                    help="Skip LinkedIn description enrichment (faster, no 429s)")
+    r.add_argument(
+        "--skip-ai-analysis",
+        action="store_true",
+        help="Skip post-batch AI config advisor",
+    )
     r.set_defaults(fn=run_batch)
 
     # ---------------- ui ----------------

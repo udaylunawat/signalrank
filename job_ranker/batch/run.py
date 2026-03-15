@@ -57,6 +57,7 @@ def execute(
     csv_path=None,
     jobspy_only=False,
     skip_enrich=False,
+    skip_ai_analysis: bool = False,
 ):
     ctx = resolve_context(user, use_case)
 
@@ -179,6 +180,23 @@ def execute(
             ranked = rank(ctx, corpus)
             store.persist_results(run_id, ranked)
             logger.info("[RANK] Persisted %d ranked results", len(ranked))
+
+            # ==================================================
+            # AI CONFIG ADVISOR (optional, non-blocking)
+            # ==================================================
+            if not skip_ai_analysis:
+                try:
+                    from job_ranker.llm.config_advisor import run_advisor
+                    reports_dir = Path(__file__).resolve().parents[2] / "reports"
+                    run_advisor(
+                        ranked_df=ranked,
+                        resume_text=ctx.resume_text,
+                        run_id=run_id,
+                        config=ctx.config,
+                        reports_dir=reports_dir,
+                    )
+                except Exception as e:
+                    logger.warning("[ADVISOR] Failed (non-fatal): %s", e)
 
         store.finalize_run(run_id, status="success")
 

@@ -61,6 +61,11 @@ def main():
                    help="Skip RapidAPI, use only JobSpy for scraping")
     p.add_argument("--skip-enrich", action="store_true",
                    help="Skip LinkedIn enrichment step (faster, no 429s)")
+    p.add_argument(
+        "--skip-ai-analysis",
+        action="store_true",
+        help="Skip post-batch AI config advisor (faster, no OpenRouter call)",
+    )
 
     args = p.parse_args()
 
@@ -88,6 +93,7 @@ def main():
                 hours_old=None,
                 force_refresh=False,
                 csv_path=args.csv,
+                skip_ai_analysis=args.skip_ai_analysis,
             )
         except RuntimeError as e:
             print(str(e).strip())
@@ -125,6 +131,7 @@ def main():
             csv_path=None,
             jobspy_only=args.jobspy_only,
             skip_enrich=args.skip_enrich,
+            skip_ai_analysis=args.skip_ai_analysis,
         )
     except RuntimeError as e:
         print(str(e).strip())
