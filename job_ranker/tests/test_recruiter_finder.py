@@ -16,6 +16,8 @@ class TestCleanTitle:
         raw = "Natasha Castelino - Recruiter-Cognizant| LinkedIn\nRajesh Kumar - Manager - Cognizant"
         result = _clean_title(raw)
         assert "Rajesh Kumar" not in result
+        # Newline comes before pipe — only newline split should apply, pipe segment preserved
+        assert result == "Natasha Castelino - Recruiter-Cognizant| LinkedIn"
 
     def test_truncates_at_spaced_dash(self):
         # Only " - " (with spaces) triggers split, not every hyphen
@@ -42,3 +44,9 @@ class TestCleanTitle:
         # "Recruiter-Cognizant" — hyphen without surrounding spaces, should NOT split
         raw = "Recruiter-Cognizant"
         assert _clean_title(raw) == "Recruiter-Cognizant"
+
+    def test_breaks_after_first_separator(self):
+        # Without break, this would: find \n, truncate to "Foo | Bar", then find |, truncate to "Foo"
+        # With break, stops after first separator match (newline comes first in loop, stops there)
+        raw = "Foo | Bar\nBaz"
+        assert _clean_title(raw) == "Foo | Bar"

@@ -220,6 +220,7 @@ def _clean_title(raw: str | None) -> str:
         idx = raw.find(sep)
         if idx > 0:
             raw = raw[:idx]
+            break  # take only the earliest-found separator
     return raw.strip()[:120]
 
 def search_linkedin_ddg(
