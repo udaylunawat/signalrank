@@ -41,8 +41,12 @@ def _db_path() -> Path:
 def get_tracking_db() -> sqlite3.Connection:
     """Open tracking DB (creates if missing). check_same_thread=False for Streamlit."""
     con = sqlite3.connect(str(_db_path()), check_same_thread=False)
-    con.execute(_CREATE_TABLE)
-    con.commit()
+    try:
+        con.execute(_CREATE_TABLE)
+        con.commit()
+    except Exception:
+        con.close()
+        raise
     return con
 
 
