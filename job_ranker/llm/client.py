@@ -260,6 +260,51 @@ def llm_json(prompt: str, *, max_tokens: int = 512) -> dict:
     }
 
 
+def llm_text(
+    system_prompt: str,
+    user_message: str,
+    *,
+    model_pool: list[str] | None = None,
+    max_tokens: int = 2048,
+    timeout: int = 60,
+) -> str:
+    """
+    Like llm_json() but returns raw text (no JSON parsing).
+    Falls through model_pool until one succeeds.
+    Returns empty string on complete failure — never raises.
+    """
+    if not OPENROUTER_API_KEY:
+        logger.warning("[LLM] llm_text: OPENROUTER_API_KEY not set, skipping")
+        return ""
+
+    pool = model_pool or load_model_pool()
+    client = _sync_client()
+
+    for model in pool:
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0.3,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+            return resp.choices[0].message.content.strip()
+        except RateLimitError:
+            logger.warning("[LLM] llm_text: rate limited on %s, trying next", model)
+        except Exception as e:
+            if "401" in str(e) or "Unauthorized" in str(e):
+                logger.error("[LLM] llm_text: auth failed")
+                return ""
+            logger.warning("[LLM] llm_text: %s failed: %s", model, e)
+
+    logger.error("[LLM] llm_text: all models exhausted")
+    return ""
+
+
 # Backward compatibility
 def cached_llm_call(prompt: str, *, model: str | None = None) -> dict:
     return llm_json(prompt)
