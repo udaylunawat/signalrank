@@ -17,26 +17,6 @@ st.title("🤝 Recruiter Contacts")
 
 db = get_ui_db()
 
-# ── Ensure table exists ──────────────────────────────────────────────────────
-db.execute("""
-    CREATE TABLE IF NOT EXISTS recruiters (
-        id             TEXT PRIMARY KEY,
-        company        TEXT,
-        name           TEXT,
-        title          TEXT,
-        email          TEXT,
-        guessed_emails TEXT,
-        linkedin_url   TEXT,
-        domain         TEXT,
-        source         TEXT,
-        confidence     TEXT,
-        job_url        TEXT,
-        job_title      TEXT,
-        job_score      DOUBLE,
-        found_at       TIMESTAMP
-    )
-""")
-
 # ── Load data ────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=30)
 def load_recruiters():
