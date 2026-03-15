@@ -185,3 +185,77 @@ class TestDedupTopN:
 
     def test_empty_input(self):
         assert dedup_top_n([], n=2) == []
+
+
+from unittest.mock import patch
+
+
+class TestFindIntegration:
+    """find() should return ≤2 scored contacts per job, not 5-10 raw ones."""
+
+    _FAKE_CONTACTS = [
+        # 6 contacts for the same job_url — only 3 are actual recruiters
+        ("Alice",  "Senior Technical Recruiter",    "high"),
+        ("Bob",    "HR Business Partner",            "medium"),
+        ("Carol",  "Talent Acquisition - ML Roles", "high"),
+        ("Dave",   "Workday Employee",               "medium"),  # score=0.0
+        ("Eve",    "Product Owner",                  "low"),     # score=0.0
+        ("Frank",  "Recruiter - Engineering",        "medium"),
+    ]
+
+    def _make_ddg(self, company, domain, job_url, job_title, job_score, location="india"):
+        """Mock matching search_linkedin_ddg's exact signature to avoid arg-mapping bugs."""
+        from job_ranker.scrapers.recruiter_finder import RecruiterContact
+        return [
+            RecruiterContact(company=company, name=n, title=t,
+                             job_url=job_url, job_title=job_title, confidence=conf)
+            for n, t, conf in self._FAKE_CONTACTS
+        ]
+
+    def test_find_returns_at_most_2(self):
+        from job_ranker.scrapers.recruiter_finder import RecruiterFinder
+        finder = RecruiterFinder()
+        with patch("job_ranker.scrapers.recruiter_finder.resolve_domain", return_value="workday.com"), \
+             patch("job_ranker.scrapers.recruiter_finder.search_linkedin_ddg",
+                   side_effect=self._make_ddg):
+            contacts = finder.find(
+                company="Workday",
+                job_url="https://linkedin.com/jobs/view/999",
+                job_title="ML Engineer",
+                max_results=10,
+            )
+        assert len(contacts) <= 2
+
+    def test_find_excludes_non_recruiters(self):
+        from job_ranker.scrapers.recruiter_finder import RecruiterFinder
+        finder = RecruiterFinder()
+        with patch("job_ranker.scrapers.recruiter_finder.resolve_domain", return_value="workday.com"), \
+             patch("job_ranker.scrapers.recruiter_finder.search_linkedin_ddg",
+                   side_effect=self._make_ddg):
+            contacts = finder.find(
+                company="Workday",
+                job_url="https://linkedin.com/jobs/view/999",
+                job_title="ML Engineer",
+                max_results=10,
+            )
+        names = [c.name for c in contacts]
+        assert "Dave" not in names   # "Workday Employee" — score=0.0
+        assert "Eve" not in names    # "Product Owner" — score=0.0
+
+    def test_find_prefers_high_confidence(self):
+        from job_ranker.scrapers.recruiter_finder import RecruiterFinder
+        finder = RecruiterFinder()
+        with patch("job_ranker.scrapers.recruiter_finder.resolve_domain", return_value="workday.com"), \
+             patch("job_ranker.scrapers.recruiter_finder.search_linkedin_ddg",
+                   side_effect=self._make_ddg):
+            contacts = finder.find(
+                company="Workday",
+                job_url="https://linkedin.com/jobs/view/999",
+                job_title="ML Engineer",
+                max_results=10,
+            )
+        # Alice (high) and Carol (high) should rank above Frank (medium)
+        names = [c.name for c in contacts]
+        if "Frank" in names:
+            # Frank may appear in top-2 only if Alice or Carol is missing
+            assert "Alice" not in names or "Carol" not in names

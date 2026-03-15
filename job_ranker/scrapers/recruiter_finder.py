@@ -572,11 +572,12 @@ class RecruiterFinder:
                 seen_li.add(kl)
             if ke:
                 seen_em.add(ke)
+            # Clean noisy DDG snippet titles before scoring
+            c.title = _clean_title(c.title)
             unique.append(c)
 
-        conf_rank = {"high": 0, "medium": 1, "low": 2}
-        unique.sort(key=lambda c: (conf_rank.get(c.confidence, 3), 0 if c.email else 1))
-        result = unique[:max_results]
+        # Score + dedup to top-2 per job_url (replaces raw max_results slice)
+        result = dedup_top_n(unique, n=2)
 
         # Persist to DuckDB if configured
         if self.db_path:
