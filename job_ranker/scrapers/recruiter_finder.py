@@ -273,6 +273,39 @@ def score_recruiter(recruiter_title: str | None, job_title: str | None) -> float
     return min(score, 1.0)
 
 
+_CONF_RANK: dict[str, int] = {"high": 0, "medium": 1, "low": 2, "none": 3}
+
+
+def dedup_top_n(contacts: list["RecruiterContact"], n: int = 2) -> list["RecruiterContact"]:
+    """Keep the top-n most relevant recruiter contacts per job_url.
+
+    - Groups by job_url (None/empty → '__no_url__' bucket)
+    - Scores each with score_recruiter(_clean_title(title), job_title)
+    - Sorts: score DESC, then _CONF_RANK ASC (lower = better confidence)
+    - Excludes score == 0.0 (not a recruiter)
+    - Fallback: if ALL contacts in a group score 0.0, returns top-1 by confidence
+    """
+    from collections import defaultdict
+
+    by_job: dict[str, list] = defaultdict(list)
+    for c in contacts:
+        key = (c.job_url or "").strip() or "__no_url__"
+        s = score_recruiter(_clean_title(c.title), c.job_title)
+        by_job[key].append((s, _CONF_RANK.get(c.confidence, 3), c))
+
+    result: list = []
+    for entries in by_job.values():
+        entries.sort(key=lambda x: (-x[0], x[1]))  # score DESC, conf_rank ASC
+        qualified = [c for s, _, c in entries if s > 0.0]
+        if qualified:
+            result.extend(qualified[:n])
+        else:
+            # Fallback: best confidence when no recruiter titles found
+            result.append(entries[0][2])
+
+    return result
+
+
 def search_linkedin_ddg(
     company: str, domain: Optional[str],
     job_url: str, job_title: str, job_score: str,

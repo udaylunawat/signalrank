@@ -102,3 +102,86 @@ class TestScoreRecruiter:
         # Exactly 0.0 must be returned (not 0.001) for non-recruiter titles
         assert score_recruiter("Software Engineer", "ML Engineer") == 0.0
         assert score_recruiter("Sumo Logic", "Senior Engineer") == 0.0
+
+
+from job_ranker.scrapers.recruiter_finder import RecruiterContact, dedup_top_n
+
+
+def _c(name, title, job_url="https://linkedin.com/jobs/view/123",
+       job_title="ML Engineer", confidence="medium"):
+    return RecruiterContact(company="TestCo", name=name, title=title,
+                            job_url=job_url, job_title=job_title, confidence=confidence)
+
+
+class TestDedupTopN:
+    def test_keeps_top_2_per_job(self):
+        contacts = [
+            _c("Alice", "Senior Technical Recruiter"),
+            _c("Bob",   "HR Manager"),
+            _c("Carol", "Talent Acquisition - ML"),
+            _c("Dave",  "CometChat Employee"),  # score=0.0
+        ]
+        result = dedup_top_n(contacts, n=2)
+        names = [c.name for c in result]
+        assert len(result) == 2
+        assert "Dave" not in names
+
+    def test_score_zero_excluded(self):
+        # Score exactly 0.0 must be excluded
+        contacts = [
+            _c("Alice", "Talent Acquisition"),
+            _c("Bob",   "Product Owner"),  # no recruiter term — score=0.0
+        ]
+        result = dedup_top_n(contacts, n=2)
+        assert all(c.name != "Bob" for c in result)
+
+    def test_high_confidence_breaks_tie(self):
+        contacts = [
+            _c("Alice", "Talent Acquisition Specialist", confidence="medium"),
+            _c("Bob",   "Talent Acquisition Specialist", confidence="high"),
+        ]
+        result = dedup_top_n(contacts, n=1)
+        assert result[0].name == "Bob"
+
+    def test_multi_job_urls_independent(self):
+        contacts = [
+            _c("Alice", "Senior Technical Recruiter", job_url="https://li.com/1"),
+            _c("Bob",   "Talent Acquisition",         job_url="https://li.com/1"),
+            _c("Carol", "Technical Sourcer",          job_url="https://li.com/2"),
+            _c("Dave",  "HR Manager",                 job_url="https://li.com/2"),
+        ]
+        result = dedup_top_n(contacts, n=1)
+        assert len(result) == 2  # 1 per job URL
+        assert len({c.job_url for c in result}) == 2
+
+    def test_fallback_when_all_score_zero(self):
+        # No recruiter terms — fallback to top-1 by confidence
+        contacts = [
+            _c("Alice", "CometChat Employee", confidence="high"),
+            _c("Bob",   "Product Owner",      confidence="medium"),
+        ]
+        result = dedup_top_n(contacts, n=2)
+        assert len(result) == 1
+        assert result[0].name == "Alice"
+
+    def test_none_job_url_grouped_together(self):
+        # Contacts with job_url=None all go into one group
+        contacts = [
+            _c("Alice", "Technical Recruiter", job_url=None),
+            _c("Bob",   "HR Manager",          job_url=None),
+            _c("Carol", "Talent Acquisition",  job_url=None),
+        ]
+        result = dedup_top_n(contacts, n=2)
+        assert len(result) == 2  # top-2 from the single group
+
+    def test_empty_job_url_grouped_with_none(self):
+        contacts = [
+            _c("Alice", "Technical Recruiter", job_url=""),
+            _c("Bob",   "Senior Recruiter",    job_url=None),
+        ]
+        result = dedup_top_n(contacts, n=2)
+        # Both in same "__no_url__" group — top-2 (or fewer if <2 scored)
+        assert len(result) <= 2
+
+    def test_empty_input(self):
+        assert dedup_top_n([], n=2) == []
