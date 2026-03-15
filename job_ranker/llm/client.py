@@ -277,7 +277,14 @@ def llm_text(
         logger.warning("[LLM] llm_text: OPENROUTER_API_KEY not set, skipping")
         return ""
 
-    pool = model_pool or load_model_pool()
+    if model_pool is None:
+        if _model_pool_is_stale():
+            discovered = discover_working_models()
+            if discovered:
+                save_model_pool(discovered)
+        pool = load_model_pool()
+    else:
+        pool = model_pool
     client = _sync_client()
 
     for model in pool:
@@ -292,9 +299,10 @@ def llm_text(
                 max_tokens=max_tokens,
                 timeout=timeout,
             )
-            return resp.choices[0].message.content.strip()
+            return (resp.choices[0].message.content or "").strip()
         except RateLimitError:
-            logger.warning("[LLM] llm_text: rate limited on %s, trying next", model)
+            logger.warning("[LLM] llm_text: rate limited on %s, sleeping before next", model)
+            _jitter_sleep(0)
         except Exception as e:
             if "401" in str(e) or "Unauthorized" in str(e):
                 logger.error("[LLM] llm_text: auth failed")

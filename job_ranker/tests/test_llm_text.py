@@ -45,6 +45,22 @@ def test_llm_text_all_models_fail(monkeypatch):
     assert result == ""
 
 
+def test_llm_text_rate_limited_exhausts_pool(monkeypatch):
+    from openai import RateLimitError
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr("job_ranker.llm.client.OPENROUTER_API_KEY", "test-key")
+    mock_client = MagicMock()
+    # Create a proper RateLimitError mock
+    rate_err = RateLimitError.__new__(RateLimitError)
+    mock_client.chat.completions.create.side_effect = rate_err
+
+    with patch("job_ranker.llm.client._sync_client", return_value=mock_client):
+        with patch("job_ranker.llm.client._jitter_sleep"):  # don't actually sleep
+            result = llm_text("system", "user", model_pool=["test/model"])
+
+    assert result == ""
+
+
 def test_llm_text_uses_model_pool_in_order(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr("job_ranker.llm.client.OPENROUTER_API_KEY", "test-key")
