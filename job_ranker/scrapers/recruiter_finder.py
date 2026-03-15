@@ -223,6 +223,56 @@ def _clean_title(raw: str | None) -> str:
             break  # take only the earliest-found separator
     return raw.strip()[:120]
 
+
+_FUNCTION_KEYWORDS: dict[str, list[str]] = {
+    "engineering": ["engineer", "software", "backend", "frontend", "platform",
+                    "infrastructure", "devops", "sre", "fullstack"],
+    "ml":          ["machine learning", " ml ", "artificial intelligence", " ai ",
+                    "data science", "nlp", "llm", "deep learning"],
+    "product":     ["product manager", "product management", "program manager",
+                    "product hiring", "product"],   # bare "product" needed for title overlap
+    "data":        ["data engineer", "data analyst", "analytics", " bi "],
+    "security":    ["security engineer", "infosec", "cybersecurity"],
+}
+_TECHNICAL_TERMS = ["technical", "tech recruiter", "engineering recruiter", "software recruiter"]
+
+
+def score_recruiter(recruiter_title: str | None, job_title: str | None) -> float:
+    """Return 0.0-1.0 relevance score for a recruiter contact given a job title.
+
+    Uses _RECRUITER_TITLE_SIGNALS to confirm the person is a recruiter.
+    Uses _FUNCTION_KEYWORDS to score domain relevance.
+
+    0.0  = not a recruiter (no signal in title)
+    0.3  = confirmed recruiter, no function overlap with job title
+    0.5  = "technical" recruiter for an eng/ML job (generic technical affinity)
+    0.7  = recruiter with specific function keyword match
+    """
+    if not recruiter_title:
+        return 0.0
+    rt = recruiter_title.lower()
+    jt = (" " + (job_title or "").lower() + " ")  # pad for word-boundary matching
+
+    if not any(s in rt for s in _RECRUITER_TITLE_SIGNALS):
+        return 0.0  # not a recruiter — hard zero
+
+    score = 0.3  # baseline: confirmed recruiter
+
+    # Function keyword overlap
+    for keywords in _FUNCTION_KEYWORDS.values():
+        if any(k in jt for k in keywords) and any(k in rt for k in keywords):
+            score += 0.4
+            break
+
+    # Technical affinity bonus: generic "technical recruiter" for eng/ML jobs
+    if score < 0.7 and any(t in rt for t in _TECHNICAL_TERMS):
+        eng_ml = _FUNCTION_KEYWORDS["engineering"] + _FUNCTION_KEYWORDS["ml"]
+        if any(k in jt for k in eng_ml):
+            score = max(score, 0.5)
+
+    return min(score, 1.0)
+
+
 def search_linkedin_ddg(
     company: str, domain: Optional[str],
     job_url: str, job_title: str, job_score: str,
