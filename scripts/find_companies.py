@@ -108,8 +108,6 @@ Each entry must have:
 # ── tool-use loop ─────────────────────────────────────────────────────────────
 
 def run_search(model: str, api_key: str, prompt: str) -> dict:
-    os.environ["OPENROUTER_API_KEY"] = api_key
-
     messages = [{"role": "user", "content": prompt}]
 
     for _ in range(MAX_ITERATIONS):
@@ -118,6 +116,7 @@ def run_search(model: str, api_key: str, prompt: str) -> dict:
             messages=messages,
             tools=TOOLS,
             tool_choice="auto",
+            api_key=api_key,
         )
 
         choice = response.choices[0]
@@ -134,7 +133,10 @@ def run_search(model: str, api_key: str, prompt: str) -> dict:
         ]})
 
         for tc in msg.tool_calls:
-            args = json.loads(tc.function.arguments)
+            try:
+                args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                args = {"query": ""}
             results = ddg_search(args["query"])
             messages.append({
                 "role": "tool",
