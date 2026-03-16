@@ -9,6 +9,7 @@ Usage:
     uv run python scripts/benchmark.py
     uv run python scripts/benchmark.py --skip-run   # use existing outputs
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,7 +19,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from pathlib import Path
 
 import duckdb
@@ -28,6 +29,7 @@ import yaml
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv(Path(__file__).parent.parent / "job_ranker" / ".env")
 except ImportError:
     pass
@@ -42,20 +44,35 @@ DAYS_WINDOW = 15
 BATCH_SIZE = 20  # jobs per LLM call
 
 PUNE_REMOTE_PATTERNS = [
-    "pune", "pun",
+    "pune",
+    "pun",
     "maharashtra",
-    "work from home", "wfh",
+    "work from home",
+    "wfh",
 ]
 
 LOCATION_REJECT = [
-    "bengaluru", "bangalore", "chennai", "hyderabad",
-    "delhi", "mumbai", "kolkata", "noida", "gurugram",
-    "new york", "london", "san francisco", "singapore",
-    "austin", "seattle", "toronto",
+    "bengaluru",
+    "bangalore",
+    "chennai",
+    "hyderabad",
+    "delhi",
+    "mumbai",
+    "kolkata",
+    "noida",
+    "gurugram",
+    "new york",
+    "london",
+    "san francisco",
+    "singapore",
+    "austin",
+    "seattle",
+    "toronto",
 ]
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
+
 
 def clean_latex(text: str) -> str:
     """Strip LaTeX markup, return plain text."""
@@ -94,12 +111,34 @@ def is_pune_or_remote(location: str) -> bool:
     loc = location.lower()
     # "remote" + any India signal
     if "remote" in loc:
-        if any(ind in loc for ind in ["india", "in", "pune", "maharashtra", "bengaluru",
-                                       "mumbai", "hyderabad", "chennai", "delhi"]):
+        if any(
+            ind in loc
+            for ind in [
+                "india",
+                "in",
+                "pune",
+                "maharashtra",
+                "bengaluru",
+                "mumbai",
+                "hyderabad",
+                "chennai",
+                "delhi",
+            ]
+        ):
             return True
         # bare "remote" with no country — accept tentatively
-        if not any(foreign in loc for foreign in ["usa", "uk", "us,", "canada",
-                                                    "germany", "singapore", "australia"]):
+        if not any(
+            foreign in loc
+            for foreign in [
+                "usa",
+                "uk",
+                "us,",
+                "canada",
+                "germany",
+                "singapore",
+                "australia",
+            ]
+        ):
             return True
     for pat in PUNE_REMOTE_PATTERNS:
         if pat in loc:
@@ -142,15 +181,20 @@ def load_job_ranker_results(db_path: Path) -> list[dict]:
                 payload = json.loads(payload)
             elif not isinstance(payload, dict):
                 payload = {}
-            result.append(normalise_row({
-                "url": url or "",
-                "system_score": score or 0,
-                "title": payload.get("title", "") or "",
-                "company": payload.get("company", "") or "",
-                "location": payload.get("location", "") or "",
-                "date_posted": payload.get("date_posted"),
-                "description": payload.get("description", "") or "",
-            }, system="job_ranker"))
+            result.append(
+                normalise_row(
+                    {
+                        "url": url or "",
+                        "system_score": score or 0,
+                        "title": payload.get("title", "") or "",
+                        "company": payload.get("company", "") or "",
+                        "location": payload.get("location", "") or "",
+                        "date_posted": payload.get("date_posted"),
+                        "description": payload.get("description", "") or "",
+                    },
+                    system="job_ranker",
+                )
+            )
         return result
     except Exception as e:
         print(f"[warn] DuckDB load failed: {e}", file=sys.stderr)
@@ -172,6 +216,7 @@ def load_mini_ranker_results(outputs_dir: Path) -> list[dict]:
 
 
 # ── filter_jobs ────────────────────────────────────────────────────────────────
+
 
 def filter_jobs(
     jobs: list[dict],
@@ -201,11 +246,22 @@ def filter_jobs(
     relaxed = False
     if 0 < len(preferred) < 10:
         preferred = [
-            j for j in recent
-            if not any(f in j.get("location", "").lower()
-                       for f in ["usa", "uk,", "canada", "germany",
-                                 "singapore", "australia", "new york",
-                                 "london", "san francisco"])
+            j
+            for j in recent
+            if not any(
+                f in j.get("location", "").lower()
+                for f in [
+                    "usa",
+                    "uk,",
+                    "canada",
+                    "germany",
+                    "singapore",
+                    "australia",
+                    "new york",
+                    "london",
+                    "san francisco",
+                ]
+            )
         ]
         relaxed = True
 
@@ -246,12 +302,13 @@ def _extract_json(raw: str) -> dict | None:
             return None
         depth = 0
         for i, ch in enumerate(raw[start:], start):
-            if ch == "{": depth += 1
+            if ch == "{":
+                depth += 1
             elif ch == "}":
                 depth -= 1
                 if depth == 0:
                     try:
-                        return json.loads(raw[start:i + 1])
+                        return json.loads(raw[start : i + 1])
                     except json.JSONDecodeError:
                         return None
         return None
@@ -267,9 +324,14 @@ def llm_score_batch(
     os.environ["OPENROUTER_API_KEY"] = api_key
 
     jobs_payload = [
-        {"idx": i, "title": j["title"], "company": j["company"],
-         "location": j["location"], "date_posted": str(j.get("date_posted", "")),
-         "description": j.get("description", "")[:300]}
+        {
+            "idx": i,
+            "title": j["title"],
+            "company": j["company"],
+            "location": j["location"],
+            "date_posted": str(j.get("date_posted", "")),
+            "description": j.get("description", "")[:300],
+        }
         for i, j in enumerate(jobs)
     ]
     prompt = SCORE_PROMPT_TEMPLATE.format(
@@ -286,15 +348,27 @@ def llm_score_batch(
     try:
         response = _call(model)
     except (litellm.exceptions.RateLimitError, litellm.exceptions.NotFoundError):
-        print(f"[warn] {model} rate-limited, falling back to {FALLBACK_MODEL}", file=sys.stderr)
+        print(
+            f"[warn] {model} rate-limited, falling back to {FALLBACK_MODEL}",
+            file=sys.stderr,
+        )
         try:
             response = _call(FALLBACK_MODEL)
         except Exception as e:
             print(f"[warn] Fallback also failed: {e}", file=sys.stderr)
-            return [dict(j, llm_score=None, verdict="scoring failed",
-                         role_match=None, seniority_fit=None,
-                         company_quality=None, location_ok=None, recency=None)
-                    for j in jobs]
+            return [
+                dict(
+                    j,
+                    llm_score=None,
+                    verdict="scoring failed",
+                    role_match=None,
+                    seniority_fit=None,
+                    company_quality=None,
+                    location_ok=None,
+                    recency=None,
+                )
+                for j in jobs
+            ]
 
     raw = response.choices[0].message.content or ""
     data = _extract_json(raw)
@@ -306,16 +380,18 @@ def llm_score_batch(
     result = []
     for i, job in enumerate(jobs):
         scores = scored_map.get(i, {})
-        result.append(dict(
-            job,
-            llm_score=scores.get("llm_score"),
-            verdict=scores.get("verdict", ""),
-            role_match=scores.get("role_match"),
-            seniority_fit=scores.get("seniority_fit"),
-            company_quality=scores.get("company_quality"),
-            location_ok=scores.get("location_ok"),
-            recency=scores.get("recency"),
-        ))
+        result.append(
+            dict(
+                job,
+                llm_score=scores.get("llm_score"),
+                verdict=scores.get("verdict", ""),
+                role_match=scores.get("role_match"),
+                seniority_fit=scores.get("seniority_fit"),
+                company_quality=scores.get("company_quality"),
+                location_ok=scores.get("location_ok"),
+                recency=scores.get("recency"),
+            )
+        )
     return result
 
 
@@ -328,7 +404,7 @@ def score_all(
     """Score all jobs in batches of BATCH_SIZE."""
     scored = []
     for i in range(0, len(jobs), BATCH_SIZE):
-        batch = jobs[i:i + BATCH_SIZE]
+        batch = jobs[i : i + BATCH_SIZE]
         print(f"  [LLM] scoring jobs {i+1}-{i+len(batch)} ...", file=sys.stderr)
         scored.extend(llm_score_batch(batch, resume_text, model, api_key))
         if i + BATCH_SIZE < len(jobs):
@@ -337,6 +413,7 @@ def score_all(
 
 
 # ── build_report ───────────────────────────────────────────────────────────────
+
 
 def _fmt_date(val) -> str:
     if not val:
@@ -355,31 +432,46 @@ def build_report(
 ) -> str:
     today = date.today()
     lines = [f"# Job Search Benchmark — {today}", ""]
-    lines += ["**Systems:** job_ranker (A) vs mini_ranker (B)",
-              "**Filter:** Pune or Remote India · last 15 days",
-              "**Scorer:** LLM (arcee-ai/trinity, 5-dimension rubric)", ""]
+    lines += [
+        "**Systems:** job_ranker (A) vs mini_ranker (B)",
+        "**Filter:** Pune or Remote India · last 15 days",
+        "**Scorer:** LLM (arcee-ai/trinity, 5-dimension rubric)",
+        "",
+    ]
 
-    avg_a = (sum(j["llm_score"] for j in job_ranker_jobs if j.get("llm_score")) /
-             max(1, sum(1 for j in job_ranker_jobs if j.get("llm_score"))))
-    avg_b = (sum(j["llm_score"] for j in mini_ranker_jobs if j.get("llm_score")) /
-             max(1, sum(1 for j in mini_ranker_jobs if j.get("llm_score"))))
+    avg_a = sum(j["llm_score"] for j in job_ranker_jobs if j.get("llm_score")) / max(
+        1, sum(1 for j in job_ranker_jobs if j.get("llm_score"))
+    )
+    avg_b = sum(j["llm_score"] for j in mini_ranker_jobs if j.get("llm_score")) / max(
+        1, sum(1 for j in mini_ranker_jobs if j.get("llm_score"))
+    )
     winner = "job_ranker" if avg_a >= avg_b else "mini_ranker"
     lines += [
-        "## TL;DR Verdict", "",
+        "## TL;DR Verdict",
+        "",
         f"**Winner: {winner}** (avg LLM score: job_ranker={avg_a:.1f}, mini_ranker={avg_b:.1f}). "
         f"job_ranker covers more sources (RapidAPI + Indeed + LinkedIn + Google Jobs) but is slower. "
-        f"mini_ranker is faster and self-contained but limited to Indeed + LinkedIn.", "",
+        f"mini_ranker is faster and self-contained but limited to Indeed + LinkedIn.",
+        "",
     ]
 
     def _table(jobs: list[dict], label: str, relaxed: bool) -> list[str]:
-        note = " ⚠️ *location filter relaxed to all-India (< 10 Pune/remote results)*" if relaxed else ""
+        note = (
+            " ⚠️ *location filter relaxed to all-India (< 10 Pune/remote results)*"
+            if relaxed
+            else ""
+        )
         out = [f"## System: {label} — Top {len(jobs)}{note}", ""]
-        out += ["| # | LLM Score | Title | Company | Location | Posted | Sys Score | URL |",
-                "|---|-----------|-------|---------|----------|--------|-----------|-----|"]
+        out += [
+            "| # | LLM Score | Title | Company | Location | Posted | Sys Score | URL |",
+            "|---|-----------|-------|---------|----------|--------|-----------|-----|",
+        ]
         sorted_jobs = sorted(jobs, key=lambda j: j.get("llm_score") or 0, reverse=True)
         for i, j in enumerate(sorted_jobs, 1):
             score = j.get("llm_score", "—")
-            score_str = f"**{score}**" if isinstance(score, int) and score >= 70 else str(score)
+            score_str = (
+                f"**{score}**" if isinstance(score, int) and score >= 70 else str(score)
+            )
             url = j.get("url", "")
             url_md = f"[link]({url})" if url else "—"
             out.append(
@@ -393,11 +485,15 @@ def build_report(
     lines += _table(job_ranker_jobs, "job_ranker (A)", relaxed_a)
     lines += _table(mini_ranker_jobs, "mini_ranker (B)", relaxed_b)
 
-    def _count(jobs, threshold): return sum(1 for j in jobs if (j.get("llm_score") or 0) >= threshold)
-    def _loc_count(jobs, pat): return sum(1 for j in jobs if pat in j.get("location", "").lower())
+    def _count(jobs, threshold):
+        return sum(1 for j in jobs if (j.get("llm_score") or 0) >= threshold)
+
+    def _loc_count(jobs, pat):
+        return sum(1 for j in jobs if pat in j.get("location", "").lower())
 
     lines += [
-        "## Head-to-Head Comparison", "",
+        "## Head-to-Head Comparison",
+        "",
         "| Metric | job_ranker | mini_ranker |",
         "|--------|-----------|-------------|",
         f"| Avg LLM score | {avg_a:.1f} | {avg_b:.1f} |",
@@ -417,21 +513,31 @@ def build_report(
 
     lines += [f"## Overlap — {len(overlap_keys)} jobs found by both systems", ""]
     if overlap_keys:
-        lines += ["| Title | Company | A LLM Score | B LLM Score |",
-                  "|-------|---------|-------------|-------------|"]
+        lines += [
+            "| Title | Company | A LLM Score | B LLM Score |",
+            "|-------|---------|-------------|-------------|",
+        ]
         for k in overlap_keys:
             ja, jb = keys_a[k], keys_b[k]
-            lines.append(f"| {ja['title']} | {ja['company']} | {ja.get('llm_score','—')} | {jb.get('llm_score','—')} |")
+            lines.append(
+                f"| {ja['title']} | {ja['company']} | {ja.get('llm_score','—')} | {jb.get('llm_score','—')} |"
+            )
     lines.append("")
 
     def _unique_table(jobs_dict: dict, label: str) -> list[str]:
         out = [f"## Unique to {label} — {len(jobs_dict)} jobs", ""]
         if jobs_dict:
-            out += ["| LLM Score | Title | Company | Location | URL |",
-                    "|-----------|-------|---------|----------|-----|"]
-            for j in sorted(jobs_dict.values(), key=lambda x: x.get("llm_score") or 0, reverse=True):
+            out += [
+                "| LLM Score | Title | Company | Location | URL |",
+                "|-----------|-------|---------|----------|-----|",
+            ]
+            for j in sorted(
+                jobs_dict.values(), key=lambda x: x.get("llm_score") or 0, reverse=True
+            ):
                 url_md = f"[link]({j['url']})" if j.get("url") else "—"
-                out.append(f"| {j.get('llm_score','—')} | {j['title']} | {j['company']} | {j['location']} | {url_md} |")
+                out.append(
+                    f"| {j.get('llm_score','—')} | {j['title']} | {j['company']} | {j['location']} | {url_md} |"
+                )
         out.append("")
         return out
 
@@ -446,21 +552,49 @@ def build_report(
 MINI_RANKER_CONFIG = {
     "resume_file": "",
     "search_queries": [
-        "ai platform engineer", "ml platform engineer", "mlops",
-        "llmops", "genai", "agentic systems", "ai infrastructure",
+        "ai platform engineer",
+        "ml platform engineer",
+        "mlops",
+        "llmops",
+        "genai",
+        "agentic systems",
+        "ai infrastructure",
     ],
     "country": "India",
     "hours_old": 360,
     "preferred_locations": ["pune", "remote", "maharashtra"],
     "top_companies": [
-        "databricks", "snowflake", "nvidia", "openai", "anthropic",
-        "microsoft", "google", "meta", "salesforce", "qualcomm",
-        "hugging face", "atlassian", "servicenow", "intuit", "razorpay",
-        "phonepe", "meesho", "groww", "zycus", "informatica",
+        "databricks",
+        "snowflake",
+        "nvidia",
+        "openai",
+        "anthropic",
+        "microsoft",
+        "google",
+        "meta",
+        "salesforce",
+        "qualcomm",
+        "hugging face",
+        "atlassian",
+        "servicenow",
+        "intuit",
+        "razorpay",
+        "phonepe",
+        "meesho",
+        "groww",
+        "zycus",
+        "informatica",
     ],
     "avoid_companies": [
-        "wipro", "infosys", "tcs", "hcl", "tech mahindra",
-        "cognizant", "capgemini", "accenture", "fractal",
+        "wipro",
+        "infosys",
+        "tcs",
+        "hcl",
+        "tech mahindra",
+        "cognizant",
+        "capgemini",
+        "accenture",
+        "fractal",
     ],
 }
 
@@ -479,17 +613,29 @@ def run_mini_ranker(
         cfg = dict(MINI_RANKER_CONFIG)
         cfg["resume_file"] = str(resume_path)
         cfg["hours_old"] = hours_old
-        config_path.write_text(yaml.dump(cfg, default_flow_style=False, sort_keys=False))
+        config_path.write_text(
+            yaml.dump(cfg, default_flow_style=False, sort_keys=False)
+        )
         try:
             print("[run] mini_ranker ...", file=sys.stderr)
             result = subprocess.run(
-                ["uv", "run", "python", "mini_ranker.py", "--hours-old", str(hours_old)],
+                [
+                    "uv",
+                    "run",
+                    "python",
+                    "mini_ranker.py",
+                    "--hours-old",
+                    str(hours_old),
+                ],
                 cwd=str(repo_root),
                 capture_output=False,
                 text=True,
             )
             if result.returncode != 0:
-                print(f"[warn] mini_ranker exited with code {result.returncode}", file=sys.stderr)
+                print(
+                    f"[warn] mini_ranker exited with code {result.returncode}",
+                    file=sys.stderr,
+                )
         finally:
             if config_path.exists():
                 config_path.unlink()
@@ -504,9 +650,20 @@ def run_job_ranker(repo_root: Path, skip_run: bool = False) -> list[dict]:
     if not skip_run:
         print("[run] job_ranker ...", file=sys.stderr)
         subprocess.run(
-            ["uv", "run", "python", "-m", "job_ranker.entrypoint", "run",
-             "--user", "example", "--hours-old", "360",
-             "--search", "mlops|llmops|ai platform engineer|ml platform engineer"],
+            [
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "job_ranker.entrypoint",
+                "run",
+                "--user",
+                "example",
+                "--hours-old",
+                "360",
+                "--search",
+                "mlops|llmops|ai platform engineer|ml platform engineer",
+            ],
             cwd=str(repo_root),
             capture_output=False,
             text=True,
@@ -522,15 +679,20 @@ def main() -> None:
         sys.exit(1)
 
     parser = argparse.ArgumentParser(description="Benchmark job_ranker vs mini_ranker")
-    parser.add_argument("--skip-run", action="store_true",
-                        help="Skip subprocess runs, use existing outputs")
+    parser.add_argument(
+        "--skip-run",
+        action="store_true",
+        help="Skip subprocess runs, use existing outputs",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     args = parser.parse_args()
 
     resume_text = ""
     if RESUME_PATH.exists():
-        resume_text = clean_latex(RESUME_PATH.read_text(encoding="utf-8", errors="ignore"))[:2000]
+        resume_text = clean_latex(
+            RESUME_PATH.read_text(encoding="utf-8", errors="ignore")
+        )[:2000]
     else:
         print(f"[warn] Resume not found at {RESUME_PATH}", file=sys.stderr)
 
@@ -546,14 +708,19 @@ def main() -> None:
     mr_filtered, relaxed_b = filter_jobs(mr_raw, return_relaxed=True)
     jr_top30 = sorted(jr_filtered, key=lambda j: j["system_score"], reverse=True)[:30]
     mr_top30 = sorted(mr_filtered, key=lambda j: j["system_score"], reverse=True)[:30]
-    print(f"[benchmark] After filter: job_ranker={len(jr_top30)}, mini_ranker={len(mr_top30)}", file=sys.stderr)
+    print(
+        f"[benchmark] After filter: job_ranker={len(jr_top30)}, mini_ranker={len(mr_top30)}",
+        file=sys.stderr,
+    )
 
     print("[benchmark] Scoring job_ranker results ...", file=sys.stderr)
     jr_scored = score_all(jr_top30, resume_text, args.model, api_key)
     print("[benchmark] Scoring mini_ranker results ...", file=sys.stderr)
     mr_scored = score_all(mr_top30, resume_text, args.model, api_key)
 
-    report = build_report(jr_scored, mr_scored, relaxed_a=relaxed_a, relaxed_b=relaxed_b)
+    report = build_report(
+        jr_scored, mr_scored, relaxed_a=relaxed_a, relaxed_b=relaxed_b
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report, encoding="utf-8")
     print(f"\nSaved: {args.output}")
