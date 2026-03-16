@@ -2,7 +2,6 @@
 tests/test_find_companies.py — unit tests for scripts/find_companies.py
 """
 import json
-import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -14,7 +13,6 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import find_companies as fc
-
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 

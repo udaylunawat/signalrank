@@ -18,9 +18,14 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import warnings
+
 import litellm
 import yaml
-from duckduckgo_search import DDGS
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", RuntimeWarning)
+    from duckduckgo_search import DDGS
 
 try:
     from dotenv import load_dotenv
@@ -32,7 +37,8 @@ except ImportError:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_RESUME = REPO_ROOT / "job_ranker" / "users" / "example" / "resume.tex"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "docs"
-DEFAULT_MODEL = "openrouter/google/gemini-2.0-flash-exp:free"
+DEFAULT_MODEL = "openrouter/openrouter/auto"
+FALLBACK_MODEL = "openrouter/nvidia/nemotron-3-super-120b-a12b:free"
 MAX_ITERATIONS = 35
 MAX_SEARCH_RESULTS = 5
 
@@ -108,16 +114,30 @@ Each entry must have:
 # ── tool-use loop ─────────────────────────────────────────────────────────────
 
 def run_search(model: str, api_key: str, prompt: str) -> dict:
+    # litellm reads OPENROUTER_API_KEY from env — set it for this call
+    os.environ["OPENROUTER_API_KEY"] = api_key
     messages = [{"role": "user", "content": prompt}]
 
     for _ in range(MAX_ITERATIONS):
-        response = litellm.completion(
-            model=model,
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-            api_key=api_key,
-        )
+        try:
+            response = litellm.completion(
+                model=model,
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+            )
+        except (litellm.exceptions.RateLimitError, litellm.exceptions.NotFoundError) as e:
+            if model != FALLBACK_MODEL:
+                print(f"[warn] {model} unavailable ({e.__class__.__name__}), falling back to {FALLBACK_MODEL}", file=sys.stderr)
+                model = FALLBACK_MODEL
+                response = litellm.completion(
+                    model=model,
+                    messages=messages,
+                    tools=TOOLS,
+                    tool_choice="auto",
+                )
+            else:
+                raise
 
         choice = response.choices[0]
         msg = choice.message
