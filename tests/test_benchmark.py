@@ -213,3 +213,62 @@ def test_llm_score_batch_json_parse_failure_returns_null():
         results = llm_score_batch(jobs, resume_text="x",
                                   model=DEFAULT_MODEL, api_key="fake")
     assert results[0]["llm_score"] is None
+
+
+from benchmark import build_report
+
+def _scored_job(title, company, loc, score, sys_score, url="https://ex.com"):
+    return {
+        "title": title, "company": company, "location": loc,
+        "date_posted": "2026-03-15", "url": url,
+        "system_score": sys_score, "description": "d",
+        "llm_score": score, "verdict": "Good fit.",
+        "role_match": score//4, "seniority_fit": 15,
+        "company_quality": 15, "location_ok": 10, "recency": 7,
+    }
+
+def test_build_report_contains_headers():
+    jr = [_scored_job("MLOps Eng", "Nvidia", "Pune", 88, 92.0)]
+    mr = [_scored_job("ML Platform Eng", "Salesforce", "Remote India", 82, 85.0)]
+    report = build_report(jr, mr, relaxed_a=False, relaxed_b=False)
+    assert "# Job Search Benchmark" in report
+    assert "job_ranker" in report
+    assert "mini_ranker" in report
+    assert "TL;DR" in report
+    assert "Head-to-Head" in report
+    assert "Overlap" in report
+
+def test_build_report_shows_overlap():
+    job = _scored_job("MLOps Eng", "Nvidia", "Pune", 88, 92.0)
+    report = build_report([job], [job], relaxed_a=False, relaxed_b=False)
+    assert "Overlap" in report
+    assert "Nvidia" in report
+
+def test_build_report_shows_relaxed_warning():
+    jr = [_scored_job("MLOps Eng", "Co", "Bengaluru", 60, 70.0)]
+    report = build_report(jr, [], relaxed_a=True, relaxed_b=False)
+    assert "⚠️" in report
+
+
+from benchmark import run_mini_ranker
+
+def test_run_mini_ranker_creates_config_and_calls_subprocess(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    (outputs / "mini_ranked_20260317_120000.csv").write_text(
+        "title,company,location,date_posted,job_url,final_score,description\n"
+        "MLOps Eng,Nvidia,Pune,2026-03-15,https://ex.com,90.0,Great\n"
+    )
+    with patch("benchmark.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        rows = run_mini_ranker(
+            resume_path=Path("/fake/resume.tex"),
+            repo_root=tmp_path,
+            hours_old=360,
+        )
+    assert mock_run.called
+    assert len(rows) == 1
+    assert rows[0]["title"] == "MLOps Eng"
+    # config.yaml should be cleaned up
+    assert not (tmp_path / "config.yaml").exists()

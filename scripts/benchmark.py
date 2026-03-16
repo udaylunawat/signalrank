@@ -334,3 +334,230 @@ def score_all(
         if i + BATCH_SIZE < len(jobs):
             time.sleep(2)
     return scored
+
+
+# ── build_report ───────────────────────────────────────────────────────────────
+
+def _fmt_date(val) -> str:
+    if not val:
+        return ""
+    try:
+        return str(pd.to_datetime(str(val)).date())
+    except Exception:
+        return str(val)
+
+
+def build_report(
+    job_ranker_jobs: list[dict],
+    mini_ranker_jobs: list[dict],
+    relaxed_a: bool = False,
+    relaxed_b: bool = False,
+) -> str:
+    today = date.today()
+    lines = [f"# Job Search Benchmark — {today}", ""]
+    lines += ["**Systems:** job_ranker (A) vs mini_ranker (B)",
+              "**Filter:** Pune or Remote India · last 15 days",
+              "**Scorer:** LLM (arcee-ai/trinity, 5-dimension rubric)", ""]
+
+    avg_a = (sum(j["llm_score"] for j in job_ranker_jobs if j.get("llm_score")) /
+             max(1, sum(1 for j in job_ranker_jobs if j.get("llm_score"))))
+    avg_b = (sum(j["llm_score"] for j in mini_ranker_jobs if j.get("llm_score")) /
+             max(1, sum(1 for j in mini_ranker_jobs if j.get("llm_score"))))
+    winner = "job_ranker" if avg_a >= avg_b else "mini_ranker"
+    lines += [
+        "## TL;DR Verdict", "",
+        f"**Winner: {winner}** (avg LLM score: job_ranker={avg_a:.1f}, mini_ranker={avg_b:.1f}). "
+        f"job_ranker covers more sources (RapidAPI + Indeed + LinkedIn + Google Jobs) but is slower. "
+        f"mini_ranker is faster and self-contained but limited to Indeed + LinkedIn.", "",
+    ]
+
+    def _table(jobs: list[dict], label: str, relaxed: bool) -> list[str]:
+        note = " ⚠️ *location filter relaxed to all-India (< 10 Pune/remote results)*" if relaxed else ""
+        out = [f"## System: {label} — Top {len(jobs)}{note}", ""]
+        out += ["| # | LLM Score | Title | Company | Location | Posted | Sys Score | URL |",
+                "|---|-----------|-------|---------|----------|--------|-----------|-----|"]
+        sorted_jobs = sorted(jobs, key=lambda j: j.get("llm_score") or 0, reverse=True)
+        for i, j in enumerate(sorted_jobs, 1):
+            score = j.get("llm_score", "—")
+            score_str = f"**{score}**" if isinstance(score, int) and score >= 70 else str(score)
+            url = j.get("url", "")
+            url_md = f"[link]({url})" if url else "—"
+            out.append(
+                f"| {i} | {score_str} | {j['title']} | {j['company']} | "
+                f"{j['location']} | {_fmt_date(j.get('date_posted'))} | "
+                f"{j['system_score']:.1f} | {url_md} |"
+            )
+        out.append("")
+        return out
+
+    lines += _table(job_ranker_jobs, "job_ranker (A)", relaxed_a)
+    lines += _table(mini_ranker_jobs, "mini_ranker (B)", relaxed_b)
+
+    def _count(jobs, threshold): return sum(1 for j in jobs if (j.get("llm_score") or 0) >= threshold)
+    def _loc_count(jobs, pat): return sum(1 for j in jobs if pat in j.get("location", "").lower())
+
+    lines += [
+        "## Head-to-Head Comparison", "",
+        "| Metric | job_ranker | mini_ranker |",
+        "|--------|-----------|-------------|",
+        f"| Avg LLM score | {avg_a:.1f} | {avg_b:.1f} |",
+        f"| Jobs ≥70 | {_count(job_ranker_jobs, 70)} | {_count(mini_ranker_jobs, 70)} |",
+        f"| Jobs ≥50 | {_count(job_ranker_jobs, 50)} | {_count(mini_ranker_jobs, 50)} |",
+        f"| Pune jobs | {_loc_count(job_ranker_jobs, 'pune')} | {_loc_count(mini_ranker_jobs, 'pune')} |",
+        f"| Remote India jobs | {_loc_count(job_ranker_jobs, 'remote')} | {_loc_count(mini_ranker_jobs, 'remote')} |",
+        f"| Total returned | {len(job_ranker_jobs)} | {len(mini_ranker_jobs)} |",
+        "",
+    ]
+
+    keys_a = {dedup_key(j["title"], j["company"]): j for j in job_ranker_jobs}
+    keys_b = {dedup_key(j["title"], j["company"]): j for j in mini_ranker_jobs}
+    overlap_keys = set(keys_a) & set(keys_b)
+    only_a = {k: v for k, v in keys_a.items() if k not in overlap_keys}
+    only_b = {k: v for k, v in keys_b.items() if k not in overlap_keys}
+
+    lines += [f"## Overlap — {len(overlap_keys)} jobs found by both systems", ""]
+    if overlap_keys:
+        lines += ["| Title | Company | A LLM Score | B LLM Score |",
+                  "|-------|---------|-------------|-------------|"]
+        for k in overlap_keys:
+            ja, jb = keys_a[k], keys_b[k]
+            lines.append(f"| {ja['title']} | {ja['company']} | {ja.get('llm_score','—')} | {jb.get('llm_score','—')} |")
+    lines.append("")
+
+    def _unique_table(jobs_dict: dict, label: str) -> list[str]:
+        out = [f"## Unique to {label} — {len(jobs_dict)} jobs", ""]
+        if jobs_dict:
+            out += ["| LLM Score | Title | Company | Location | URL |",
+                    "|-----------|-------|---------|----------|-----|"]
+            for j in sorted(jobs_dict.values(), key=lambda x: x.get("llm_score") or 0, reverse=True):
+                url_md = f"[link]({j['url']})" if j.get("url") else "—"
+                out.append(f"| {j.get('llm_score','—')} | {j['title']} | {j['company']} | {j['location']} | {url_md} |")
+        out.append("")
+        return out
+
+    lines += _unique_table(only_a, "job_ranker")
+    lines += _unique_table(only_b, "mini_ranker")
+
+    return "\n".join(lines)
+
+
+# ── run_mini_ranker / run_job_ranker / main ────────────────────────────────────
+
+MINI_RANKER_CONFIG = {
+    "resume_file": "",
+    "search_queries": [
+        "ai platform engineer", "ml platform engineer", "mlops",
+        "llmops", "genai", "agentic systems", "ai infrastructure",
+    ],
+    "country": "India",
+    "hours_old": 360,
+    "preferred_locations": ["pune", "remote", "maharashtra"],
+    "top_companies": [
+        "databricks", "snowflake", "nvidia", "openai", "anthropic",
+        "microsoft", "google", "meta", "salesforce", "qualcomm",
+        "hugging face", "atlassian", "servicenow", "intuit", "razorpay",
+        "phonepe", "meesho", "groww", "zycus", "informatica",
+    ],
+    "avoid_companies": [
+        "wipro", "infosys", "tcs", "hcl", "tech mahindra",
+        "cognizant", "capgemini", "accenture", "fractal",
+    ],
+}
+
+
+def run_mini_ranker(
+    resume_path: Path,
+    repo_root: Path,
+    hours_old: int = 360,
+    skip_run: bool = False,
+) -> list[dict]:
+    """Run mini_ranker subprocess, return normalised rows."""
+    outputs_dir = repo_root / "outputs"
+    config_path = repo_root / "config.yaml"
+
+    if not skip_run:
+        cfg = dict(MINI_RANKER_CONFIG)
+        cfg["resume_file"] = str(resume_path)
+        cfg["hours_old"] = hours_old
+        config_path.write_text(yaml.dump(cfg, default_flow_style=False, sort_keys=False))
+        try:
+            print("[run] mini_ranker ...", file=sys.stderr)
+            result = subprocess.run(
+                ["uv", "run", "python", "mini_ranker.py", "--hours-old", str(hours_old)],
+                cwd=str(repo_root),
+                capture_output=False,
+                text=True,
+            )
+            if result.returncode != 0:
+                print(f"[warn] mini_ranker exited with code {result.returncode}", file=sys.stderr)
+        finally:
+            if config_path.exists():
+                config_path.unlink()
+
+    return load_mini_ranker_results(outputs_dir)
+
+
+def run_job_ranker(repo_root: Path, skip_run: bool = False) -> list[dict]:
+    """Run job_ranker entrypoint subprocess, then load from DuckDB."""
+    db_path = repo_root / "job_ranker" / "duckdb"
+
+    if not skip_run:
+        print("[run] job_ranker ...", file=sys.stderr)
+        subprocess.run(
+            ["uv", "run", "python", "-m", "job_ranker.entrypoint", "run",
+             "--user", "example", "--hours-old", "360",
+             "--search", "mlops|llmops|ai platform engineer|ml platform engineer"],
+            cwd=str(repo_root),
+            capture_output=False,
+            text=True,
+        )
+
+    return load_job_ranker_results(db_path)
+
+
+def main() -> None:
+    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        print("Error: OPENROUTER_API_KEY not set", file=sys.stderr)
+        sys.exit(1)
+
+    parser = argparse.ArgumentParser(description="Benchmark job_ranker vs mini_ranker")
+    parser.add_argument("--skip-run", action="store_true",
+                        help="Skip subprocess runs, use existing outputs")
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    args = parser.parse_args()
+
+    resume_text = ""
+    if RESUME_PATH.exists():
+        resume_text = clean_latex(RESUME_PATH.read_text(encoding="utf-8", errors="ignore"))[:2000]
+    else:
+        print(f"[warn] Resume not found at {RESUME_PATH}", file=sys.stderr)
+
+    print("[benchmark] Running job_ranker ...", file=sys.stderr)
+    jr_raw = run_job_ranker(REPO_ROOT, skip_run=args.skip_run)
+    print(f"  → {len(jr_raw)} rows from job_ranker", file=sys.stderr)
+
+    print("[benchmark] Running mini_ranker ...", file=sys.stderr)
+    mr_raw = run_mini_ranker(RESUME_PATH, REPO_ROOT, skip_run=args.skip_run)
+    print(f"  → {len(mr_raw)} rows from mini_ranker", file=sys.stderr)
+
+    jr_filtered, relaxed_a = filter_jobs(jr_raw, return_relaxed=True)
+    mr_filtered, relaxed_b = filter_jobs(mr_raw, return_relaxed=True)
+    jr_top30 = sorted(jr_filtered, key=lambda j: j["system_score"], reverse=True)[:30]
+    mr_top30 = sorted(mr_filtered, key=lambda j: j["system_score"], reverse=True)[:30]
+    print(f"[benchmark] After filter: job_ranker={len(jr_top30)}, mini_ranker={len(mr_top30)}", file=sys.stderr)
+
+    print("[benchmark] Scoring job_ranker results ...", file=sys.stderr)
+    jr_scored = score_all(jr_top30, resume_text, args.model, api_key)
+    print("[benchmark] Scoring mini_ranker results ...", file=sys.stderr)
+    mr_scored = score_all(mr_top30, resume_text, args.model, api_key)
+
+    report = build_report(jr_scored, mr_scored, relaxed_a=relaxed_a, relaxed_b=relaxed_b)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(report, encoding="utf-8")
+    print(f"\nSaved: {args.output}")
+
+
+if __name__ == "__main__":
+    main()
