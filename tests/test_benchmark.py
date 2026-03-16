@@ -1,6 +1,8 @@
 # tests/test_benchmark.py
+import json
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import pytest
@@ -64,3 +66,57 @@ def test_dedup_key_strips_whitespace():
     a = dedup_key("ML Platform Engineer", "Nvidia")
     b = dedup_key("  ML Platform Engineer  ", "  NVIDIA  ")
     assert a == b
+
+from benchmark import load_job_ranker_results, load_mini_ranker_results
+import duckdb
+
+# --- load_job_ranker_results ---
+def test_load_job_ranker_results_returns_normalised():
+    mock_rows = [
+        ("https://ex.com/1", 85.0, json.dumps({
+            "title": "MLOps Engineer", "company": "Databricks",
+            "location": "Pune", "date_posted": "2026-03-10",
+            "description": "Build ML pipelines.",
+        })),
+    ]
+    with patch("benchmark.duckdb") as mock_db:
+        mock_con = MagicMock()
+        mock_db.connect.return_value.__enter__ = lambda s: mock_con
+        mock_db.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_con.execute.return_value.fetchall.return_value = mock_rows
+        rows = load_job_ranker_results(Path("/fake/duckdb"))
+    assert len(rows) == 1
+    assert rows[0]["title"] == "MLOps Engineer"
+    assert rows[0]["system_score"] == 85.0
+    assert rows[0]["url"] == "https://ex.com/1"
+
+def test_load_job_ranker_results_empty_returns_empty():
+    with patch("benchmark.duckdb") as mock_db:
+        mock_con = MagicMock()
+        mock_db.connect.return_value.__enter__ = lambda s: mock_con
+        mock_db.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_con.execute.return_value.fetchall.return_value = []
+        rows = load_job_ranker_results(Path("/fake/duckdb"))
+    assert rows == []
+
+# --- load_mini_ranker_results ---
+def test_load_mini_ranker_results_reads_csv(tmp_path):
+    csv = tmp_path / "mini_ranked_20260317_120000.csv"
+    csv.write_text(
+        "title,company,location,date_posted,job_url,final_score,description\n"
+        "MLOps Lead,Nvidia,Pune,2026-03-10,https://ex.com/3,91.0,Great role\n"
+    )
+    rows = load_mini_ranker_results(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["title"] == "MLOps Lead"
+    assert rows[0]["system_score"] == 91.0
+
+def test_load_mini_ranker_results_picks_latest(tmp_path):
+    (tmp_path / "mini_ranked_20260317_100000.csv").write_text(
+        "title,company,location,date_posted,job_url,final_score,description\nOld,Co,Pune,2026-03-10,u,50.0,d\n"
+    )
+    (tmp_path / "mini_ranked_20260317_120000.csv").write_text(
+        "title,company,location,date_posted,job_url,final_score,description\nNew,Co,Pune,2026-03-10,u,80.0,d\n"
+    )
+    rows = load_mini_ranker_results(tmp_path)
+    assert rows[0]["title"] == "New"

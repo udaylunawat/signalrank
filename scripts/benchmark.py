@@ -21,6 +21,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import duckdb
 import litellm
 import pandas as pd
 import yaml
@@ -109,3 +110,62 @@ def is_pune_or_remote(location: str) -> bool:
 def dedup_key(title: str, company: str) -> tuple[str, str]:
     """Normalised (title, company) tuple for cross-system deduplication."""
     return (title.lower().strip(), company.lower().strip())
+
+
+DUCKDB_SQL = """
+SELECT
+    rr.job_url                        AS url,
+    rr.final_score                    AS system_score,
+    rr.payload                        AS payload
+FROM run_results rr
+WHERE rr.run_id = (
+    SELECT run_id FROM runs
+    WHERE status = 'success'
+    ORDER BY finished_at DESC
+    LIMIT 1
+)
+  AND TRY_CAST(rr.payload->>'date_posted' AS DATE)
+        >= CURRENT_DATE - INTERVAL '15' DAY
+ORDER BY rr.final_score DESC
+LIMIT 100
+"""
+
+
+def load_job_ranker_results(db_path: Path) -> list[dict]:
+    """Query DuckDB for top results from the latest successful run."""
+    try:
+        with duckdb.connect(str(db_path), read_only=True) as con:
+            rows = con.execute(DUCKDB_SQL).fetchall()
+        result = []
+        for url, score, payload in rows:
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            elif not isinstance(payload, dict):
+                payload = {}
+            result.append(normalise_row({
+                "url": url or "",
+                "system_score": score or 0,
+                "title": payload.get("title", "") or "",
+                "company": payload.get("company", "") or "",
+                "location": payload.get("location", "") or "",
+                "date_posted": payload.get("date_posted"),
+                "description": payload.get("description", "") or "",
+            }, system="job_ranker"))
+        return result
+    except Exception as e:
+        print(f"[warn] DuckDB load failed: {e}", file=sys.stderr)
+        return []
+
+
+def load_mini_ranker_results(outputs_dir: Path) -> list[dict]:
+    """Load the most recent mini_ranker CSV from outputs/."""
+    csvs = sorted(outputs_dir.glob("mini_ranked_*.csv"), reverse=True)
+    if not csvs:
+        print(f"[warn] No mini_ranked_*.csv found in {outputs_dir}", file=sys.stderr)
+        return []
+    df = pd.read_csv(csvs[0])
+    df = df.sort_values("final_score", ascending=False)
+    rows = []
+    for _, row in df.head(100).iterrows():
+        rows.append(normalise_row(row.to_dict(), system="mini_ranker"))
+    return rows
