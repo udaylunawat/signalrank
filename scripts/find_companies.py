@@ -22,10 +22,7 @@ import warnings
 
 import litellm
 import yaml
-
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", RuntimeWarning)
-    from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 try:
     from dotenv import load_dotenv
