@@ -120,3 +120,96 @@ def test_load_mini_ranker_results_picks_latest(tmp_path):
     )
     rows = load_mini_ranker_results(tmp_path)
     assert rows[0]["title"] == "New"
+
+
+from benchmark import filter_jobs
+from datetime import date
+
+def _make_job(location="Pune", date_posted="2026-03-10", **kw):
+    return {"title": "ML Eng", "company": "Co", "location": location,
+            "date_posted": date_posted, "url": "u", "system_score": 50.0,
+            "description": "d", **kw}
+
+def test_filter_jobs_keeps_pune_recent():
+    jobs = [_make_job(location="Pune", date_posted="2026-03-10")]
+    result = filter_jobs(jobs, today=date(2026, 3, 17))
+    assert len(result) == 1
+
+def test_filter_jobs_removes_old():
+    jobs = [_make_job(date_posted="2026-02-01")]
+    result = filter_jobs(jobs, today=date(2026, 3, 17))
+    assert len(result) == 0
+
+def test_filter_jobs_removes_bengaluru():
+    jobs = [_make_job(location="Bengaluru, Karnataka")]
+    result = filter_jobs(jobs, today=date(2026, 3, 17))
+    assert len(result) == 0
+
+def test_filter_jobs_keeps_remote_india():
+    jobs = [_make_job(location="Remote, India", date_posted="2026-03-15")]
+    result = filter_jobs(jobs, today=date(2026, 3, 17))
+    assert len(result) == 1
+
+def test_filter_jobs_excludes_null_date():
+    jobs = [_make_job(date_posted=None)]
+    result = filter_jobs(jobs, today=date(2026, 3, 17))
+    assert len(result) == 0
+
+def test_filter_jobs_relaxes_to_india_if_few(monkeypatch):
+    # Only 5 Pune/remote jobs → relax to all India
+    jobs = [_make_job(location="Pune")] * 5 + [_make_job(location="Bengaluru")] * 10
+    result, relaxed = filter_jobs(jobs, today=date(2026, 3, 17), return_relaxed=True)
+    assert relaxed is True
+    assert len(result) == 15
+
+
+import litellm
+from benchmark import llm_score_batch, DEFAULT_MODEL
+
+def _make_completion(content: str):
+    msg = MagicMock(); msg.content = content
+    choice = MagicMock(); choice.message = msg
+    resp = MagicMock(); resp.choices = [choice]
+    return resp
+
+def test_llm_score_batch_happy_path():
+    jobs = [{"title": "MLOps Engineer", "company": "Nvidia",
+             "location": "Pune", "date_posted": "2026-03-10",
+             "description": "Build ML infra."}]
+    response_json = json.dumps({"jobs": [{
+        "idx": 0, "role_match": 35, "seniority_fit": 18,
+        "company_quality": 18, "location_ok": 10, "recency": 7,
+        "llm_score": 88, "verdict": "Strong fit.",
+    }]})
+    with patch("benchmark.litellm.completion") as mock_llm:
+        mock_llm.return_value = _make_completion(response_json)
+        results = llm_score_batch(jobs, resume_text="MLOps engineer 7YOE",
+                                  model=DEFAULT_MODEL, api_key="fake")
+    assert len(results) == 1
+    assert results[0]["llm_score"] == 88
+    assert results[0]["verdict"] == "Strong fit."
+
+def test_llm_score_batch_falls_back_on_rate_limit():
+    jobs = [{"title": "MLOps Engineer", "company": "Nvidia",
+             "location": "Pune", "date_posted": "2026-03-10",
+             "description": "Build ML infra."}]
+    ok_resp = _make_completion(json.dumps({"jobs": [{
+        "idx": 0, "role_match": 30, "seniority_fit": 15,
+        "company_quality": 15, "location_ok": 10, "recency": 7,
+        "llm_score": 77, "verdict": "Good.",
+    }]}))
+    with patch("benchmark.litellm.completion") as mock_llm:
+        mock_llm.side_effect = [litellm.exceptions.RateLimitError("x", llm_provider="x", model="x"), ok_resp]
+        results = llm_score_batch(jobs, resume_text="MLOps engineer",
+                                  model=DEFAULT_MODEL, api_key="fake")
+    assert results[0]["llm_score"] == 77
+
+def test_llm_score_batch_json_parse_failure_returns_null():
+    jobs = [{"title": "ML Eng", "company": "Co",
+             "location": "Pune", "date_posted": "2026-03-10",
+             "description": "d"}]
+    with patch("benchmark.litellm.completion") as mock_llm:
+        mock_llm.return_value = _make_completion("Sorry, I cannot score these jobs.")
+        results = llm_score_batch(jobs, resume_text="x",
+                                  model=DEFAULT_MODEL, api_key="fake")
+    assert results[0]["llm_score"] is None
