@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from benchmark import (
     MODEL_CHAIN,
+    MAX_RETRIES,
     DEFAULT_MODEL,
     build_report,
     clean_latex,
@@ -260,7 +261,7 @@ def test_llm_score_batch_happy_path():
     with patch("benchmark.litellm.completion") as mock_llm:
         mock_llm.return_value = _make_completion(response_json)
         results = llm_score_batch(
-            jobs, resume_text="MLOps engineer 7YOE", model=DEFAULT_MODEL, api_key="fake"
+            jobs, resume_text="MLOps engineer 7YOE", api_key="fake"
         )
     assert len(results) == 1
     assert results[0]["llm_score"] == 88
@@ -268,41 +269,23 @@ def test_llm_score_batch_happy_path():
 
 
 def test_llm_score_batch_falls_back_on_rate_limit():
-    jobs = [
-        {
-            "title": "MLOps Engineer",
-            "company": "Nvidia",
-            "location": "Pune",
-            "date_posted": "2026-03-10",
-            "description": "Build ML infra.",
-        }
-    ]
-    ok_resp = _make_completion(
-        json.dumps(
-            {
-                "jobs": [
-                    {
-                        "idx": 0,
-                        "role_match": 30,
-                        "seniority_fit": 15,
-                        "company_quality": 15,
-                        "location_ok": 10,
-                        "recency": 7,
-                        "llm_score": 77,
-                        "verdict": "Good.",
-                    }
-                ]
-            }
-        )
-    )
-    with patch("benchmark.litellm.completion") as mock_llm:
+    jobs = [{"title": "MLOps Engineer", "company": "Nvidia",
+             "location": "Pune", "date_posted": "2026-03-10",
+             "description": "Build ML infra."}]
+    ok_resp = _make_completion(json.dumps({"jobs": [{
+        "idx": 0, "role_match": 30, "seniority_fit": 15,
+        "company_quality": 15, "location_ok": 10, "recency": 7,
+        "llm_score": 77, "verdict": "Good.",
+    }]}))
+    with patch("benchmark.litellm.completion") as mock_llm, \
+         patch("benchmark.time.sleep"):
         mock_llm.side_effect = [
+            litellm.exceptions.RateLimitError("x", llm_provider="x", model="x"),
+            litellm.exceptions.RateLimitError("x", llm_provider="x", model="x"),
             litellm.exceptions.RateLimitError("x", llm_provider="x", model="x"),
             ok_resp,
         ]
-        results = llm_score_batch(
-            jobs, resume_text="MLOps engineer", model=DEFAULT_MODEL, api_key="fake"
-        )
+        results = llm_score_batch(jobs, resume_text="MLOps engineer", api_key="fake")
     assert results[0]["llm_score"] == 77
 
 
@@ -319,11 +302,48 @@ def test_llm_score_batch_json_parse_failure_returns_null():
     with patch("benchmark.litellm.completion") as mock_llm:
         mock_llm.return_value = _make_completion("Sorry, I cannot score these jobs.")
         results = llm_score_batch(
-            jobs, resume_text="x", model=DEFAULT_MODEL, api_key="fake"
+            jobs, resume_text="x", api_key="fake"
         )
     assert results[0]["llm_score"] is None
 
 
+
+
+def test_llm_score_batch_retries_before_fallback():
+    """Primary model fails twice, succeeds on third attempt — never falls back."""
+    jobs = [{"title": "MLOps Engineer", "company": "Nvidia",
+             "location": "Pune", "date_posted": "2026-03-10",
+             "description": "Build ML infra."}]
+    ok_resp = _make_completion(json.dumps({"jobs": [{
+        "idx": 0, "role_match": 30, "seniority_fit": 15,
+        "company_quality": 15, "location_ok": 10, "recency": 7,
+        "llm_score": 77, "verdict": "Good.",
+    }]}))
+    with patch("benchmark.litellm.completion") as mock_llm, \
+         patch("benchmark.time.sleep"):
+        mock_llm.side_effect = [
+            litellm.exceptions.RateLimitError("x", llm_provider="x", model="x"),
+            litellm.exceptions.RateLimitError("x", llm_provider="x", model="x"),
+            ok_resp,
+        ]
+        results = llm_score_batch(jobs, resume_text="MLOps engineer", api_key="fake")
+    assert results[0]["llm_score"] == 77
+    assert mock_llm.call_count == 3
+
+
+def test_llm_score_batch_exhausts_chain():
+    """All models fail all retries — returns llm_score=None."""
+    jobs = [{"title": "ML Eng", "company": "Co",
+             "location": "Pune", "date_posted": "2026-03-10",
+             "description": "d"}]
+    with patch("benchmark.litellm.completion") as mock_llm, \
+         patch("benchmark.time.sleep"):
+        mock_llm.side_effect = litellm.exceptions.RateLimitError(
+            "x", llm_provider="x", model="x"
+        )
+        results = llm_score_batch(jobs, resume_text="x", api_key="fake")
+    assert results[0]["llm_score"] is None
+    assert mock_llm.call_count == len(MODEL_CHAIN) * MAX_RETRIES
 
 
 def _scored_job(title, company, loc, score, sys_score, url="https://ex.com"):

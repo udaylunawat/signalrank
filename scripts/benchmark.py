@@ -335,10 +335,13 @@ def _extract_json(raw: str) -> dict | None:
 def llm_score_batch(
     jobs: list[dict],
     resume_text: str,
-    model: str,
     api_key: str,
+    model: str | None = None,
 ) -> list[dict]:
-    """Score a batch of jobs via LLM. Returns list with llm_score added (None on failure)."""
+    """Score a batch of jobs via LLM. Tries MODEL_CHAIN with exponential backoff.
+
+    Returns list of job dicts with llm_score added (None on total failure).
+    """
     os.environ["OPENROUTER_API_KEY"] = api_key
 
     jobs_payload = [
@@ -357,72 +360,74 @@ def llm_score_batch(
         jobs_json=json.dumps(jobs_payload, ensure_ascii=False),
     )
 
-    def _call(m: str):
-        return litellm.completion(
-            model=m,
-            messages=[{"role": "user", "content": prompt}],
-            timeout=120,
-        )
+    chain = list(MODEL_CHAIN)
+    if model and model != chain[0]:
+        chain[0] = model
 
-    try:
-        response = _call(model)
-    except (
-        litellm.exceptions.RateLimitError,
-        litellm.exceptions.NotFoundError,
-        litellm.exceptions.Timeout,
-    ):
-        fallback = MODEL_CHAIN[1]
-        print(
-            f"[warn] {model} failed, falling back to {fallback}",
-            file=sys.stderr,
-        )
-        try:
-            response = _call(fallback)
-        except Exception as e:
-            print(f"[warn] Fallback also failed: {e}", file=sys.stderr)
-            return [
-                dict(
-                    j,
-                    llm_score=None,
-                    verdict="scoring failed",
-                    role_match=None,
-                    seniority_fit=None,
-                    company_quality=None,
-                    location_ok=None,
-                    recency=None,
+    for m in chain:
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                response = litellm.completion(
+                    model=m,
+                    messages=[{"role": "user", "content": prompt}],
+                    timeout=120,
                 )
-                for j in jobs
-            ]
+                raw = response.choices[0].message.content or ""
+                data = _extract_json(raw)
+                scored_map: dict[int, dict] = {}
+                if data:
+                    for item in data.get("jobs", []):
+                        scored_map[item["idx"]] = item
 
-    raw = response.choices[0].message.content or ""
-    data = _extract_json(raw)
-    scored_map: dict[int, dict] = {}
-    if data:
-        for item in data.get("jobs", []):
-            scored_map[item["idx"]] = item
+                result = []
+                for i, job in enumerate(jobs):
+                    scores = scored_map.get(i, {})
+                    result.append(
+                        dict(
+                            job,
+                            llm_score=scores.get("llm_score"),
+                            verdict=scores.get("verdict", ""),
+                            role_match=scores.get("role_match"),
+                            seniority_fit=scores.get("seniority_fit"),
+                            company_quality=scores.get("company_quality"),
+                            location_ok=scores.get("location_ok"),
+                            recency=scores.get("recency"),
+                        )
+                    )
+                return result
+            except (
+                litellm.exceptions.RateLimitError,
+                litellm.exceptions.NotFoundError,
+                litellm.exceptions.Timeout,
+            ) as e:
+                wait = BACKOFF_BASE * (2 ** (attempt - 1))
+                print(
+                    f"[warn] {m} attempt {attempt}/{MAX_RETRIES} failed: {type(e).__name__}. "
+                    f"Waiting {wait}s ...",
+                    file=sys.stderr,
+                )
+                time.sleep(wait)
+        print(f"[warn] {m} exhausted {MAX_RETRIES} retries, trying next model ...", file=sys.stderr)
 
-    result = []
-    for i, job in enumerate(jobs):
-        scores = scored_map.get(i, {})
-        result.append(
-            dict(
-                job,
-                llm_score=scores.get("llm_score"),
-                verdict=scores.get("verdict", ""),
-                role_match=scores.get("role_match"),
-                seniority_fit=scores.get("seniority_fit"),
-                company_quality=scores.get("company_quality"),
-                location_ok=scores.get("location_ok"),
-                recency=scores.get("recency"),
-            )
+    print("[warn] All models failed. Returning null scores.", file=sys.stderr)
+    return [
+        dict(
+            j,
+            llm_score=None,
+            verdict="scoring failed",
+            role_match=None,
+            seniority_fit=None,
+            company_quality=None,
+            location_ok=None,
+            recency=None,
         )
-    return result
+        for j in jobs
+    ]
 
 
 def score_all(
     jobs: list[dict],
     resume_text: str,
-    model: str,
     api_key: str,
 ) -> list[dict]:
     """Score all jobs in batches of BATCH_SIZE."""
@@ -430,9 +435,9 @@ def score_all(
     for i in range(0, len(jobs), BATCH_SIZE):
         batch = jobs[i : i + BATCH_SIZE]
         print(f"  [LLM] scoring jobs {i+1}-{i+len(batch)} ...", file=sys.stderr)
-        scored.extend(llm_score_batch(batch, resume_text, model, api_key))
+        scored.extend(llm_score_batch(batch, resume_text, api_key=api_key))
         if i + BATCH_SIZE < len(jobs):
-            time.sleep(15)  # avoid rate limits between batches
+            time.sleep(2)  # light pause between batches
     return scored
 
 
@@ -747,9 +752,9 @@ def main() -> None:
     )
 
     print("[benchmark] Scoring job_ranker results ...", file=sys.stderr)
-    jr_scored = score_all(jr_top30, resume_text, args.model, api_key)
+    jr_scored = score_all(jr_top30, resume_text, api_key)
     print("[benchmark] Scoring mini_ranker results ...", file=sys.stderr)
-    mr_scored = score_all(mr_top30, resume_text, args.model, api_key)
+    mr_scored = score_all(mr_top30, resume_text, api_key)
 
     report = build_report(
         jr_scored, mr_scored, relaxed_a=relaxed_a, relaxed_b=relaxed_b
