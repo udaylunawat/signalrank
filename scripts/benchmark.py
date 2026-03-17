@@ -23,6 +23,9 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import duckdb
+
+os.environ.setdefault("LITELLM_LOG", "ERROR")
+
 import litellm
 import pandas as pd
 import yaml
@@ -36,8 +39,15 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = REPO_ROOT / "docs" / f"benchmark-{date.today()}.md"
-DEFAULT_MODEL = "openrouter/stepfun/step-3.5-flash:free"
-FALLBACK_MODEL = "openrouter/arcee-ai/trinity-large-preview:free"
+MODEL_CHAIN = [
+    "openrouter/stepfun/step-3.5-flash:free",
+    "openrouter/arcee-ai/trinity-large-preview:free",
+    "openrouter/arcee-ai/trinity-mini:free",
+    "openrouter/nvidia/nemotron-nano-12b-v2-vl:free",
+]
+DEFAULT_MODEL = MODEL_CHAIN[0]
+MAX_RETRIES = 3
+BACKOFF_BASE = 5  # seconds
 RESUME_PATH = REPO_ROOT / "job_ranker" / "users" / "example" / "resume.tex"
 DUCKDB_PATH = REPO_ROOT / "job_ranker" / "duckdb"
 DAYS_WINDOW = 15
@@ -361,12 +371,13 @@ def llm_score_batch(
         litellm.exceptions.NotFoundError,
         litellm.exceptions.Timeout,
     ):
+        fallback = MODEL_CHAIN[1]
         print(
-            f"[warn] {model} failed, falling back to {FALLBACK_MODEL}",
+            f"[warn] {model} failed, falling back to {fallback}",
             file=sys.stderr,
         )
         try:
-            response = _call(FALLBACK_MODEL)
+            response = _call(fallback)
         except Exception as e:
             print(f"[warn] Fallback also failed: {e}", file=sys.stderr)
             return [

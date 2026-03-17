@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from benchmark import (
+    MODEL_CHAIN,
     DEFAULT_MODEL,
     build_report,
     clean_latex,
