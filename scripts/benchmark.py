@@ -47,6 +47,8 @@ PUNE_REMOTE_PATTERNS = [
     "pune",
     "pun",
     "maharashtra",
+    "mh, in",
+    "mh,in",  # jobspy abbreviated Maharashtra
     "work from home",
     "wfh",
 ]
@@ -163,7 +165,7 @@ WHERE rr.run_id = (
     ORDER BY finished_at DESC
     LIMIT 1
 )
-  AND TRY_CAST(rr.payload->>'date_posted' AS DATE)
+  AND TRY(to_timestamp(CAST(rr.payload->>'date_posted' AS BIGINT) / 1000)::DATE)
         >= CURRENT_DATE - INTERVAL '15' DAY
 ORDER BY rr.final_score DESC
 LIMIT 100
@@ -231,6 +233,12 @@ def filter_jobs(
     def _parse_date(val) -> date | None:
         if not val or (isinstance(val, float) and pd.isna(val)):
             return None
+        # Handle epoch milliseconds (jobspy / job_ranker stores dates as ms timestamps)
+        try:
+            ms = int(str(val))
+            return pd.to_datetime(ms, utc=True, unit="ms").date()
+        except (ValueError, TypeError, OverflowError):
+            pass
         try:
             return pd.to_datetime(str(val), utc=True).date()
         except Exception:
@@ -423,6 +431,11 @@ def score_all(
 def _fmt_date(val) -> str:
     if not val:
         return ""
+    try:
+        ms = int(str(val))
+        return str(pd.to_datetime(ms, unit="ms").date())
+    except (ValueError, TypeError, OverflowError):
+        pass
     try:
         return str(pd.to_datetime(str(val)).date())
     except Exception:
