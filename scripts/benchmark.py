@@ -28,6 +28,8 @@ import duckdb
 os.environ.setdefault("LITELLM_LOG", "ERROR")
 
 import litellm
+
+litellm.suppress_debug_info = True
 import pandas as pd
 import yaml
 
