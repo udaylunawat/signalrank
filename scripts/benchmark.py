@@ -408,7 +408,10 @@ def llm_score_batch(
                     file=sys.stderr,
                 )
                 time.sleep(wait)
-        print(f"[warn] {m} exhausted {MAX_RETRIES} retries, trying next model ...", file=sys.stderr)
+        print(
+            f"[warn] {m} exhausted {MAX_RETRIES} retries, trying next model ...",
+            file=sys.stderr,
+        )
 
     print("[warn] All models failed. Returning null scores.", file=sys.stderr)
     return [
@@ -516,10 +519,13 @@ def build_report(
         ]
         sorted_jobs = sorted(jobs, key=lambda j: j.get("llm_score") or 0, reverse=True)
         for i, j in enumerate(sorted_jobs, 1):
-            score = j.get("llm_score", "—")
-            score_str = (
-                f"**{score}**" if isinstance(score, int) and score >= 70 else str(score)
-            )
+            score = j.get("llm_score")
+            if score is None:
+                score_str = "—"
+            elif isinstance(score, int) and score >= 70:
+                score_str = f"**{score}**"
+            else:
+                score_str = str(score)
             url = j.get("url", "")
             url_md = f"[link]({url})" if url else "—"
             out.append(
@@ -550,6 +556,7 @@ def build_report(
         f"| Pune jobs | {_loc_count(job_ranker_jobs, 'pune')} | {_loc_count(mini_ranker_jobs, 'pune')} |",
         f"| Remote India jobs | {_loc_count(job_ranker_jobs, 'remote')} | {_loc_count(mini_ranker_jobs, 'remote')} |",
         f"| Total returned | {len(job_ranker_jobs)} | {len(mini_ranker_jobs)} |",
+        f"| Unscored jobs | {sum(1 for j in job_ranker_jobs if j.get('llm_score') is None)} | {sum(1 for j in mini_ranker_jobs if j.get('llm_score') is None)} |",
         "",
     ]
 
@@ -567,8 +574,10 @@ def build_report(
         ]
         for k in overlap_keys:
             ja, jb = keys_a[k], keys_b[k]
+            sa = ja.get("llm_score")
+            sb = jb.get("llm_score")
             lines.append(
-                f"| {ja['title']} | {ja['company']} | {ja.get('llm_score','—')} | {jb.get('llm_score','—')} |"
+                f"| {ja['title']} | {ja['company']} | {sa if sa is not None else '—'} | {sb if sb is not None else '—'} |"
             )
     lines.append("")
 
@@ -583,8 +592,10 @@ def build_report(
                 jobs_dict.values(), key=lambda x: x.get("llm_score") or 0, reverse=True
             ):
                 url_md = f"[link]({j['url']})" if j.get("url") else "—"
+                score = j.get("llm_score")
+                score_str = "—" if score is None else str(score)
                 out.append(
-                    f"| {j.get('llm_score','—')} | {j['title']} | {j['company']} | {j['location']} | {url_md} |"
+                    f"| {score_str} | {j['title']} | {j['company']} | {j['location']} | {url_md} |"
                 )
         out.append("")
         return out

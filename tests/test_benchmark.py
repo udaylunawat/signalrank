@@ -11,9 +11,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from benchmark import (
-    MODEL_CHAIN,
     MAX_RETRIES,
-    DEFAULT_MODEL,
+    MODEL_CHAIN,
     build_report,
     clean_latex,
     dedup_key,
@@ -169,8 +168,6 @@ def test_load_mini_ranker_results_picks_latest(tmp_path):
     assert rows[0]["title"] == "New"
 
 
-
-
 def _make_job(location="Pune", date_posted="2026-03-10", **kw):
     return {
         "title": "ML Eng",
@@ -222,7 +219,6 @@ def test_filter_jobs_relaxes_to_india_if_few(monkeypatch):
     assert len(result) == 15
 
 
-
 def _make_completion(content: str):
     msg = MagicMock()
     msg.content = content
@@ -270,16 +266,37 @@ def test_llm_score_batch_happy_path():
 
 
 def test_llm_score_batch_falls_back_on_rate_limit():
-    jobs = [{"title": "MLOps Engineer", "company": "Nvidia",
-             "location": "Pune", "date_posted": "2026-03-10",
-             "description": "Build ML infra."}]
-    ok_resp = _make_completion(json.dumps({"jobs": [{
-        "idx": 0, "role_match": 30, "seniority_fit": 15,
-        "company_quality": 15, "location_ok": 10, "recency": 7,
-        "llm_score": 77, "verdict": "Good.",
-    }]}))
-    with patch("benchmark.litellm.completion") as mock_llm, \
-         patch("benchmark.time.sleep"):
+    jobs = [
+        {
+            "title": "MLOps Engineer",
+            "company": "Nvidia",
+            "location": "Pune",
+            "date_posted": "2026-03-10",
+            "description": "Build ML infra.",
+        }
+    ]
+    ok_resp = _make_completion(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "idx": 0,
+                        "role_match": 30,
+                        "seniority_fit": 15,
+                        "company_quality": 15,
+                        "location_ok": 10,
+                        "recency": 7,
+                        "llm_score": 77,
+                        "verdict": "Good.",
+                    }
+                ]
+            }
+        )
+    )
+    with (
+        patch("benchmark.litellm.completion") as mock_llm,
+        patch("benchmark.time.sleep"),
+    ):
         mock_llm.side_effect = [
             litellm.exceptions.RateLimitError("x", llm_provider="x", model="x"),
             litellm.exceptions.RateLimitError("x", llm_provider="x", model="x"),
@@ -302,26 +319,43 @@ def test_llm_score_batch_json_parse_failure_returns_null():
     ]
     with patch("benchmark.litellm.completion") as mock_llm:
         mock_llm.return_value = _make_completion("Sorry, I cannot score these jobs.")
-        results = llm_score_batch(
-            jobs, resume_text="x", api_key="fake"
-        )
+        results = llm_score_batch(jobs, resume_text="x", api_key="fake")
     assert results[0]["llm_score"] is None
-
-
 
 
 def test_llm_score_batch_retries_before_fallback():
     """Primary model fails twice, succeeds on third attempt — never falls back."""
-    jobs = [{"title": "MLOps Engineer", "company": "Nvidia",
-             "location": "Pune", "date_posted": "2026-03-10",
-             "description": "Build ML infra."}]
-    ok_resp = _make_completion(json.dumps({"jobs": [{
-        "idx": 0, "role_match": 30, "seniority_fit": 15,
-        "company_quality": 15, "location_ok": 10, "recency": 7,
-        "llm_score": 77, "verdict": "Good.",
-    }]}))
-    with patch("benchmark.litellm.completion") as mock_llm, \
-         patch("benchmark.time.sleep"):
+    jobs = [
+        {
+            "title": "MLOps Engineer",
+            "company": "Nvidia",
+            "location": "Pune",
+            "date_posted": "2026-03-10",
+            "description": "Build ML infra.",
+        }
+    ]
+    ok_resp = _make_completion(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "idx": 0,
+                        "role_match": 30,
+                        "seniority_fit": 15,
+                        "company_quality": 15,
+                        "location_ok": 10,
+                        "recency": 7,
+                        "llm_score": 77,
+                        "verdict": "Good.",
+                    }
+                ]
+            }
+        )
+    )
+    with (
+        patch("benchmark.litellm.completion") as mock_llm,
+        patch("benchmark.time.sleep"),
+    ):
         mock_llm.side_effect = [
             litellm.exceptions.RateLimitError("x", llm_provider="x", model="x"),
             litellm.exceptions.RateLimitError("x", llm_provider="x", model="x"),
@@ -334,11 +368,19 @@ def test_llm_score_batch_retries_before_fallback():
 
 def test_llm_score_batch_exhausts_chain():
     """All models fail all retries — returns llm_score=None."""
-    jobs = [{"title": "ML Eng", "company": "Co",
-             "location": "Pune", "date_posted": "2026-03-10",
-             "description": "d"}]
-    with patch("benchmark.litellm.completion") as mock_llm, \
-         patch("benchmark.time.sleep"):
+    jobs = [
+        {
+            "title": "ML Eng",
+            "company": "Co",
+            "location": "Pune",
+            "date_posted": "2026-03-10",
+            "description": "d",
+        }
+    ]
+    with (
+        patch("benchmark.litellm.completion") as mock_llm,
+        patch("benchmark.time.sleep"),
+    ):
         mock_llm.side_effect = litellm.exceptions.RateLimitError(
             "x", llm_provider="x", model="x"
         )
@@ -391,6 +433,18 @@ def test_build_report_shows_relaxed_warning():
     assert "⚠️" in report
 
 
+def test_build_report_none_scores_display_as_dash():
+    """None llm_score should display as — not 'None'."""
+    jr = [_scored_job("MLOps Eng", "Nvidia", "Pune", 50, 92.0)]
+    jr[0]["llm_score"] = None
+    mr = [_scored_job("ML Eng", "Co", "Remote", 50, 80.0)]
+    mr[0]["llm_score"] = None
+    report = build_report(jr, mr, relaxed_a=False, relaxed_b=False)
+    assert "None" not in report
+    assert "—" in report
+    assert "Unscored" in report
+
+
 def test_run_mini_ranker_creates_config_and_calls_subprocess(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     outputs = tmp_path / "outputs"
@@ -419,16 +473,42 @@ def test_score_both_runs_parallel():
 
     def slow_score(jobs, resume_text, api_key):
         time_mod.sleep(0.3)
-        return [dict(j, llm_score=50, verdict="ok", role_match=20,
-                     seniority_fit=10, company_quality=10, location_ok=5,
-                     recency=5) for j in jobs]
+        return [
+            dict(
+                j,
+                llm_score=50,
+                verdict="ok",
+                role_match=20,
+                seniority_fit=10,
+                company_quality=10,
+                location_ok=5,
+                recency=5,
+            )
+            for j in jobs
+        ]
 
-    jobs_a = [{"title": "A", "company": "Co", "location": "Pune",
-               "date_posted": "2026-03-10", "description": "d",
-               "url": "u", "system_score": 50.0}]
-    jobs_b = [{"title": "B", "company": "Co", "location": "Pune",
-               "date_posted": "2026-03-10", "description": "d",
-               "url": "u", "system_score": 50.0}]
+    jobs_a = [
+        {
+            "title": "A",
+            "company": "Co",
+            "location": "Pune",
+            "date_posted": "2026-03-10",
+            "description": "d",
+            "url": "u",
+            "system_score": 50.0,
+        }
+    ]
+    jobs_b = [
+        {
+            "title": "B",
+            "company": "Co",
+            "location": "Pune",
+            "date_posted": "2026-03-10",
+            "description": "d",
+            "url": "u",
+            "system_score": 50.0,
+        }
+    ]
 
     with patch("benchmark.score_all", side_effect=slow_score):
         start = time_mod.time()
