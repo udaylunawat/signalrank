@@ -36,12 +36,12 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = REPO_ROOT / "docs" / f"benchmark-{date.today()}.md"
-DEFAULT_MODEL = "openrouter/arcee-ai/trinity-large-preview:free"
-FALLBACK_MODEL = "openrouter/arcee-ai/trinity-mini:free"
+DEFAULT_MODEL = "openrouter/stepfun/step-3.5-flash:free"
+FALLBACK_MODEL = "openrouter/arcee-ai/trinity-large-preview:free"
 RESUME_PATH = REPO_ROOT / "job_ranker" / "users" / "example" / "resume.tex"
 DUCKDB_PATH = REPO_ROOT / "job_ranker" / "duckdb"
 DAYS_WINDOW = 15
-BATCH_SIZE = 20  # jobs per LLM call
+BATCH_SIZE = 10  # jobs per LLM call
 
 PUNE_REMOTE_PATTERNS = [
     "pune",
@@ -343,13 +343,18 @@ def llm_score_batch(
         return litellm.completion(
             model=m,
             messages=[{"role": "user", "content": prompt}],
+            timeout=120,
         )
 
     try:
         response = _call(model)
-    except (litellm.exceptions.RateLimitError, litellm.exceptions.NotFoundError):
+    except (
+        litellm.exceptions.RateLimitError,
+        litellm.exceptions.NotFoundError,
+        litellm.exceptions.Timeout,
+    ):
         print(
-            f"[warn] {model} rate-limited, falling back to {FALLBACK_MODEL}",
+            f"[warn] {model} failed, falling back to {FALLBACK_MODEL}",
             file=sys.stderr,
         )
         try:
@@ -408,7 +413,7 @@ def score_all(
         print(f"  [LLM] scoring jobs {i+1}-{i+len(batch)} ...", file=sys.stderr)
         scored.extend(llm_score_batch(batch, resume_text, model, api_key))
         if i + BATCH_SIZE < len(jobs):
-            time.sleep(2)
+            time.sleep(15)  # avoid rate limits between batches
     return scored
 
 
@@ -663,10 +668,12 @@ def run_job_ranker(repo_root: Path, skip_run: bool = False) -> list[dict]:
                 "360",
                 "--search",
                 "mlops|llmops|ai platform engineer|ml platform engineer",
+                "--force-refresh",
             ],
             cwd=str(repo_root),
             capture_output=False,
             text=True,
+            stdin=subprocess.DEVNULL,
         )
 
     return load_job_ranker_results(db_path)
