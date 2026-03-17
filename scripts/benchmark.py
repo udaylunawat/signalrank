@@ -85,6 +85,46 @@ LOCATION_REJECT = [
     "toronto",
 ]
 
+MIN_YOE = 3
+MAX_YOE = 12
+
+_YOE_PATTERN = re.compile(
+    r"(\d{1,2})\s*[\-–to]+\s*(\d{1,2})\s*(?:years|yrs|yr|yoe)"
+    r"|(\d{1,2})\s*\+?\s*(?:years|yrs|yr|yoe)"
+    r"|(?:years|yrs|yr|yoe)\s*(?:of)?\s*(?:experience)?\s*:?\s*(\d{1,2})",
+    re.IGNORECASE,
+)
+
+NEGATIVE_TITLE_KEYWORDS = [
+    "data analyst",
+    "business analyst",
+    "support engineer",
+    "customer support",
+    "helpdesk",
+    "qa engineer",
+    "test engineer",
+    "quality engineer",
+    "sdet",
+    "manual testing",
+    "wordpress",
+    "shopify",
+    "frontend developer",
+    "react developer",
+    "angular developer",
+    "ui developer",
+    "ux designer",
+    "graphic designer",
+    "recruiter",
+    "talent acquisition",
+    "hr ",
+    "human resource",
+    "content writer",
+    "technical writer",
+    "trainee",
+    "intern",
+    "fresher",
+]
+
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -98,6 +138,47 @@ def clean_latex(text: str) -> str:
     text = re.sub(r"[{}\\~^&$#_]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def extract_yoe(text: str) -> tuple[int | None, int | None]:
+    """Extract (min_yoe, max_yoe) from text. Returns (None, None) if not found."""
+    if not text:
+        return None, None
+    match = _YOE_PATTERN.search(text)
+    if not match:
+        return None, None
+    if match.group(1) and match.group(2):
+        return int(match.group(1)), int(match.group(2))
+    val = match.group(3) or match.group(4)
+    if val:
+        v = int(val)
+        return v, v
+    return None, None
+
+
+def filter_by_experience(jobs: list[dict]) -> list[dict]:
+    """Remove jobs where required YOE is clearly outside MIN_YOE-MAX_YOE band."""
+    out = []
+    for j in jobs:
+        text = f"{j.get('title', '')} {j.get('description', '')}"
+        min_yoe, max_yoe = extract_yoe(text)
+        if min_yoe is not None and min_yoe > MAX_YOE:
+            continue
+        if max_yoe is not None and max_yoe < MIN_YOE:
+            continue
+        out.append(j)
+    return out
+
+
+def filter_by_negative_keywords(jobs: list[dict]) -> list[dict]:
+    """Remove jobs whose title matches a negative keyword (case-insensitive)."""
+    out = []
+    for j in jobs:
+        title_lower = j.get("title", "").lower()
+        if any(kw in title_lower for kw in NEGATIVE_TITLE_KEYWORDS):
+            continue
+        out.append(j)
+    return out
 
 
 def normalise_row(row: dict, system: str) -> dict:
@@ -297,9 +378,15 @@ CANDIDATE PROFILE (resume excerpt):
 {resume}
 
 SCORING RUBRIC (total 100 points):
-- role_match (0-40): Alignment with MLOps/LLMOps/AI Platform/RAG/agentic systems from title+description. Cap at 20 if description is empty.
+- role_match (0-40): Alignment with MLOps/LLMOps/AI Platform/RAG/agentic systems from title+description. Cap at 20 if description is empty. Cap at 30 if under 50 words.
 - seniority_fit (0-20): Senior/Staff/Principal=20; mid-level=12; junior/manager/trainee=0-5
-- company_quality (0-20): AI-native/product=20; MNC R&D=15; IT services/body-shop=<=5
+- company_quality (0-20): Score based on company tier:
+  S=20: databricks, snowflake, nvidia, openai, anthropic, microsoft, google, meta, apple, cohere, mistral ai, perplexity, scale ai, hugging face, langchain, pinecone, weaviate, adobe, salesforce, palantir, netflix, stripe
+  A=15: intuit, walmart, visa, mastercard, servicenow, atlassian, bloomberg, airbnb, spotify, jpmorgan chase, goldman sachs, qualcomm, oracle, razorpay, phonepe, flipkart, swiggy, crowdstrike, palo alto networks
+  B=10: optum, unitedhealth, siemens, ge healthcare, pfizer, roche, philips, ubs, persistent systems
+  C=6: john deere, bosch, nxp semiconductors, ltimindtree, birlasoft
+  D=2: wipro, infosys, tcs, hcl, tech mahindra, cognizant, capgemini, accenture, fractal, ibm, epam, deloitte, genpact, ntt data
+  Unlisted: estimate by analogy — AI-native startup=S-A, MNC R&D=B, staffing/body-shop=D
 - location_ok (0-10): Pune or explicit Remote India=10; other India city=5; abroad=0
 - recency (0-10): <=7 days old=10; 8-15 days=7; >15 days=0
 
@@ -350,11 +437,11 @@ def llm_score_batch(
     jobs_payload = [
         {
             "idx": i,
-            "title": j["title"],
-            "company": j["company"],
-            "location": j["location"],
-            "date_posted": str(j.get("date_posted", "")),
-            "description": j.get("description", "")[:300],
+            "title": j.get("title", ""),
+            "company": j.get("company", ""),
+            "location": j.get("location") or "Unknown",
+            "date_posted": j.get("date_posted") or "Unknown",
+            "description": (j.get("description") or "")[:300],
         }
         for i, j in enumerate(jobs)
     ]
@@ -635,6 +722,7 @@ MINI_RANKER_CONFIG = {
         "microsoft",
         "google",
         "meta",
+        "apple",
         "salesforce",
         "qualcomm",
         "hugging face",
@@ -643,10 +731,30 @@ MINI_RANKER_CONFIG = {
         "intuit",
         "razorpay",
         "phonepe",
-        "meesho",
-        "groww",
-        "zycus",
-        "informatica",
+        "cohere",
+        "mistral ai",
+        "adept",
+        "perplexity",
+        "together ai",
+        "scale ai",
+        "glean",
+        "harvey",
+        "weights and biases",
+        "arize ai",
+        "langchain",
+        "anyscale",
+        "modal",
+        "prefect",
+        "temporal",
+        "astronomer",
+        "pinecone",
+        "weaviate",
+        "chroma",
+        "replit",
+        "cognition",
+        "palantir",
+        "netflix",
+        "stripe",
     ],
     "avoid_companies": [
         "wipro",
@@ -658,6 +766,15 @@ MINI_RANKER_CONFIG = {
         "capgemini",
         "accenture",
         "fractal",
+        "tata consultancy services",
+        "ibm",
+        "epam",
+        "globallogic",
+        "nagarro",
+        "genpact",
+        "deloitte",
+        "ey",
+        "ntt data",
     ],
 }
 
@@ -774,6 +891,10 @@ def main() -> None:
 
     jr_filtered, relaxed_a = filter_jobs(jr_raw, return_relaxed=True)
     mr_filtered, relaxed_b = filter_jobs(mr_raw, return_relaxed=True)
+    jr_filtered = filter_by_experience(jr_filtered)
+    mr_filtered = filter_by_experience(mr_filtered)
+    jr_filtered = filter_by_negative_keywords(jr_filtered)
+    mr_filtered = filter_by_negative_keywords(mr_filtered)
     jr_top30 = sorted(jr_filtered, key=lambda j: j["system_score"], reverse=True)[:30]
     mr_top30 = sorted(mr_filtered, key=lambda j: j["system_score"], reverse=True)[:30]
     print(

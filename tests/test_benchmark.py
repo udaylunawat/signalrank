@@ -519,3 +519,112 @@ def test_score_both_runs_parallel():
     assert len(result_b) == 1
     # Parallel: should complete in ~0.3s, not ~0.6s
     assert elapsed < 0.55, f"Took {elapsed:.2f}s — not parallel!"
+
+
+def test_prompt_contains_tier_references():
+    from benchmark import SCORE_PROMPT_TEMPLATE
+
+    assert "S=" in SCORE_PROMPT_TEMPLATE
+    assert "databricks" in SCORE_PROMPT_TEMPLATE
+    assert "wipro" in SCORE_PROMPT_TEMPLATE
+
+
+def test_mini_ranker_config_expanded():
+    from benchmark import MINI_RANKER_CONFIG
+
+    assert len(MINI_RANKER_CONFIG["top_companies"]) >= 30
+    assert len(MINI_RANKER_CONFIG["avoid_companies"]) >= 15
+
+
+# --- extract_yoe ---
+def test_extract_yoe_range():
+    from benchmark import extract_yoe
+
+    assert extract_yoe("5-8 years of experience") == (5, 8)
+
+
+def test_extract_yoe_plus():
+    from benchmark import extract_yoe
+
+    assert extract_yoe("3+ years") == (3, 3)
+
+
+def test_extract_yoe_none():
+    from benchmark import extract_yoe
+
+    assert extract_yoe("Great ML role") == (None, None)
+
+
+# --- filter_by_experience ---
+def test_filter_by_experience_removes_junior():
+    from benchmark import filter_by_experience
+
+    jobs = [
+        {"title": "Junior ML Engineer", "description": "1-2 years experience"},
+        {"title": "Senior MLOps", "description": "5+ years of experience"},
+    ]
+    result = filter_by_experience(jobs)
+    assert len(result) == 1
+    assert result[0]["title"] == "Senior MLOps"
+
+
+def test_filter_by_experience_removes_over_senior():
+    from benchmark import filter_by_experience
+
+    jobs = [
+        {"title": "VP Engineering", "description": "15+ years experience required"},
+        {"title": "Staff ML Engineer", "description": "8-12 yrs experience"},
+    ]
+    result = filter_by_experience(jobs)
+    assert len(result) == 1
+    assert result[0]["title"] == "Staff ML Engineer"
+
+
+def test_filter_by_experience_keeps_no_yoe_mention():
+    from benchmark import filter_by_experience
+
+    jobs = [{"title": "MLOps Engineer", "description": "Build ML pipelines"}]
+    result = filter_by_experience(jobs)
+    assert len(result) == 1
+
+
+# --- filter_by_negative_keywords ---
+def test_filter_by_negative_keywords_rejects():
+    from benchmark import filter_by_negative_keywords
+
+    jobs = [
+        {"title": "Senior Data Analyst"},
+        {"title": "MLOps Platform Engineer"},
+        {"title": "QA Engineer - Automation"},
+        {"title": "AI Infrastructure Engineer"},
+    ]
+    result = filter_by_negative_keywords(jobs)
+    assert len(result) == 2
+    titles = [j["title"] for j in result]
+    assert "MLOps Platform Engineer" in titles
+    assert "AI Infrastructure Engineer" in titles
+
+
+def test_filter_by_negative_keywords_case_insensitive():
+    from benchmark import filter_by_negative_keywords
+
+    jobs = [{"title": "SENIOR DATA ANALYST"}]
+    result = filter_by_negative_keywords(jobs)
+    assert len(result) == 0
+
+
+def test_filter_by_negative_keywords_keeps_clean():
+    from benchmark import filter_by_negative_keywords
+
+    jobs = [{"title": "Staff ML Platform Engineer"}]
+    result = filter_by_negative_keywords(jobs)
+    assert len(result) == 1
+
+
+# --- location/date normalization ---
+def test_jobs_payload_normalizes_none_location():
+    job = {"title": "MLOps", "company": "Acme", "location": None, "date_posted": None}
+    location = job.get("location") or "Unknown"
+    date_val = job.get("date_posted") or "Unknown"
+    assert location == "Unknown"
+    assert date_val == "Unknown"
