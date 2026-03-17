@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -441,6 +442,19 @@ def score_all(
     return scored
 
 
+def score_both(
+    jr_jobs: list[dict],
+    mr_jobs: list[dict],
+    resume_text: str,
+    api_key: str,
+) -> tuple[list[dict], list[dict]]:
+    """Score job_ranker and mini_ranker batches concurrently (2 threads)."""
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fut_jr = pool.submit(score_all, jr_jobs, resume_text, api_key)
+        fut_mr = pool.submit(score_all, mr_jobs, resume_text, api_key)
+        return fut_jr.result(), fut_mr.result()
+
+
 # ── build_report ───────────────────────────────────────────────────────────────
 
 
@@ -726,6 +740,9 @@ def main() -> None:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     args = parser.parse_args()
 
+    if args.model != DEFAULT_MODEL:
+        MODEL_CHAIN[0] = args.model
+
     resume_text = ""
     if RESUME_PATH.exists():
         resume_text = clean_latex(
@@ -751,10 +768,12 @@ def main() -> None:
         file=sys.stderr,
     )
 
-    print("[benchmark] Scoring job_ranker results ...", file=sys.stderr)
-    jr_scored = score_all(jr_top30, resume_text, api_key)
-    print("[benchmark] Scoring mini_ranker results ...", file=sys.stderr)
-    mr_scored = score_all(mr_top30, resume_text, api_key)
+    print("[benchmark] Scoring both systems in parallel ...", file=sys.stderr)
+    try:
+        jr_scored, mr_scored = score_both(jr_top30, mr_top30, resume_text, api_key)
+    except Exception as e:
+        print(f"[error] Scoring failed: {e}", file=sys.stderr)
+        jr_scored, mr_scored = [], []
 
     report = build_report(
         jr_scored, mr_scored, relaxed_a=relaxed_a, relaxed_b=relaxed_b

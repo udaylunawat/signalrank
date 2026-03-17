@@ -24,6 +24,7 @@ from benchmark import (
     load_mini_ranker_results,
     normalise_row,
     run_mini_ranker,
+    score_both,
 )
 
 
@@ -410,3 +411,31 @@ def test_run_mini_ranker_creates_config_and_calls_subprocess(tmp_path, monkeypat
     assert rows[0]["title"] == "MLOps Eng"
     # config.yaml should be cleaned up
     assert not (tmp_path / "config.yaml").exists()
+
+
+def test_score_both_runs_parallel():
+    """Both systems scored concurrently — total time < 2× serial time."""
+    import time as time_mod
+
+    def slow_score(jobs, resume_text, api_key):
+        time_mod.sleep(0.3)
+        return [dict(j, llm_score=50, verdict="ok", role_match=20,
+                     seniority_fit=10, company_quality=10, location_ok=5,
+                     recency=5) for j in jobs]
+
+    jobs_a = [{"title": "A", "company": "Co", "location": "Pune",
+               "date_posted": "2026-03-10", "description": "d",
+               "url": "u", "system_score": 50.0}]
+    jobs_b = [{"title": "B", "company": "Co", "location": "Pune",
+               "date_posted": "2026-03-10", "description": "d",
+               "url": "u", "system_score": 50.0}]
+
+    with patch("benchmark.score_all", side_effect=slow_score):
+        start = time_mod.time()
+        result_a, result_b = score_both(jobs_a, jobs_b, resume_text="x", api_key="fake")
+        elapsed = time_mod.time() - start
+
+    assert len(result_a) == 1
+    assert len(result_b) == 1
+    # Parallel: should complete in ~0.3s, not ~0.6s
+    assert elapsed < 0.55, f"Took {elapsed:.2f}s — not parallel!"
