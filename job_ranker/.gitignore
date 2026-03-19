@@ -25,6 +25,10 @@ build/
 # Logs
 *.log
 
+# Allow job tracker (user data, manually curated)
+!users/example/job_tracker.csv
+!users/example/job_tracker_backup.csv
+
 # Mini ranker cache
 .mini_ranker_cache/
 

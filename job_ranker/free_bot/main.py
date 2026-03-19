@@ -1,8 +1,9 @@
 import os
-from fastapi import FastAPI
-from dotenv import load_dotenv
-from openai import AsyncOpenAI
+
 import anthropic
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from openai import AsyncOpenAI
 
 # ---------------------------------
 # LOAD ENV

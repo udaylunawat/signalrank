@@ -7,6 +7,8 @@ Strategy stack (in order, primary → fallback):
   2a. Email extraction from job descriptions (free)
   2b. DuckDuckGo Search → site:linkedin.com/in (free, primary)
   2c. SerpAPI Google → site:linkedin.com/in (fallback, uses quota)
+  2d. Brave Search API → site:linkedin.com/in (BRAVE_API_KEY, free 2k/month)
+  2e. Bing Web Search API → site:linkedin.com/in (BING_SEARCH_KEY, free 1k/month)
   3.  Email pattern generation from domain + LinkedIn name
       (generates likely work emails: first@domain, first.last@domain, etc.)
 
@@ -35,6 +37,8 @@ logger = logging.getLogger(__name__)
 TIMEOUT = 15
 CLEARBIT_AUTOCOMPLETE = "https://autocomplete.clearbit.com/v1/companies/suggest"
 SERPAPI_SEARCH        = "https://serpapi.com/search"
+BRAVE_SEARCH          = "https://api.search.brave.com/res/v1/web/search"
+BING_SEARCH           = "https://api.bing.microsoft.com/v7.0/search"
 DDG_DELAY             = 2.0   # seconds between DDG calls (politeness)
 SERP_DELAY            = 1.5   # seconds between SerpAPI calls
 MAX_RESULTS           = 7
@@ -314,7 +318,7 @@ def search_linkedin_ddg(
     """DuckDuckGo text search for LinkedIn recruiter profiles — free, no quota."""
     try:
         try:
-            from ddgs import DDGS          # new package name (ddgs>=9)
+            from ddgs import DDGS  # new package name (ddgs>=9)
         except ImportError:
             from duckduckgo_search import DDGS  # legacy fallback
     except ImportError:
@@ -425,6 +429,128 @@ def search_linkedin_serpapi(
 
 
 # ─────────────────────────────────────────────────────────────
+# Strategy 2d: Brave Search API → LinkedIn profiles
+# ─────────────────────────────────────────────────────────────
+
+def search_linkedin_brave(
+    company: str, brave_key: str, domain: Optional[str],
+    job_url: str, job_title: str, job_score: str,
+    location: str = "india",
+) -> List[RecruiterContact]:
+    """Brave Search API fallback (BRAVE_API_KEY, free 2k req/month)."""
+    if not brave_key:
+        return []
+
+    query = (
+        f'site:linkedin.com/in '
+        f'(recruiter OR "talent acquisition" OR "hr manager" OR "people partner") '
+        f'"{company}" {location}'
+    )
+    try:
+        resp = requests.get(
+            BRAVE_SEARCH,
+            headers={"Accept": "application/json", "X-Subscription-Token": brave_key},
+            params={"q": query, "count": MAX_RESULTS, "text_decorations": False},
+            timeout=TIMEOUT,
+        )
+        if resp.status_code in (401, 403, 429):
+            logger.warning("[RECRUITER] Brave error %d", resp.status_code)
+            return []
+        if resp.status_code != 200:
+            return []
+
+        contacts = []
+        for item in resp.json().get("web", {}).get("results", []):
+            url = item.get("url", "")
+            if "linkedin.com/in/" not in url:
+                continue
+            title   = item.get("title", "")
+            snippet = item.get("description", "")
+            name, role = _parse_li_title(title)
+            combined = f"{role} {snippet}"
+            if not _is_recruiter_title(combined):
+                continue
+            guessed = generate_email_patterns(name, domain) if domain else []
+            contacts.append(RecruiterContact(
+                company=company, name=name,
+                title=role or None,
+                linkedin_url=url,
+                domain=domain,
+                guessed_emails=guessed,
+                source="brave_linkedin",
+                confidence="high" if _is_recruiter_title(role) else "medium",
+                job_url=job_url, job_title=job_title, job_score=job_score,
+            ))
+
+        logger.info("[RECRUITER] Brave: %d profiles for %r", len(contacts), company)
+        return contacts
+    except Exception as e:
+        logger.warning("[RECRUITER] Brave failed for %r: %s", company, e)
+        return []
+
+
+# ─────────────────────────────────────────────────────────────
+# Strategy 2e: Bing Web Search API → LinkedIn profiles
+# ─────────────────────────────────────────────────────────────
+
+def search_linkedin_bing(
+    company: str, bing_key: str, domain: Optional[str],
+    job_url: str, job_title: str, job_score: str,
+    location: str = "india",
+) -> List[RecruiterContact]:
+    """Bing Web Search API fallback (BING_SEARCH_KEY, free 1k req/month)."""
+    if not bing_key:
+        return []
+
+    query = (
+        f'site:linkedin.com/in '
+        f'(recruiter OR "talent acquisition" OR "hr manager" OR "people partner") '
+        f'"{company}" {location}'
+    )
+    try:
+        resp = requests.get(
+            BING_SEARCH,
+            headers={"Ocp-Apim-Subscription-Key": bing_key},
+            params={"q": query, "count": MAX_RESULTS, "mkt": "en-IN"},
+            timeout=TIMEOUT,
+        )
+        if resp.status_code in (401, 403, 429):
+            logger.warning("[RECRUITER] Bing error %d", resp.status_code)
+            return []
+        if resp.status_code != 200:
+            return []
+
+        contacts = []
+        for item in resp.json().get("webPages", {}).get("value", []):
+            url = item.get("url", "")
+            if "linkedin.com/in/" not in url:
+                continue
+            title   = item.get("name", "")
+            snippet = item.get("snippet", "")
+            name, role = _parse_li_title(title)
+            combined = f"{role} {snippet}"
+            if not _is_recruiter_title(combined):
+                continue
+            guessed = generate_email_patterns(name, domain) if domain else []
+            contacts.append(RecruiterContact(
+                company=company, name=name,
+                title=role or None,
+                linkedin_url=url,
+                domain=domain,
+                guessed_emails=guessed,
+                source="bing_linkedin",
+                confidence="high" if _is_recruiter_title(role) else "medium",
+                job_url=job_url, job_title=job_title, job_score=job_score,
+            ))
+
+        logger.info("[RECRUITER] Bing: %d profiles for %r", len(contacts), company)
+        return contacts
+    except Exception as e:
+        logger.warning("[RECRUITER] Bing failed for %r: %s", company, e)
+        return []
+
+
+# ─────────────────────────────────────────────────────────────
 # DuckDB persistence
 # ─────────────────────────────────────────────────────────────
 
@@ -499,7 +625,10 @@ def persist_to_duckdb(contacts: List[RecruiterContact], db_path: str) -> int:
 class RecruiterFinder:
     def __init__(self, logger_=None, db_path: Optional[str] = None):
         self.log         = logger_ or logger
-        self.serpapi_key = os.getenv("SERPAPI_KEY", "")
+        serpapi_enabled  = os.getenv("SERPAPI_ENABLED", "true").lower() not in ("false", "0", "no")
+        self.serpapi_key = os.getenv("SERPAPI_KEY", "") if serpapi_enabled else ""
+        self.brave_key   = os.getenv("BRAVE_API_KEY", "")
+        self.bing_key    = os.getenv("BING_SEARCH_KEY", "")
         self.db_path     = db_path
         self._last_ddg   = 0.0
         self._last_serp  = 0.0
@@ -553,6 +682,24 @@ class RecruiterFinder:
             self._serp_throttle()
             all_contacts.extend(search_linkedin_serpapi(
                 company=company, serpapi_key=self.serpapi_key,
+                domain=domain, job_url=job_url, job_title=job_title,
+                job_score=job_score, location=location,
+            ))
+
+        # S2d: Brave Search (fallback — only if still 0 results)
+        if not all_contacts and self.brave_key:
+            self.log.info("[RECRUITER] All empty for %r — trying Brave Search", company)
+            all_contacts.extend(search_linkedin_brave(
+                company=company, brave_key=self.brave_key,
+                domain=domain, job_url=job_url, job_title=job_title,
+                job_score=job_score, location=location,
+            ))
+
+        # S2e: Bing Web Search (last fallback)
+        if not all_contacts and self.bing_key:
+            self.log.info("[RECRUITER] All empty for %r — trying Bing Search", company)
+            all_contacts.extend(search_linkedin_bing(
+                company=company, bing_key=self.bing_key,
                 domain=domain, job_url=job_url, job_title=job_title,
                 job_score=job_score, location=location,
             ))

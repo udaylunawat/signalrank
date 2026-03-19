@@ -1,5 +1,5 @@
 # tests/test_scraper.py
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from job_ranker.batch.scraper import scrape
 

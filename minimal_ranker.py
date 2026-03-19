@@ -1,9 +1,9 @@
 import csv
 import re
-from pathlib import Path
-import numpy as np
-import pandas as pd
 from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
 from jobspy import scrape_jobs
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity

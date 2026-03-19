@@ -1,12 +1,14 @@
 # job_ranker/tests/test_config_advisor.py
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
-from unittest.mock import patch
+
 from job_ranker.llm.config_advisor import (
-    sample_jobs,
+    ADVISOR_MODEL_POOL,
     build_user_message,
     run_advisor,
-    ADVISOR_MODEL_POOL,
+    sample_jobs,
 )
 
 

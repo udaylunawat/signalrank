@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import pandas as pd
 import yaml
 from config_schema import Settings
 from pydantic import ValidationError

@@ -94,7 +94,7 @@ def test_recency_score_nan_returns_30():
     assert mr.recency_score(np.nan) == 30.0
 
 def test_recency_score_fresh_job():
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone
     today = datetime.now(timezone.utc).date().isoformat()
     assert mr.recency_score(today) == 100.0
 

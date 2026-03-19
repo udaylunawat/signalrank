@@ -18,7 +18,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import pandas as pd
 from config_loader import settings

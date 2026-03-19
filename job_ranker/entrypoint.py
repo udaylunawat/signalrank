@@ -85,7 +85,7 @@ def run_find_recruiter(args):
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
     log = logging.getLogger(__name__)
 
-    from job_ranker.scrapers.recruiter_finder import RecruiterFinder, resolve_domain
+    from job_ranker.scrapers.recruiter_finder import RecruiterFinder
 
     db_path = str(ROOT / "job_ranker" / "duckdb")
     finder = RecruiterFinder(logger_=log, db_path=db_path)

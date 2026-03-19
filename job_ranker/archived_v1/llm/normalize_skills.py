@@ -11,7 +11,6 @@ Rules:
 - Only matches phrases defined in skills.equivalence_groups
 """
 
-import re
 from typing import List
 
 

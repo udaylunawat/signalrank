@@ -26,7 +26,6 @@ import os
 import re
 from datetime import datetime, timedelta
 from email.header import decode_header
-from html.parser import HTMLParser
 from typing import Optional
 
 from dotenv import load_dotenv

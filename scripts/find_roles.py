@@ -21,8 +21,6 @@ import time
 from datetime import date
 from pathlib import Path
 
-import warnings
-
 import litellm
 import yaml
 from ddgs import DDGS
@@ -219,7 +217,7 @@ def run(
         print(f"  DDG: {len(results)} hits", file=sys.stderr)
 
         if not results:
-            print(f"  → 0 roles (no search results)", file=sys.stderr)
+            print("  → 0 roles (no search results)", file=sys.stderr)
             continue
 
         roles = llm_extract_roles(company, results, model, api_key)

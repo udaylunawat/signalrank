@@ -3,11 +3,9 @@
 # FILE: build_corpus.py
 # ================================
 import argparse
-import re
-from pathlib import Path
 
 import pandas as pd
-from config_loader import load_effective_settings, settings
+from config_loader import load_effective_settings
 from llm.classify_role import classify_roles_batch
 from logger import setup_logger
 from profiles import PROFILES

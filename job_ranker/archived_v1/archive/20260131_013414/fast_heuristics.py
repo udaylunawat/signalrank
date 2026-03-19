@@ -2,7 +2,7 @@
 # FILE: fast_heuristics.py
 # ================================
 import re
-from typing import Dict, Iterable, List, Set
+from typing import Dict, List, Set
 
 
 # --------------------------------------------------

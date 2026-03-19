@@ -16,7 +16,7 @@ dependencies = [
   # Install with: pip install git+https://github.com/speedyapply/JobSpy.git
   # or locally:  pip install -e path/to/JobSpy
   # "python-jobspy",  # original PyPI — no hours_old support
-  "tls-client",     # better TLS fingerprinting for Google Jobs scraper
+  "tls-client", # better TLS fingerprinting for Google Jobs scraper
   "sentence-transformers",
   "fastembed",
   "onnxruntime",
@@ -31,6 +31,8 @@ dependencies = [
   "beautifulsoup4>=4.14.3",
   "lxml>=6.0.2",
   "duckduckgo-search>=6.0.0",
+  "ddgs>=9.11.4",
+  "jobspy>=0.31.0",
 ]
 
 [project.optional-dependencies]

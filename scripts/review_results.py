@@ -14,12 +14,10 @@ import json
 import random
 import sys
 from collections import Counter
-from io import StringIO
 from pathlib import Path
 
 import duckdb
 import pandas as pd
-
 
 DB_PATH = Path(__file__).resolve().parents[1] / "job_ranker" / "duckdb"
 

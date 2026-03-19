@@ -24,6 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from job_ranker.scrapers.gmail_alerts import GmailAlertsScraper
@@ -41,7 +42,7 @@ def main():
 
     print(f"\n🔌 Connecting to Gmail as {user}")
     print(f"   Label: {label}")
-    print(f"   Days back: 14, Max emails: 10\n")
+    print("   Days back: 14, Max emails: 10\n")
 
     scraper = GmailAlertsScraper(user=user, app_password=pwd, label=label)
     jobs = scraper.scrape(days_back=14, max_emails=10)

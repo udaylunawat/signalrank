@@ -18,8 +18,6 @@ import sys
 from datetime import date
 from pathlib import Path
 
-import warnings
-
 import litellm
 import yaml
 from ddgs import DDGS

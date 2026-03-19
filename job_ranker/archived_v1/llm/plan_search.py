@@ -5,8 +5,9 @@ import re
 from types import SimpleNamespace
 
 from config_loader import settings
-from llm.client import llm_json
 from logger import setup_logger
+
+from llm.client import llm_json
 
 logger = setup_logger()
 

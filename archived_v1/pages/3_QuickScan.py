@@ -4,10 +4,8 @@
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 import streamlit as st
-import yaml
 from config_loader import load_effective_settings
 from user_context import resolve_user_context
 

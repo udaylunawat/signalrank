@@ -1,6 +1,7 @@
+
 import pytest
-from pathlib import Path
-from job_ranker.app.tracking import get_tracking_db, load_tracking, set_tracking
+
+from job_ranker.app.tracking import load_tracking, set_tracking
 
 
 @pytest.fixture

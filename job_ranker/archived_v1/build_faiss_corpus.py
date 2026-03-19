@@ -3,7 +3,6 @@
 # FILE: build_faiss_corpus.py
 # ================================
 import argparse
-from pathlib import Path
 
 import pandas as pd
 from config_loader import fingerprint_settings, load_effective_settings, settings

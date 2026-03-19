@@ -15,11 +15,12 @@ from config_loader import fingerprint_settings, settings
 from core.score_primitives import extract_max_yoe, recency_weight, seniority_penalty
 from fastembed import TextEmbedding
 from llm.classify_functional_role import classify_functional_roles_batch
-from llm.distill_resume import distill_resume
 from profiles import Profile
 from skills.canonicalizer import build_canonical_texts
 from storage.db import JobStore
 from utils.timing import timed
+
+from llm.distill_resume import distill_resume
 
 
 # --------------------------------------------------

@@ -17,7 +17,6 @@ from job_ranker.domain.additive_scoring import (
     skills_score_0_100,
 )
 
-
 # ---- Skills dimension ----
 
 class TestSkillsScore:

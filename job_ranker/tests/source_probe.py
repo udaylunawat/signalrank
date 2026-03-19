@@ -93,7 +93,8 @@ def probe_jsearch():
 def probe_linkedin_jb():
     if not RAPIDAPI_KEY or len(RAPIDAPI_KEY) < 8:
         raise ValueError("RAPIDAPI_KEY not set or invalid")
-    import http.client, json
+    import http.client
+    import json
     from urllib.parse import quote
     host = "linkedin-job-search-api.p.rapidapi.com"
     conn = http.client.HTTPSConnection(host, timeout=15)
@@ -114,7 +115,7 @@ def probe_linkedin_jb():
 
 def main():
     print(f"\n{'='*55}")
-    print(f"  Job Ranker — Source Probe")
+    print("  Job Ranker — Source Probe")
     print(f"  Query: {QUERY!r}  Location: {LOCATION!r}")
     print(f"  RAPIDAPI_KEY: {'set (' + str(len(RAPIDAPI_KEY)) + ' chars)' if RAPIDAPI_KEY else 'NOT SET'}")
     print(f"{'='*55}\n")

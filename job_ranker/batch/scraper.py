@@ -24,8 +24,8 @@ import pandas as pd
 from dotenv import load_dotenv
 from jobspy import scrape_jobs
 
-from job_ranker.scrapers.linkedin_api import LinkedInRapidAPIScraper
 from job_ranker.scrapers.gmail_alerts import scrape_gmail_alerts
+from job_ranker.scrapers.linkedin_api import LinkedInRapidAPIScraper
 
 load_dotenv()
 logger = logging.getLogger(__name__)

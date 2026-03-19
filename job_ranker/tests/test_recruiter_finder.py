@@ -3,7 +3,6 @@ test_recruiter_finder.py — pytest tests for recruiter scoring + dedup.
 
 Run: uv run pytest job_ranker/tests/test_recruiter_finder.py -v
 """
-import pytest
 from job_ranker.scrapers.recruiter_finder import _clean_title
 
 

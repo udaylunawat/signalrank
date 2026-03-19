@@ -38,12 +38,10 @@ from job_ranker.domain.embeddings import (
     build_resume_embedding_text,
     fingerprint_text,
 )
-from job_ranker.domain.negative_keywords import violates_negative_keywords
 from job_ranker.domain.roles import (
     classify_functional_role,
     consulting_dampener,
     requires_high_semantic_floor,
-    role_intent_cap,
 )
 from job_ranker.domain.scoring import (
     calculate_role_and_skill_match_score,

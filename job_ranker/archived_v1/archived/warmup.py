@@ -2,7 +2,6 @@
 import threading
 from typing import List
 
-import numpy as np
 from embeddings.async_embedder import AsyncEmbedder
 from embeddings.embedding_cache import EmbeddingCache
 

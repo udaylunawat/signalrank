@@ -3,14 +3,13 @@
 Recruiters Dashboard — Browse, search, and manage recruiter contacts.
 """
 
-import re
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+from job_ranker.app.tracking import load_tracking, set_tracking
 
 from job_ranker.app.db import get_ui_db
-from job_ranker.app.tracking import load_tracking, set_tracking
 
 st.set_page_config(layout="wide", page_title="Recruiters")
 st.title("🤝 Recruiter Contacts")

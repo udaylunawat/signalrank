@@ -3,10 +3,8 @@
 # ================================
 import json
 from copy import deepcopy
-from pathlib import Path
 
 import yaml
-from config_loader import ConfigError
 from config_schema import Settings
 
 

@@ -38,7 +38,7 @@ def fetch(conn, endpoint, headers):
 
 
 def preview(name, payload):
-    print(f"\n==============================")
+    print("\n==============================")
     print(f"{name} – PAYLOAD INSPECTION")
     print("==============================")
 

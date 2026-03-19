@@ -114,6 +114,28 @@ def load_dashboard_df(run_id: str, user: str, use_case: str) -> pd.DataFrame:
     return df
 
 
+@st.cache_data(show_spinner=False)
+def load_recruiter_map() -> dict[str, dict]:
+    """Returns {company_lower: {name, linkedin_url}} — best-confidence recruiter per company."""
+    con = get_ui_db()
+    try:
+        rows = con.execute("""
+            SELECT company, name, linkedin_url
+            FROM recruiters
+            WHERE company IS NOT NULL AND company != ''
+            ORDER BY
+                CASE confidence WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END
+        """).fetchall()
+    except Exception:
+        return {}
+    result: dict[str, dict] = {}
+    for company, name, linkedin_url in rows:
+        key = company.strip().lower()
+        if key not in result:
+            result[key] = {"name": name or "", "linkedin_url": linkedin_url or ""}
+    return result
+
+
 # ==================================================
 # Sidebar: Session
 # ==================================================
@@ -411,6 +433,17 @@ view = st.radio("View", ["Table", "Cards"], horizontal=True)
 
 show_df = df.sort_values("Score", ascending=False).head(top_n)
 
+recruiter_map = load_recruiter_map()
+show_df = show_df.copy()
+show_df["_co_key"] = show_df["company"].fillna("").str.strip().str.lower()
+show_df["Recruiter"] = show_df["_co_key"].map(
+    lambda k: recruiter_map.get(k, {}).get("name", "")
+)
+show_df["Recruiter LinkedIn"] = show_df["_co_key"].map(
+    lambda k: recruiter_map.get(k, {}).get("linkedin_url", "")
+)
+show_df = show_df.drop(columns=["_co_key"])
+
 if view == "Table":
     table = show_df.copy()
     table["Apply"] = table["job_url_direct"].fillna(table["job_url"])
@@ -424,6 +457,8 @@ if view == "Table":
             "Posted",
             "days_old",
             "Score",
+            "Recruiter",
+            "Recruiter LinkedIn",
             "Apply",
         ]
     ].rename(
@@ -435,13 +470,19 @@ if view == "Table":
         }
     )
 
+    col_cfg = {
+        "Apply": st.column_config.LinkColumn("Apply", display_text="Apply ↗"),
+    }
+    if table["Recruiter LinkedIn"].any():
+        col_cfg["Recruiter LinkedIn"] = st.column_config.LinkColumn(
+            "Recruiter LinkedIn", display_text="→ LinkedIn"
+        )
+
     st.dataframe(
         table,
         hide_index=True,
         width="stretch",
-        column_config={
-            "Apply": st.column_config.LinkColumn("Apply", display_text="Apply ↗")
-        },
+        column_config=col_cfg,
     )
 else:
     _has_breakdown = all(
@@ -459,10 +500,17 @@ else:
     for _, row in show_df.iterrows():
         cols = st.columns([8, 2])
         with cols[0]:
+            recruiter_line = ""
+            if row.get("Recruiter"):
+                li = row.get("Recruiter LinkedIn", "")
+                if li:
+                    recruiter_line = f"\n🤝 [{row['Recruiter']}]({li})"
+                else:
+                    recruiter_line = f"\n🤝 {row['Recruiter']}"
             st.markdown(f"""
 **{row['title']}**
 {row['company_norm']} · {row['location']} · `{row['Category']}`
-Score **{row['Score']}** · Posted {row['Posted']} · {row['days_old']} days ago
+Score **{row['Score']}** · Posted {row['Posted']} · {row['days_old']} days ago{recruiter_line}
 """)
         with cols[1]:
             st.link_button(

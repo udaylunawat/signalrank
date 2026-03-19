@@ -7,7 +7,6 @@ import os
 import sqlite3
 from pathlib import Path
 
-
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS recruiter_tracking (
     recruiter_id  TEXT PRIMARY KEY,
