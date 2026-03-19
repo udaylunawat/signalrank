@@ -1,6 +1,7 @@
 # cli.py
 import argparse
 import logging
+import sys
 from typing import Optional
 
 from job_ranker.batch.run import execute
@@ -16,6 +17,8 @@ for name in [
 
 
 def prompt(text: str, default: Optional[str] = None) -> str:
+    if not sys.stdin.isatty():
+        return default or ""
     if default is not None:
         value = input(f"{text} [{default}]: ").strip()
         return value or default
@@ -23,6 +26,8 @@ def prompt(text: str, default: Optional[str] = None) -> str:
 
 
 def prompt_int(text: str, default: int) -> int:
+    if not sys.stdin.isatty():
+        return default
     while True:
         value = input(f"{text} [{default}]: ").strip()
         if not value:
@@ -34,6 +39,8 @@ def prompt_int(text: str, default: int) -> int:
 
 
 def prompt_bool(text: str, default: bool = False) -> bool:
+    if not sys.stdin.isatty():
+        return default
     suffix = "Y/n" if default else "y/N"
     value = input(f"{text} ({suffix}): ").strip().lower()
     if not value:

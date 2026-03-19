@@ -6,7 +6,6 @@ NEW:
 
 # app/pages/runs.py
 import streamlit as st
-
 from job_ranker.app.session import get_session
 from job_ranker.batch.context import resolve_ui_context
 

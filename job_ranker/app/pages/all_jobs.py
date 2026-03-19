@@ -3,7 +3,6 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-
 from job_ranker.domain.roles import classify_functional_role
 
 st.set_page_config(layout="wide")
