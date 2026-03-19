@@ -34,3 +34,9 @@ uv.lock
 reports/
 archived/*
 *archive*
+
+# DuckDB databases (too large for GitHub)
+job_ranker/duckdb
+job_ranker/job_ranker/duckdb
+**/duckdb
+*.ddb
