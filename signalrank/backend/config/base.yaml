@@ -23,11 +23,11 @@ embeddings:
 # RANKING MECHANICS (NEUTRAL)
 # --------------------
 ranking:
-  min_semantic_score: 0.50
+  min_semantic_score: 0.20
   enable_recency_decay: true
   recency_half_life_days: 21
   min_keyword_overlap: 0
-  min_quality_multiplier: 0.80
+  min_quality_multiplier: 0.0
   company_semantic_floor: 0.65
   hidden_gem_semantic_threshold: 0.70
   hidden_gem_company_bonus: 60

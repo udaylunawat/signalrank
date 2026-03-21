@@ -71,6 +71,15 @@ async def upload_resume(
 
     profile.resume_text = resume_text
     profile.skills = parsed.skills
+    if parsed.skills or parsed.recent_titles or parsed.years_of_experience:
+        parts = []
+        if parsed.recent_titles:
+            parts.append("Recent roles: " + ", ".join(parsed.recent_titles))
+        if parsed.skills:
+            parts.append("Skills: " + ", ".join(parsed.skills))
+        if parsed.years_of_experience:
+            parts.append(f"Experience: {parsed.years_of_experience} years")
+        profile.distilled_text = "\n".join(parts)
     await db.commit()
 
     questions = generate_onboarding_questions(parsed)

@@ -30,7 +30,7 @@ def test_extract_json_returns_none_on_garbage():
 
 
 def test_fallback_models_has_three():
-    assert len(FALLBACK_MODELS) == 3
+    assert len(FALLBACK_MODELS) >= 3
 
 
 def _mock_success_response(content: str) -> MagicMock:

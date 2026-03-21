@@ -159,6 +159,7 @@ async def _compute_embeddings(
     db: AsyncSession,
     cfg_fp: str,
     resume_text: str,
+    distilled_text: str | None = None,
 ) -> pd.DataFrame:
     cache = PgEmbeddingCache(db, cfg_fp)
 
@@ -197,7 +198,7 @@ async def _compute_embeddings(
 
     resume_emb_text = build_resume_embedding_text(
         resume_text=resume_text,
-        distilled=cfg.get("resume", {}).get("distilled_text"),
+        distilled=distilled_text or cfg.get("resume", {}).get("distilled_text"),
         cfg=cfg,
         use_case="default",
     )
@@ -220,6 +221,7 @@ async def score_jobs_for_user(
     user_id: str,
     resume_text: str,
     config_overrides: dict | None,
+    distilled_text: str | None = None,
 ) -> pd.DataFrame:
     ctx = build_context(user_id, resume_text, config_overrides)
     cfg = ctx.config
@@ -238,7 +240,7 @@ async def score_jobs_for_user(
         or "software_general"
     )
 
-    df = await _compute_embeddings(df, cfg, db, ctx.config_fp, resume_text)
+    df = await _compute_embeddings(df, cfg, db, ctx.config_fp, resume_text, distilled_text=distilled_text)
 
     df = _apply_semantic_gates(df, cfg, role_intent)
     if df.empty:

@@ -35,12 +35,14 @@ async def process_run(
             )
             profile = profile_result.scalar_one_or_none()
             resume_text = profile.resume_text if profile else ""
+            distilled_text = profile.distilled_text if profile else None
             config_overrides = profile.config_overrides if profile else None
 
             ranked_df = await score_jobs_for_user(
                 db=db,
                 user_id=user_id,
                 resume_text=resume_text,
+                distilled_text=distilled_text,
                 config_overrides=config_overrides,
             )
 

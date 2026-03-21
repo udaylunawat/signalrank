@@ -8,13 +8,15 @@ import httpx
 logger = logging.getLogger(__name__)
 
 FALLBACK_MODELS = [
-    "meta-llama/llama-4-maverick:free",
+    "openrouter/free",
+    "openai/gpt-oss-120b:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
     "google/gemma-3-27b-it:free",
     "mistralai/mistral-small-3.1-24b-instruct:free",
 ]
 
 BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
-MAX_RETRIES_PER_MODEL = 1
+MAX_RETRIES_PER_MODEL = 2
 
 
 def _extract_json(raw: str) -> dict | None:
@@ -38,7 +40,7 @@ class OpenRouterClient:
         self,
         api_key: str,
         models: list[str] | None = None,
-        timeout: float = 60.0,
+        timeout: float = 90.0,
     ):
         self.api_key = api_key
         self.models = models or FALLBACK_MODELS
@@ -74,7 +76,7 @@ class OpenRouterClient:
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:
-                    sleep_time = min(2**attempt, 8) + random.uniform(0.3, 1.1)
+                    sleep_time = min(4 ** attempt, 16) + random.uniform(0.5, 2.0)
                     logger.warning(
                         "Rate limited on %s, sleeping %.1fs", model, sleep_time
                     )
@@ -94,14 +96,22 @@ class OpenRouterClient:
 
     async def llm_json(
         self,
-        prompt: str,
+        prompt: str | None = None,
         *,
-        max_tokens: int = 512,
+        system: str | None = None,
+        user: str | None = None,
+        max_tokens: int = 1024,
         temperature: float = 0.0,
     ) -> dict:
-        messages = [{"role": "user", "content": prompt}]
-        last_error = None
+        if system and user:
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ]
+        else:
+            messages = [{"role": "user", "content": prompt or ""}]
 
+        last_error = None
         for model in self.models:
             raw = await self._call(model, messages, max_tokens, temperature)
             if raw is None:
@@ -110,6 +120,7 @@ class OpenRouterClient:
 
             parsed = _extract_json(raw)
             if parsed is not None:
+                logger.info("llm_json success via %s", model)
                 return parsed
 
             last_error = f"{model} returned non-JSON: {raw[:100]}"
@@ -133,6 +144,7 @@ class OpenRouterClient:
         for model in self.models:
             raw = await self._call(model, messages, max_tokens, temperature)
             if raw is not None:
+                logger.info("llm_text success via %s", model)
                 return raw
 
         logger.error("All models exhausted for llm_text")
