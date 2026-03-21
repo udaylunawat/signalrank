@@ -12,7 +12,8 @@
       "Bash(wait:*)",
       "WebSearch",
       "Bash(while lsof:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(# Move loose scripts into scripts/\nmv analyze_ranked.py scripts/\nmv ingest_csv.py scripts/\n\n# Move free_bot to archived\nmv free_bot archived/free_bot\n\n# Move stale root files to archived\nmv digest_job_ranker_20260313_000827.txt archived/\nmv minimal_ranker.py archived/\nmv rapidapi_sources.txt archived/\n\n# Move recruiter mail merge to outputs\nmv recruiter_mail_merge.csv outputs/\n\n# Clean up root __pycache__ \\(gitignored anyway\\)\nrm -rf __pycache__)"
     ]
   }
 }
