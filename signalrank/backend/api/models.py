@@ -154,3 +154,17 @@ class TailoredResume(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (UniqueConstraint("user_id", "job_id", name="uq_tailored_resume_user_job"),)
+
+
+class Embedding(Base):
+    __tablename__ = "embeddings"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    text_fp: Mapped[str] = mapped_column(String(64), nullable=False)
+    cfg_fp: Mapped[str] = mapped_column(String(32), nullable=False)
+    vector: Mapped[list[float]] = mapped_column(Vector(384), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("text_fp", "cfg_fp", name="uq_embedding_text_cfg"),
+    )
