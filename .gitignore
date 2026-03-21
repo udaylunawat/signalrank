@@ -28,6 +28,9 @@ build/
 # Mini ranker cache
 .mini_ranker_cache/
 
+# Git worktrees
+.worktrees/
+
 # OS
 .DS_Store
 uv.lock
