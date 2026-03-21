@@ -43,3 +43,4 @@ job_ranker/duckdb
 job_ranker/job_ranker/duckdb
 **/duckdb
 *.ddb
+signalrank/frontend/.env.local
