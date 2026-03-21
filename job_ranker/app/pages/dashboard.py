@@ -1,17 +1,19 @@
 # app/pages/dashboard.py
 import re
-from datetime import datetime
 from io import StringIO
 
 import numpy as np
 import pandas as pd
 import streamlit as st
-
 from job_ranker.app.db import get_ui_db
 from job_ranker.app.session import get_session
+from job_ranker.app.utils import (  # noqa: F401
+    classify_categories,
+    format_date,
+    load_recruiter_map,
+)
 from job_ranker.batch.context import resolve_ui_context
 from job_ranker.domain.embed_math import cosine_similarity
-from job_ranker.domain.roles import classify_functional_role
 
 if "semantic_results" not in st.session_state:
     st.session_state.semantic_results = None
@@ -20,23 +22,13 @@ if "semantic_results" not in st.session_state:
 # Page config
 # ==================================================
 st.set_page_config(layout="wide")
-st.title("📊 Dashboard")
+st.title("📊 Discovery Dashboard")
+st.caption("Explore ranked jobs from the latest run · Use the tracker to manage your pipeline")
 
 
 # ==================================================
 # Helpers
 # ==================================================
-def format_date(val):
-    if val is None or pd.isna(val):
-        return ""
-    if isinstance(val, (pd.Timestamp, datetime)):
-        return val.date().isoformat()
-    try:
-        return pd.to_datetime(val, utc=True).date().isoformat()
-    except Exception:
-        return ""
-
-
 def tokenize(text: str) -> set[str]:
     if not isinstance(text, str):
         return set()
@@ -56,7 +48,6 @@ def explain_overlap(resume_text: str, job_text: str, k: int = 6) -> str:
 def load_dashboard_df(run_id: str, user: str, use_case: str) -> pd.DataFrame:
     con = get_ui_db()
 
-    # ---- Load ranked payloads ----
     rows = con.execute(
         "SELECT payload FROM run_results WHERE run_id = ?",
         [run_id],
@@ -68,11 +59,9 @@ def load_dashboard_df(run_id: str, user: str, use_case: str) -> pd.DataFrame:
     if df.empty:
         return df
 
-    # ---- Drop any payload date to avoid suffix conflicts ----
     if "date_posted" in df.columns:
         df = df.drop(columns=["date_posted"])
 
-    # ---- Attach authoritative dates ----
     dates = con.execute(
         """
         SELECT job_url, date_posted
@@ -84,7 +73,6 @@ def load_dashboard_df(run_id: str, user: str, use_case: str) -> pd.DataFrame:
 
     df = df.merge(dates, on="job_url", how="left")
 
-    # ---- Normalize dates ----
     df["date_posted"] = pd.to_datetime(
         df["date_posted"],
         errors="coerce",
@@ -95,7 +83,6 @@ def load_dashboard_df(run_id: str, user: str, use_case: str) -> pd.DataFrame:
         pd.NaT
     )
 
-    # ---- Deduplicate by title+company (case-insensitive, keep highest score) ----
     df["_dedup_key"] = (
         df["title"].str.strip().str.lower() + "|" + df["company"].str.strip().str.lower()
     )
@@ -104,7 +91,6 @@ def load_dashboard_df(run_id: str, user: str, use_case: str) -> pd.DataFrame:
     )
     df = df.drop(columns=["_dedup_key"])
 
-    # ---- Derived fields ----
     now = pd.Timestamp.utcnow()
     df["Posted"] = (
         df["date_posted"].dt.date.astype(str).where(df["date_posted"].notna(), "")
@@ -114,34 +100,19 @@ def load_dashboard_df(run_id: str, user: str, use_case: str) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(show_spinner=False)
-def load_recruiter_map() -> dict[str, dict]:
-    """Returns {company_lower: {name, linkedin_url}} — best-confidence recruiter per company."""
-    con = get_ui_db()
-    try:
-        rows = con.execute("""
-            SELECT company, name, linkedin_url
-            FROM recruiters
-            WHERE company IS NOT NULL AND company != ''
-            ORDER BY
-                CASE confidence WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END
-        """).fetchall()
-    except Exception:
-        return {}
-    result: dict[str, dict] = {}
-    for company, name, linkedin_url in rows:
-        key = company.strip().lower()
-        if key not in result:
-            result[key] = {"name": name or "", "linkedin_url": linkedin_url or ""}
-    return result
-
-
 # ==================================================
 # Sidebar: Session
 # ==================================================
 with st.sidebar:
-    st.header("Session")
+    st.markdown("## 🎯 SignalRank")
+    st.caption("AI-powered job discovery")
+    st.divider()
     user, use_case = get_session()
+    st.divider()
+    st.markdown("**Navigate**")
+    st.page_link("pages/dashboard.py", label="📊 Dashboard")
+    st.page_link("pages/tracker.py", label="📋 Job Tracker")
+    st.page_link("pages/all_jobs.py", label="🗂 All Jobs")
 
 
 # ==================================================
@@ -188,23 +159,8 @@ for col in ["title", "description", "company", "location"]:
 
 
 # ==================================================
-# Category filter
-# ==================================================
-# ==================================================
 # Category (multi-valued)
 # ==================================================
-def classify_categories(title: str, description: str, cfg: dict) -> list[str]:
-    """
-    Conservative multi-label wrapper.
-    """
-    primary = classify_functional_role(title, description, cfg)
-
-    if not primary:
-        return []
-
-    return [primary]
-
-
 df["Categories"] = df.apply(
     lambda r: classify_categories(
         r.get("title", ""),
@@ -214,7 +170,6 @@ df["Categories"] = df.apply(
     axis=1
 )
 
-# Stable, display-only column
 df["Category"] = df["Categories"].apply(lambda xs: ", ".join(sorted(xs)))
 
 # ==================================================
@@ -225,7 +180,7 @@ st.caption("Select one or more categories. Jobs matching any selection are shown
 selected_categories = st.multiselect(
     "Category filter",
     options=all_categories,
-    default=all_categories,  # show everything by default
+    default=all_categories,
 )
 
 if selected_categories:
@@ -235,7 +190,7 @@ if selected_categories:
 
 
 # ==================================================
-# 🔍 Semantic Explorer (DB-only)
+# Semantic Explorer (DB-only)
 # ==================================================
 st.divider()
 st.subheader("🔍 Semantic Explorer — Find jobs similar to my resume")
@@ -293,7 +248,7 @@ with st.expander("Semantic Explorer", expanded=False):
                 for (job_url, title, company, location, desc, _), score in zip(
                     raw, sims
                 ):
-                    cats = classify_categories(f"{title} {desc}", ctx.config)
+                    cats = classify_categories(f"{title} {desc}", "", ctx.config)
 
                     if selected_categories and not any(
                         c in cats for c in selected_categories
@@ -324,27 +279,27 @@ with st.expander("Semantic Explorer", expanded=False):
 
         for r in results:
             st.markdown(f"""
-    **{r['title']}**  
-    {r['company']} · {r['location']} · `{r['category']}`  
-    Similarity **{r['score']:.3f}**  
-    _Overlap_: {r['explain'] or "—"}
-    """)
+**{r['title']}**
+{r['company']} · {r['location']} · `{r['category']}`
+Similarity **{r['score']:.3f}**
+_Overlap_: {r['explain'] or "—"}
+""")
             st.link_button("Apply", r["job_url"])
             st.markdown("<hr style='opacity:0.25'>", unsafe_allow_html=True)
+
 # ==================================================
 # Ranking view
 # ==================================================
 df["Score"] = df["final_score"].round(1)
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total Jobs", len(df))
-c2.metric("Top Score", df["Score"].max())
-c3.metric("Median Score", int(df["Score"].median()))
-# Normalize company/location for display (title-case, strip whitespace)
+c1.metric("Total Jobs", len(df), help="Unique jobs in this run after deduplication")
+c2.metric("Top Score", df["Score"].max(), help="Highest final score in filtered results")
+c3.metric("Median Score", int(df["Score"].median()), help="Median final score")
 df["company_norm"] = df["company"].fillna("Unknown").str.strip().str.title()
 df["location"] = df["location"].fillna("").str.strip().str.title()
 
-c4.metric("Companies", df["company_norm"].nunique())
+c4.metric("Companies", df["company_norm"].nunique(), help="Distinct companies with at least one job")
 
 # ==================================================
 # Charts
@@ -427,102 +382,5 @@ with chart_col6:
         st.caption("No date data available.")
 
 st.divider()
-
-top_n = st.slider("Show top N jobs", 1, min(2000, len(df)), min(25, len(df)), 1)
-view = st.radio("View", ["Table", "Cards"], horizontal=True)
-
-show_df = df.sort_values("Score", ascending=False).head(top_n)
-
-recruiter_map = load_recruiter_map()
-show_df = show_df.copy()
-show_df["_co_key"] = show_df["company"].fillna("").str.strip().str.lower()
-show_df["Recruiter"] = show_df["_co_key"].map(
-    lambda k: recruiter_map.get(k, {}).get("name", "")
-)
-show_df["Recruiter LinkedIn"] = show_df["_co_key"].map(
-    lambda k: recruiter_map.get(k, {}).get("linkedin_url", "")
-)
-show_df = show_df.drop(columns=["_co_key"])
-
-if view == "Table":
-    table = show_df.copy()
-    table["Apply"] = table["job_url_direct"].fillna(table["job_url"])
-
-    table = table[
-        [
-            "title",
-            "company_norm",
-            "location",
-            "Category",
-            "Posted",
-            "days_old",
-            "Score",
-            "Recruiter",
-            "Recruiter LinkedIn",
-            "Apply",
-        ]
-    ].rename(
-        columns={
-            "title": "Role",
-            "company_norm": "Company",
-            "location": "Location",
-            "days_old": "Days Old",
-        }
-    )
-
-    col_cfg = {
-        "Apply": st.column_config.LinkColumn("Apply", display_text="Apply ↗"),
-    }
-    if table["Recruiter LinkedIn"].any():
-        col_cfg["Recruiter LinkedIn"] = st.column_config.LinkColumn(
-            "Recruiter LinkedIn", display_text="→ LinkedIn"
-        )
-
-    st.dataframe(
-        table,
-        hide_index=True,
-        width="stretch",
-        column_config=col_cfg,
-    )
-else:
-    _has_breakdown = all(
-        c in show_df.columns
-        for c in ["skills_score", "company_score", "seniority_score_dim", "location_score", "recency_score"]
-    )
-    _dim_info = [
-        ("Skills", "skills_score", 0.40),
-        ("Company", "company_score", 0.20),
-        ("Seniority", "seniority_score_dim", 0.15),
-        ("Location", "location_score", 0.15),
-        ("Recency", "recency_score", 0.10),
-    ]
-
-    for _, row in show_df.iterrows():
-        cols = st.columns([8, 2])
-        with cols[0]:
-            recruiter_line = ""
-            if row.get("Recruiter"):
-                li = row.get("Recruiter LinkedIn", "")
-                if li:
-                    recruiter_line = f"\n🤝 [{row['Recruiter']}]({li})"
-                else:
-                    recruiter_line = f"\n🤝 {row['Recruiter']}"
-            st.markdown(f"""
-**{row['title']}**
-{row['company_norm']} · {row['location']} · `{row['Category']}`
-Score **{row['Score']}** · Posted {row['Posted']} · {row['days_old']} days ago{recruiter_line}
-""")
-        with cols[1]:
-            st.link_button(
-                "Apply",
-                row["job_url_direct"] or row["job_url"],
-            )
-
-        if _has_breakdown:
-            with st.expander("Score breakdown"):
-                for label, col, weight in _dim_info:
-                    val = row[col]
-                    contrib = val * weight
-                    st.progress(val / 100, text=f"{label}: {val:.0f}/100 (w={weight}) = {contrib:.1f}")
-
-        st.markdown("<hr style='opacity:0.25'>", unsafe_allow_html=True)
+st.info("💡 To manage applications, track status, and view your pipeline — open the **Job Tracker**.")
+st.page_link("pages/tracker.py", label="📋 Open Job Tracker →")

@@ -109,6 +109,7 @@ def run_find_recruiter(args):
             top=args.top,
             output_csv=args.output,
             db_path=db_path,
+            refresh=getattr(args, "refresh", False),
         )
 
         _print_results(results, out_path)
@@ -122,7 +123,7 @@ def run_find_recruiter(args):
     company = args.company
     print(f"\n🔍 Finding recruiters for: {company}\n")
 
-    contacts = finder.find(company=company)
+    contacts = finder.find(company=company, refresh=getattr(args, "refresh", False))
     if not contacts:
         print(f"⚠  No contacts found for '{company}'.")
         print("   Tips: ensure SERPAPI_KEY is set in .env")
@@ -256,6 +257,7 @@ def main():
     fr.add_argument("--top", type=int, default=15, help="Top N unique companies to process (default: 15)")
     fr.add_argument("--company", help="Single company name (alternative to --csv)")
     fr.add_argument("--output", help="Output CSV path (default: auto-generated)")
+    fr.add_argument("--refresh", action="store_true", help="Re-search even if contacts already exist in DB")
     fr.set_defaults(fn=run_find_recruiter)
 
     args = p.parse_args()

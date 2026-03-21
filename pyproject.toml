@@ -33,6 +33,7 @@ dependencies = [
   "duckduckgo-search>=6.0.0",
   "ddgs>=9.11.4",
   "jobspy>=0.31.0",
+  "plotly>=5.0.0",
 ]
 
 [project.optional-dependencies]

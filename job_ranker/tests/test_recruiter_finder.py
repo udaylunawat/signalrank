@@ -186,6 +186,104 @@ class TestDedupTopN:
         assert dedup_top_n([], n=2) == []
 
 
+from job_ranker.scrapers.recruiter_finder import _build_queries, _llm_validate_contacts
+
+
+class TestBuildQueries:
+    def test_returns_3_variants(self):
+        queries = _build_queries("Adobe")
+        assert len(queries) == 3
+
+    def test_first_query_has_india_cities(self):
+        q = _build_queries("Adobe")[0]
+        assert "bangalore" in q.lower()
+        assert "talent acquisition" in q.lower()
+
+    def test_company_in_all_queries(self):
+        for q in _build_queries("ServiceNow"):
+            assert "ServiceNow" in q
+
+
+class TestNegativeTitleSignals:
+    def test_sales_scores_zero(self):
+        assert score_recruiter("Sales Manager", "ML Engineer") == 0.0
+
+    def test_marketing_scores_zero(self):
+        assert score_recruiter("Marketing Recruiter", "ML Engineer") == 0.0
+
+    def test_business_development_scores_zero(self):
+        assert score_recruiter("Business Development Manager", "ML Engineer") == 0.0
+
+
+class TestIndiaLocationBonus:
+    def test_bangalore_gets_bonus(self):
+        base = score_recruiter("Talent Acquisition Specialist", "ML Engineer")
+        with_loc = score_recruiter("Talent Acquisition Specialist - Bangalore", "ML Engineer")
+        assert with_loc > base
+
+    def test_bonus_capped_at_1(self):
+        score = score_recruiter("Talent Acquisition - ML & AI Roles - India", "Senior ML Engineer")
+        assert score <= 1.0
+
+
+class TestLLMValidation:
+    def test_passes_through_on_empty_response(self):
+        from unittest.mock import patch
+        contacts = [
+            _c("Alice", "Technical Recruiter"),
+            _c("Bob", "HR Manager"),
+        ]
+        with patch("job_ranker.llm.client.llm_text", return_value=""):
+            result = _llm_validate_contacts(contacts, "TestCo", "ML Engineer")
+        assert len(result) == len(contacts)
+
+    def test_filters_low_scores(self):
+        import json
+        from unittest.mock import patch
+        contacts = [
+            _c("Alice", "Technical Recruiter"),
+            _c("Bob", "HR Manager"),
+            _c("Carol", "Talent Acquisition"),
+        ]
+        mock_response = json.dumps([
+            {"idx": 0, "score": 5, "reason": "good"},
+            {"idx": 1, "score": 1, "reason": "bad"},
+            {"idx": 2, "score": 4, "reason": "good"},
+        ])
+        with patch("job_ranker.llm.client.llm_text", return_value=mock_response):
+            result = _llm_validate_contacts(contacts, "TestCo", "ML Engineer")
+        names = [c.name for c in result]
+        assert "Bob" not in names
+        assert "Alice" in names
+        assert "Carol" in names
+        assert result[0].name == "Alice"
+
+    def test_passes_through_on_exception(self):
+        from unittest.mock import patch
+        contacts = [_c("Alice", "Technical Recruiter")]
+        with patch("job_ranker.llm.client.llm_text", side_effect=Exception("fail")):
+            result = _llm_validate_contacts(contacts, "TestCo", "ML Engineer")
+        assert len(result) == 1
+
+    def test_all_low_scores_returns_empty(self):
+        import json
+        from unittest.mock import patch
+        contacts = [
+            _c("Alice", "Technical Recruiter"),
+            _c("Bob", "HR Manager"),
+        ]
+        mock_response = json.dumps([
+            {"idx": 0, "score": 1, "reason": "US-based"},
+            {"idx": 1, "score": 2, "reason": "former employee"},
+        ])
+        with patch("job_ranker.llm.client.llm_text", return_value=mock_response):
+            result = _llm_validate_contacts(contacts, "TestCo", "ML Engineer")
+        assert len(result) == 0
+
+    def test_empty_contacts_returns_empty(self):
+        assert _llm_validate_contacts([], "TestCo", "ML Engineer") == []
+
+
 from unittest.mock import patch
 
 
@@ -211,26 +309,29 @@ class TestFindIntegration:
             for n, t, conf in self._FAKE_CONTACTS
         ]
 
-    def test_find_returns_at_most_2(self):
+    def _patch_find(self):
+        return (
+            patch("job_ranker.scrapers.recruiter_finder.resolve_domain", return_value="workday.com"),
+            patch("job_ranker.scrapers.recruiter_finder.search_linkedin_ddg", side_effect=self._make_ddg),
+            patch("job_ranker.scrapers.recruiter_finder._llm_validate_contacts", side_effect=lambda c, *a: c),
+        )
+
+    def test_find_returns_at_most_5(self):
         from job_ranker.scrapers.recruiter_finder import RecruiterFinder
         finder = RecruiterFinder()
-        with patch("job_ranker.scrapers.recruiter_finder.resolve_domain", return_value="workday.com"), \
-             patch("job_ranker.scrapers.recruiter_finder.search_linkedin_ddg",
-                   side_effect=self._make_ddg):
+        with self._patch_find()[0], self._patch_find()[1], self._patch_find()[2]:
             contacts = finder.find(
                 company="Workday",
                 job_url="https://linkedin.com/jobs/view/999",
                 job_title="ML Engineer",
                 max_results=10,
             )
-        assert len(contacts) <= 2
+        assert len(contacts) <= 5
 
     def test_find_excludes_non_recruiters(self):
         from job_ranker.scrapers.recruiter_finder import RecruiterFinder
         finder = RecruiterFinder()
-        with patch("job_ranker.scrapers.recruiter_finder.resolve_domain", return_value="workday.com"), \
-             patch("job_ranker.scrapers.recruiter_finder.search_linkedin_ddg",
-                   side_effect=self._make_ddg):
+        with self._patch_find()[0], self._patch_find()[1], self._patch_find()[2]:
             contacts = finder.find(
                 company="Workday",
                 job_url="https://linkedin.com/jobs/view/999",
@@ -244,17 +345,13 @@ class TestFindIntegration:
     def test_find_prefers_high_confidence(self):
         from job_ranker.scrapers.recruiter_finder import RecruiterFinder
         finder = RecruiterFinder()
-        with patch("job_ranker.scrapers.recruiter_finder.resolve_domain", return_value="workday.com"), \
-             patch("job_ranker.scrapers.recruiter_finder.search_linkedin_ddg",
-                   side_effect=self._make_ddg):
+        with self._patch_find()[0], self._patch_find()[1], self._patch_find()[2]:
             contacts = finder.find(
                 company="Workday",
                 job_url="https://linkedin.com/jobs/view/999",
                 job_title="ML Engineer",
                 max_results=10,
             )
-        # Alice (high) and Carol (high) should rank above Frank (medium)
         names = [c.name for c in contacts]
-        if "Frank" in names:
-            # Frank may appear in top-2 only if Alice or Carol is missing
-            assert "Alice" not in names or "Carol" not in names
+        assert "Alice" in names
+        assert "Carol" in names

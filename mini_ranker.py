@@ -16,7 +16,7 @@ Usage:
     python mini_ranker.py --clear-cache      # delete embedding cache
 
 Dependencies:
-    pip install pandas python-jobspy sentence-transformers numpy pyyaml rich PyPDF2
+    pip install pandas python-jobspy sentence-transformers numpy pyyaml rich PyPDF2 ddgs
 """
 
 import argparse
@@ -980,6 +980,182 @@ def display_results_plain(ranked: pd.DataFrame, top: int, verbose: bool, stats: 
 
 
 # ════════════════════════════════════════════════════════════════
+# RECRUITER FINDER (inline, standalone, no DuckDB)
+# ════════════════════════════════════════════════════════════════
+
+_RECRUITER_TITLE_SIGNALS = [
+    "recruiter", "talent acquisition", "talent partner", "hr manager",
+    "human resources", "people partner", "hiring", "sourcer", "recruiting",
+    "talent management", "people ops", "staffing", "hr generalist",
+    "talent lead", "campus recruit",
+]
+_NEGATIVE_TITLE_SIGNALS = [
+    "sales", "marketing", "business development", "account executive",
+    "customer success", "solutions architect", "pre-sales",
+]
+_INDIA_LI_SUBDOMAIN = "in.linkedin.com"
+
+RECRUITER_CACHE_PATH = CACHE_DIR / "recruiters.json"
+
+
+def _is_rec_title(text: str) -> bool:
+    t = text.lower()
+    if any(s in t for s in _NEGATIVE_TITLE_SIGNALS):
+        return False
+    return any(s in t for s in _RECRUITER_TITLE_SIGNALS)
+
+
+def _parse_name_role(raw: str) -> tuple[str, str]:
+    m = re.match(r'^(.+?)\s*[-–|]\s*(.+)$', raw)
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return raw.strip(), ""
+
+
+def _clean_rec_title(raw: str | None) -> str:
+    if not raw:
+        return ""
+    for sep in ("\n", "|", " - "):
+        idx = raw.find(sep)
+        if idx > 0:
+            raw = raw[:idx]
+            break
+    return raw.strip()[:120]
+
+
+def _build_rec_queries(company: str) -> list[str]:
+    return [
+        f'site:linkedin.com/in "talent acquisition" "{company}" india '
+        f'bangalore OR pune OR hyderabad OR mumbai OR delhi OR gurgaon',
+        f'site:linkedin.com/in (recruiter OR "talent acquisition" OR "hr manager") "{company}" india',
+    ]
+
+
+def _load_recruiter_cache() -> dict:
+    if RECRUITER_CACHE_PATH.exists():
+        try:
+            return json.loads(RECRUITER_CACHE_PATH.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _save_recruiter_cache(cache: dict):
+    CACHE_DIR.mkdir(exist_ok=True)
+    RECRUITER_CACHE_PATH.write_text(json.dumps(cache, indent=2))
+
+
+def find_recruiters_ddg(company: str) -> list[dict]:
+    """Search DDG for India-based TA contacts at company. Returns list of contact dicts."""
+    try:
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
+    except ImportError:
+        return []
+
+    contacts = []
+    seen_urls: set[str] = set()
+    queries = _build_rec_queries(company)
+
+    try:
+        import time as _time
+        with DDGS() as ddgs:
+            for qi, query in enumerate(queries):
+                if qi > 0:
+                    _time.sleep(1.5)
+                try:
+                    results = list(ddgs.text(query, max_results=7))
+                except Exception:
+                    continue
+                for item in results:
+                    url = item.get("href", "")
+                    if "linkedin.com/in/" not in url:
+                        continue
+                    if url.lower() in seen_urls:
+                        continue
+                    seen_urls.add(url.lower())
+                    title = item.get("title", "")
+                    snippet = item.get("body", "")
+                    name, role = _parse_name_role(title)
+                    role = _clean_rec_title(role)
+                    if not _is_rec_title(f"{role} {snippet}"):
+                        continue
+                    contacts.append({
+                        "name": name,
+                        "title": role or None,
+                        "linkedin_url": url,
+                        "india": _INDIA_LI_SUBDOMAIN in url,
+                        "snippet": snippet[:200],
+                    })
+                if sum(1 for c in contacts if c["india"]) >= 3:
+                    break
+    except Exception:
+        pass
+
+    contacts.sort(key=lambda c: (not c["india"], not _is_rec_title(c.get("title") or "")))
+    return contacts[:5]
+
+
+def find_recruiters_for_companies(
+    companies: list[str],
+    refresh: bool = False,
+    verbose: bool = False,
+) -> dict[str, list[dict]]:
+    cache = _load_recruiter_cache()
+    results: dict[str, list[dict]] = {}
+
+    for company in companies:
+        key = company.lower().strip()
+        if not refresh and key in cache:
+            results[company] = cache[key]
+            if verbose:
+                print(f"  [RECRUITER] {company}: cached ({len(cache[key])} contacts)")
+            continue
+
+        if verbose:
+            print(f"  [RECRUITER] Searching: {company}...")
+        contacts = find_recruiters_ddg(company)
+        results[company] = contacts
+        cache[key] = contacts
+
+    _save_recruiter_cache(cache)
+    return results
+
+
+def display_recruiters(recruiter_results: dict[str, list[dict]]):
+    if RICH:
+        console = Console()
+        console.print()
+        for company, contacts in recruiter_results.items():
+            if not contacts:
+                console.print(f"  [dim]{company}[/dim]: no India-based TA contacts found")
+                continue
+            console.print(f"  [bold]{company}[/bold]")
+            for c in contacts:
+                india_badge = " [green][IN][/green]" if c.get("india") else ""
+                name = c.get("name") or "?"
+                title = c.get("title") or ""
+                url = c.get("linkedin_url") or ""
+                console.print(f"    • {name}{india_badge}  [dim]{title}[/dim]")
+                if url:
+                    console.print(f"      [link={url}]{url}[/link]", highlight=False)
+    else:
+        print()
+        for company, contacts in recruiter_results.items():
+            if not contacts:
+                print(f"  {company}: no India-based TA contacts found")
+                continue
+            print(f"  {company}")
+            for c in contacts:
+                india = " [IN]" if c.get("india") else ""
+                print(f"    - {c.get('name', '?')}{india}  {c.get('title', '')}")
+                if c.get("linkedin_url"):
+                    print(f"      {c['linkedin_url']}")
+
+
+# ════════════════════════════════════════════════════════════════
 # MAIN
 # ════════════════════════════════════════════════════════════════
 
@@ -994,6 +1170,8 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="Show score breakdowns")
     parser.add_argument("--no-cache", action="store_true", help="Skip embedding cache")
     parser.add_argument("--clear-cache", action="store_true", help="Delete embedding cache")
+    parser.add_argument("--find-recruiters", action="store_true", help="Find India-based TA contacts for top-N companies")
+    parser.add_argument("--refresh-recruiters", action="store_true", help="Re-search recruiters even if cached")
     args = parser.parse_args()
 
     # Clear cache
@@ -1068,6 +1246,28 @@ def main():
         display_results_rich(ranked, args.top, args.verbose, stats)
     else:
         display_results_plain(ranked, args.top, args.verbose, stats)
+
+    # Recruiter finder — optional, runs against top-N companies
+    if args.find_recruiters:
+        top_companies = (
+            ranked.head(args.top)["company"]
+            .dropna()
+            .unique()
+            .tolist()
+        )
+        if RICH:
+            from rich.rule import Rule
+            Console().print(Rule("[bold]India TA Contacts[/bold]"))
+        else:
+            print(f"\n{'─' * 60}")
+            print("  India TA Contacts")
+            print(f"{'─' * 60}")
+        recruiter_results = find_recruiters_for_companies(
+            top_companies,
+            refresh=args.refresh_recruiters,
+            verbose=args.verbose,
+        )
+        display_recruiters(recruiter_results)
 
 
 if __name__ == "__main__":

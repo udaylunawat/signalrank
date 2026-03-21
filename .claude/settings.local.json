@@ -6,7 +6,13 @@
       "Bash(uv run:*)",
       "Bash(curl:*)",
       "Bash(lsof:*)",
-      "Bash(kill 31690:*)"
+      "Bash(kill 31690:*)",
+      "Bash(ls:*)",
+      "Bash(head:*)",
+      "Bash(wait:*)",
+      "WebSearch",
+      "Bash(while lsof:*)",
+      "Bash(tree:*)"
     ]
   }
 }

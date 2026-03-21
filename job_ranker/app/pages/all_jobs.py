@@ -1,61 +1,37 @@
 # app/pages/all_jobs.py
-from datetime import datetime
-
 import pandas as pd
 import streamlit as st
 from job_ranker.domain.roles import classify_functional_role
 
 st.set_page_config(layout="wide")
 st.title("🗂 All Discovered Jobs")
-
-
-# --------------------------------------------------
-# Helpers
-# --------------------------------------------------
-def format_date(val):
-    if val is None:
-        return ""
-    if isinstance(val, (pd.Timestamp, datetime)):
-        return val.date().isoformat()
-    try:
-        return pd.to_datetime(val, utc=True).date().isoformat()
-    except Exception:
-        return ""
-
-
-def list_users_and_use_cases(con):
-    users = (
-        con.execute("SELECT DISTINCT user FROM runs ORDER BY user")
-        .df()["user"]
-        .tolist()
-    )
-
-    def use_cases_for(user):
-        rows = con.execute(
-            "SELECT DISTINCT use_case FROM runs WHERE user = ? ORDER BY use_case",
-            [user],
-        ).df()
-        return rows["use_case"].tolist()
-
-    return users, use_cases_for
-
+st.caption("Browse every job scraped in the current run before ranking filters are applied.")
 
 # --------------------------------------------------
 # Session
 # --------------------------------------------------
-from job_ranker.app.session import get_session
+from job_ranker.app.session import get_session  # noqa: E402
 
 with st.sidebar:
-    st.header("Session")
+    st.markdown("## 🎯 SignalRank")
+    st.caption("AI-powered job discovery")
+    st.divider()
     user, use_case = get_session()
+    st.divider()
+    st.markdown("**Navigate**")
+    st.page_link("pages/dashboard.py", label="📊 Dashboard")
+    st.page_link("pages/tracker.py", label="📋 Job Tracker")
+    st.page_link("pages/all_jobs.py", label="🗂 All Jobs")
 
 if not user or not use_case:
     st.stop()
 
-from job_ranker.batch.context import resolve_ui_context
+from job_ranker.app.utils import format_date, make_apply_column  # noqa: E402
+from job_ranker.batch.context import resolve_ui_context  # noqa: E402
 
 ctx = resolve_ui_context(user, use_case)
-from job_ranker.app.db import get_ui_db
+
+from job_ranker.app.db import get_ui_db  # noqa: E402
 
 con = get_ui_db()
 
@@ -86,21 +62,53 @@ total_before = len(df)
 df["_dedup_key"] = (
     df["title"].str.strip().str.lower() + "|" + df["company"].str.strip().str.lower()
 )
-df = df.drop_duplicates(subset="_dedup_key", keep="first")  # already sorted by ingested_at DESC
+df = df.drop_duplicates(subset="_dedup_key", keep="first")
 df = df.drop(columns=["_dedup_key"])
 dupes_removed = total_before - len(df)
 if dupes_removed:
-    st.caption(f"Removed {dupes_removed:,} duplicates ({total_before:,} -> {len(df):,} unique jobs)")
+    st.caption(f"Removed {dupes_removed:,} duplicates ({total_before:,} → {len(df):,} unique jobs)")
 
-df["Category"] = (
-    df["title"].fillna("").apply(lambda t: classify_functional_role(t, ctx.config))
+df["Category"] = df.apply(
+    lambda r: classify_functional_role(r["title"] or "", r.get("description") or "", ctx.config),
+    axis=1,
 )
 df["Posted"] = df["date_posted"].apply(format_date)
 df["Ingested"] = df["ingested_at"].apply(format_date)
 df["Apply"] = df["job_url_direct"].fillna(df["job_url"])
 
+# --------------------------------------------------
+# Filter row
+# --------------------------------------------------
+filter_col1, filter_col2, filter_col3 = st.columns(3)
+
+with filter_col1:
+    search_q = st.text_input("Search (title, company)", "")
+
+with filter_col2:
+    site_options = sorted(df["site"].dropna().unique().tolist())
+    sel_sites = st.multiselect("Site", site_options, default=site_options)
+
+with filter_col3:
+    cat_options = sorted(df["Category"].dropna().unique().tolist())
+    sel_cats = st.multiselect("Category", cat_options, default=cat_options)
+
+mask = pd.Series([True] * len(df), index=df.index)
+if search_q:
+    q = search_q.lower()
+    mask &= (
+        df["title"].fillna("").str.lower().str.contains(q, na=False)
+        | df["company"].fillna("").str.lower().str.contains(q, na=False)
+    )
+if sel_sites:
+    mask &= df["site"].isin(sel_sites)
+if sel_cats:
+    mask &= df["Category"].isin(sel_cats)
+
+filtered = df[mask]
+st.caption(f"Showing {len(filtered):,} of {len(df):,} jobs")
+
 st.dataframe(
-    df.rename(
+    filtered.rename(
         columns={
             "title": "Role",
             "company": "Company",
@@ -120,11 +128,8 @@ st.dataframe(
         ]
     ],
     hide_index=True,
-    width="stretch",
+    use_container_width=True,
     column_config={
-        "Apply": st.column_config.LinkColumn(
-            "Apply",
-            display_text="Apply",
-        )
+        "Apply": make_apply_column(),
     },
 )

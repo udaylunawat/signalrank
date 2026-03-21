@@ -30,18 +30,41 @@ from typing import List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-TIMEOUT = 15
+TIMEOUT = 10
+CLEARBIT_TIMEOUT = 5
 CLEARBIT_AUTOCOMPLETE = "https://autocomplete.clearbit.com/v1/companies/suggest"
 SERPAPI_SEARCH        = "https://serpapi.com/search"
 BRAVE_SEARCH          = "https://api.search.brave.com/res/v1/web/search"
 BING_SEARCH           = "https://api.bing.microsoft.com/v7.0/search"
-DDG_DELAY             = 2.0   # seconds between DDG calls (politeness)
+DDG_DELAY             = 1.5   # seconds between DDG calls (politeness)
 SERP_DELAY            = 1.5   # seconds between SerpAPI calls
 MAX_RESULTS           = 7
+MAX_WORKERS           = 3     # parallel company lookups in find_from_csv
+
+
+def _get_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503])
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=5, pool_maxsize=10)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+_session: requests.Session | None = None
+
+
+def _http() -> requests.Session:
+    global _session
+    if _session is None:
+        _session = _get_session()
+    return _session
 
 _NOISE_EMAIL_SIGNALS = [
     "example", "noreply", "no-reply", "pixel", "sentry", "@email", "@mail.com",
@@ -54,6 +77,14 @@ _RECRUITER_TITLE_SIGNALS = [
     "human resources", "people partner", "hiring", "sourcer", "recruiting",
     "talent management", "people ops", "workforce", "staffing", "hr generalist",
     "talent lead", "campus recruit",
+]
+_NEGATIVE_TITLE_SIGNALS = [
+    "sales", "marketing", "business development", "account executive",
+    "customer success", "solutions architect", "pre-sales",
+]
+_INDIA_LOCATION_SIGNALS = [
+    "india", "bangalore", "bengaluru", "mumbai", "hyderabad",
+    "pune", "delhi", "gurgaon", "gurugram", "noida", "chennai",
 ]
 _EMAIL_RE = re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
 
@@ -75,6 +106,8 @@ class RecruiterContact:
     job_url:      Optional[str]  = None
     job_title:    Optional[str]  = None
     job_score:    Optional[str]  = None
+    llm_score:    Optional[float] = None
+    snippet:      Optional[str]  = None
     guessed_emails: List[str]    = field(default_factory=list)
 
     def display(self) -> str:
@@ -107,18 +140,24 @@ class RecruiterContact:
 # Strategy 1: Clearbit domain resolution
 # ─────────────────────────────────────────────────────────────
 
+_domain_cache: dict[str, Optional[str]] = {}
+
+
 def resolve_domain(company: str) -> Optional[str]:
-    """Clearbit free autocomplete → domain. Falls back to slug."""
+    """Clearbit free autocomplete → domain. Falls back to slug. Cached."""
+    if company in _domain_cache:
+        return _domain_cache[company]
     try:
-        resp = requests.get(
+        resp = _http().get(
             CLEARBIT_AUTOCOMPLETE,
             params={"query": company},
-            timeout=TIMEOUT,
+            timeout=CLEARBIT_TIMEOUT,
         )
         if resp.status_code == 200:
             results = resp.json()
             if results and results[0].get("domain"):
-                return results[0]["domain"]
+                _domain_cache[company] = results[0]["domain"]
+                return _domain_cache[company]
     except Exception as e:
         logger.debug("[RECRUITER] Clearbit failed for %r: %s", company, e)
 
@@ -127,7 +166,9 @@ def resolve_domain(company: str) -> Optional[str]:
         r"services|private|ventures)\b",
         "", company.lower()
     ).replace(" ", ""))
-    return f"{slug}.com" if slug else None
+    result = f"{slug}.com" if slug else None
+    _domain_cache[company] = result
+    return result
 
 
 # ─────────────────────────────────────────────────────────────
@@ -257,6 +298,9 @@ def score_recruiter(recruiter_title: str | None, job_title: str | None) -> float
     rt = recruiter_title.lower()
     jt = (" " + (job_title or "").lower() + " ")  # pad for word-boundary matching
 
+    if any(s in rt for s in _NEGATIVE_TITLE_SIGNALS):
+        return 0.0
+
     if not any(s in rt for s in _RECRUITER_TITLE_SIGNALS):
         return 0.0  # not a recruiter — hard zero
 
@@ -273,6 +317,9 @@ def score_recruiter(recruiter_title: str | None, job_title: str | None) -> float
         eng_ml = _FUNCTION_KEYWORDS["engineering"] + _FUNCTION_KEYWORDS["ml"]
         if any(k in jt for k in eng_ml):
             score = max(score, 0.5)
+
+    if any(s in rt for s in _INDIA_LOCATION_SIGNALS):
+        score += 0.1
 
     return min(score, 1.0)
 
@@ -310,10 +357,82 @@ def dedup_top_n(contacts: list["RecruiterContact"], n: int = 2) -> list["Recruit
     return result
 
 
+def _build_queries(company: str, location: str = "india") -> list[str]:
+    return [
+        (
+            f'site:linkedin.com/in "talent acquisition" "{company}" india '
+            f"bangalore OR pune OR hyderabad OR mumbai OR delhi OR gurgaon"
+        ),
+        (
+            f'site:linkedin.com/in '
+            f'(recruiter OR "talent acquisition" OR "hr manager" OR "people partner") '
+            f'"{company}" {location}'
+        ),
+        (
+            f'site:linkedin.com/in ("hiring" OR "talent") "{company}" india'
+        ),
+    ]
+
+
+def _llm_validate_contacts(
+    contacts: list["RecruiterContact"], company: str, job_title: str,
+) -> list["RecruiterContact"]:
+    if not contacts:
+        return contacts
+    try:
+        from job_ranker.llm.client import llm_text
+    except ImportError:
+        logger.warning("[RECRUITER] llm_text not available, skipping LLM validation")
+        return contacts
+
+    lines = []
+    for i, c in enumerate(contacts):
+        url = c.linkedin_url or "N/A"
+        india_url = "in.linkedin.com" in url
+        loc_hint = " [India LinkedIn profile]" if india_url else ""
+        snippet_text = f" | Snippet: {c.snippet[:150]}" if c.snippet else ""
+        lines.append(
+            f"{i}. {c.name or 'Unknown'} | {c.title or 'N/A'} | {url}{loc_hint}{snippet_text}"
+        )
+    numbered = "\n".join(lines)
+    system_prompt = (
+        f'You verify recruiter contacts for Indian job seekers.\n'
+        f'Given LinkedIn profiles found for "{company}" (role: "{job_title}"), '
+        f'rate each 1-5 based on:\n'
+        f'- Are they based in INDIA? (URLs starting with in.linkedin.com are Indian profiles. '
+        f'Profiles on www.linkedin.com without India signals in snippet/title score 1-2)\n'
+        f'- Is this person CURRENTLY employed at "{company}"? (former employees score 1)\n'
+        f'- Are they HR/Talent Acquisition who could help with this role?\n'
+        f'- Does their title suggest active recruiting (not sales, marketing, engineering)?\n'
+        f'Return JSON only: [{{"idx": 0, "score": 4, "reason": "..."}}]'
+    )
+    try:
+        raw = llm_text(system_prompt=system_prompt, user_message=numbered)
+        if not raw:
+            return contacts
+        import json
+        text = raw.strip()
+        start = text.find("[")
+        end = text.rfind("]")
+        if start == -1 or end == -1:
+            return contacts
+        scores = json.loads(text[start : end + 1])
+        score_map = {item["idx"]: item["score"] for item in scores}
+        for i, c in enumerate(contacts):
+            c.llm_score = float(score_map.get(i, 0))
+        filtered = [c for c in contacts if (c.llm_score or 0) >= 3]
+        filtered.sort(key=lambda c: -(c.llm_score or 0))
+        return filtered
+    except Exception as e:
+        logger.warning("[RECRUITER] LLM validation failed: %s", e)
+        return contacts
+
+
 def search_linkedin_ddg(
     company: str, domain: Optional[str],
     job_url: str, job_title: str, job_score: str,
     location: str = "india",
+    queries: Optional[List[str]] = None,
 ) -> List[RecruiterContact]:
     """DuckDuckGo text search for LinkedIn recruiter profiles — free, no quota."""
     try:
@@ -325,42 +444,59 @@ def search_linkedin_ddg(
         logger.warning("[RECRUITER] ddgs/duckduckgo_search not installed, skipping DDG")
         return []
 
-    query = (
-        f'site:linkedin.com/in '
-        f'(recruiter OR "talent acquisition" OR "hr manager" OR "people partner") '
-        f'"{company}" {location}'
-    )
+    if queries is None:
+        queries = _build_queries(company, location)
 
     contacts = []
+    seen_urls: set[str] = set()
+    queries_run = 0
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=MAX_RESULTS))
+            for qi, query in enumerate(queries):
+                if qi > 0:
+                    time.sleep(DDG_DELAY)
+                queries_run = qi + 1
+                try:
+                    results = list(ddgs.text(query, max_results=MAX_RESULTS))
+                except Exception as qe:
+                    logger.debug("[RECRUITER] DDG query %d failed for %r: %s", qi, company, qe)
+                    continue
 
-        for item in results:
-            url  = item.get("href", "")
-            if "linkedin.com/in/" not in url:
-                continue
-            title   = item.get("title", "")
-            snippet = item.get("body", "")
-            name, role = _parse_li_title(title)
-            combined = f"{role} {snippet}"
+                for item in results:
+                    url = item.get("href", "")
+                    if "linkedin.com/in/" not in url:
+                        continue
+                    if url.lower() in seen_urls:
+                        continue
+                    seen_urls.add(url.lower())
+                    title = item.get("title", "")
+                    snippet = item.get("body", "")
+                    name, role = _parse_li_title(title)
+                    combined = f"{role} {snippet}"
 
-            if not _is_recruiter_title(combined):
-                continue
+                    if not _is_recruiter_title(combined):
+                        continue
 
-            guessed = generate_email_patterns(name, domain) if domain else []
-            contacts.append(RecruiterContact(
-                company=company, name=name,
-                title=role or None,
-                linkedin_url=url,
-                domain=domain,
-                guessed_emails=guessed,
-                source="ddg_linkedin",
-                confidence="high" if _is_recruiter_title(role) else "medium",
-                job_url=job_url, job_title=job_title, job_score=job_score,
-            ))
+                    guessed = generate_email_patterns(name, domain) if domain else []
+                    contacts.append(RecruiterContact(
+                        company=company, name=name,
+                        title=role or None,
+                        linkedin_url=url,
+                        domain=domain,
+                        snippet=snippet or None,
+                        guessed_emails=guessed,
+                        source="ddg_linkedin",
+                        confidence="high" if _is_recruiter_title(role) else "medium",
+                        job_url=job_url, job_title=job_title, job_score=job_score,
+                    ))
 
-        logger.info("[RECRUITER] DDG: %d profiles for %r", len(contacts), company)
+                recruiter_count = sum(
+                    1 for c in contacts if _is_recruiter_title(c.title or "")
+                )
+                if recruiter_count >= 3:
+                    break
+
+        logger.info("[RECRUITER] DDG: %d profiles for %r (%d queries)", len(contacts), company, queries_run)
     except Exception as e:
         logger.warning("[RECRUITER] DDG failed for %r: %s", company, e)
 
@@ -386,7 +522,7 @@ def search_linkedin_serpapi(
         f'"{company}" {location}'
     )
     try:
-        resp = requests.get(
+        resp = _http().get(
             SERPAPI_SEARCH,
             params={"engine": "google", "q": query, "api_key": serpapi_key,
                     "num": MAX_RESULTS, "hl": "en"},
@@ -415,6 +551,7 @@ def search_linkedin_serpapi(
                 title=role or None,
                 linkedin_url=url,
                 domain=domain,
+                snippet=snippet or None,
                 guessed_emails=guessed,
                 source="serpapi_linkedin",
                 confidence="high" if _is_recruiter_title(role) else "medium",
@@ -441,13 +578,9 @@ def search_linkedin_brave(
     if not brave_key:
         return []
 
-    query = (
-        f'site:linkedin.com/in '
-        f'(recruiter OR "talent acquisition" OR "hr manager" OR "people partner") '
-        f'"{company}" {location}'
-    )
+    query = _build_queries(company, location)[0]
     try:
-        resp = requests.get(
+        resp = _http().get(
             BRAVE_SEARCH,
             headers={"Accept": "application/json", "X-Subscription-Token": brave_key},
             params={"q": query, "count": MAX_RESULTS, "text_decorations": False},
@@ -476,6 +609,7 @@ def search_linkedin_brave(
                 title=role or None,
                 linkedin_url=url,
                 domain=domain,
+                snippet=snippet or None,
                 guessed_emails=guessed,
                 source="brave_linkedin",
                 confidence="high" if _is_recruiter_title(role) else "medium",
@@ -502,13 +636,9 @@ def search_linkedin_bing(
     if not bing_key:
         return []
 
-    query = (
-        f'site:linkedin.com/in '
-        f'(recruiter OR "talent acquisition" OR "hr manager" OR "people partner") '
-        f'"{company}" {location}'
-    )
+    query = _build_queries(company, location)[0]
     try:
-        resp = requests.get(
+        resp = _http().get(
             BING_SEARCH,
             headers={"Ocp-Apim-Subscription-Key": bing_key},
             params={"q": query, "count": MAX_RESULTS, "mkt": "en-IN"},
@@ -537,6 +667,7 @@ def search_linkedin_bing(
                 title=role or None,
                 linkedin_url=url,
                 domain=domain,
+                snippet=snippet or None,
                 guessed_emails=guessed,
                 source="bing_linkedin",
                 confidence="high" if _is_recruiter_title(role) else "medium",
@@ -569,6 +700,7 @@ CREATE TABLE IF NOT EXISTS recruiters (
     job_url        TEXT,
     job_title      TEXT,
     job_score      DOUBLE,
+    llm_score      DOUBLE,
     found_at       TIMESTAMP
 )
 """
@@ -581,38 +713,41 @@ def persist_to_duckdb(contacts: List[RecruiterContact], db_path: str) -> int:
         import duckdb
         con = duckdb.connect(db_path)
         con.execute(_CREATE_TABLE)
+        con.execute("ALTER TABLE recruiters ADD COLUMN IF NOT EXISTS llm_score DOUBLE")
         now = datetime.utcnow()
-        n = 0
+        rows = []
         for c in contacts:
-            uid = c.uid()
             score = None
             try:
                 score = float(c.job_score) if c.job_score else None
             except (ValueError, TypeError):
                 pass
-            con.execute("""
-                INSERT INTO recruiters
-                    (id, company, name, title, email, guessed_emails,
-                     linkedin_url, domain, source, confidence,
-                     job_url, job_title, job_score, found_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT (id) DO UPDATE SET
-                    name=EXCLUDED.name, title=EXCLUDED.title,
-                    email=EXCLUDED.email,
-                    guessed_emails=EXCLUDED.guessed_emails,
-                    linkedin_url=EXCLUDED.linkedin_url,
-                    domain=EXCLUDED.domain,
-                    source=EXCLUDED.source,
-                    confidence=EXCLUDED.confidence,
-                    found_at=EXCLUDED.found_at
-            """, [uid, c.company, c.name, c.title, c.email,
-                  "|".join(c.guessed_emails),
-                  c.linkedin_url, c.domain, c.source, c.confidence,
-                  c.job_url, c.job_title, score, now])
-            n += 1
+            rows.append([
+                c.uid(), c.company, c.name, c.title, c.email,
+                "|".join(c.guessed_emails),
+                c.linkedin_url, c.domain, c.source, c.confidence,
+                c.job_url, c.job_title, score, c.llm_score, now,
+            ])
+        con.executemany("""
+            INSERT INTO recruiters
+                (id, company, name, title, email, guessed_emails,
+                 linkedin_url, domain, source, confidence,
+                 job_url, job_title, job_score, llm_score, found_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT (id) DO UPDATE SET
+                name=EXCLUDED.name, title=EXCLUDED.title,
+                email=EXCLUDED.email,
+                guessed_emails=EXCLUDED.guessed_emails,
+                linkedin_url=EXCLUDED.linkedin_url,
+                domain=EXCLUDED.domain,
+                source=EXCLUDED.source,
+                confidence=EXCLUDED.confidence,
+                llm_score=EXCLUDED.llm_score,
+                found_at=EXCLUDED.found_at
+        """, rows)
         con.close()
-        logger.info("[RECRUITER] Persisted %d contacts to DuckDB", n)
-        return n
+        logger.info("[RECRUITER] Persisted %d contacts to DuckDB", len(rows))
+        return len(rows)
     except Exception as e:
         logger.warning("[RECRUITER] DuckDB persist failed: %s", e)
         return 0
@@ -625,8 +760,7 @@ def persist_to_duckdb(contacts: List[RecruiterContact], db_path: str) -> int:
 class RecruiterFinder:
     def __init__(self, logger_=None, db_path: Optional[str] = None):
         self.log         = logger_ or logger
-        serpapi_enabled  = os.getenv("SERPAPI_ENABLED", "true").lower() not in ("false", "0", "no")
-        self.serpapi_key = os.getenv("SERPAPI_KEY", "") if serpapi_enabled else ""
+        self.serpapi_key = ""
         self.brave_key   = os.getenv("BRAVE_API_KEY", "")
         self.bing_key    = os.getenv("BING_SEARCH_KEY", "")
         self.db_path     = db_path
@@ -645,6 +779,40 @@ class RecruiterFinder:
             time.sleep(SERP_DELAY - elapsed)
         self._last_serp = time.time()
 
+    def _load_cached(self, company: str) -> List[RecruiterContact]:
+        """Return previously found contacts for this company from DuckDB, or []."""
+        if not self.db_path:
+            return []
+        try:
+            import duckdb
+            con = duckdb.connect(self.db_path, read_only=True)
+            rows = con.execute(
+                "SELECT name, title, linkedin_url, email, guessed_emails, domain, "
+                "source, confidence, job_url, job_title, job_score, llm_score "
+                "FROM recruiters WHERE lower(company) = lower(?) "
+                "ORDER BY llm_score DESC NULLS LAST LIMIT 10",
+                [company],
+            ).fetchall()
+            con.close()
+            if not rows:
+                return []
+            contacts = []
+            for r in rows:
+                contacts.append(RecruiterContact(
+                    company=company,
+                    name=r[0], title=r[1], linkedin_url=r[2], email=r[3],
+                    guessed_emails=(r[4] or "").split("|") if r[4] else [],
+                    domain=r[5], source=r[6], confidence=r[7],
+                    job_url=r[8], job_title=r[9],
+                    job_score=str(r[10]) if r[10] is not None else None,
+                    llm_score=r[11],
+                ))
+            logger.info("[RECRUITER] Cache hit for %r: %d contacts", company, len(contacts))
+            return contacts
+        except Exception as e:
+            logger.debug("[RECRUITER] Cache read failed for %r: %s", company, e)
+            return []
+
     def find(
         self,
         company: str,
@@ -655,7 +823,13 @@ class RecruiterFinder:
         emails_col: str = "",
         location: str = "india",
         max_results: int = 10,
+        refresh: bool = False,
     ) -> List[RecruiterContact]:
+        if not refresh:
+            cached = self._load_cached(company)
+            if cached:
+                return cached
+
         domain = resolve_domain(company)
 
         all_contacts: List[RecruiterContact] = []
@@ -723,8 +897,9 @@ class RecruiterFinder:
             c.title = _clean_title(c.title)
             unique.append(c)
 
-        # Score + dedup to top-2 per job_url (replaces raw max_results slice)
-        result = dedup_top_n(unique, n=2)
+        # Score + dedup to top-5 per job_url, then LLM validate
+        result = dedup_top_n(unique, n=5)
+        result = _llm_validate_contacts(result, company, job_title)
 
         # Persist to DuckDB if configured
         if self.db_path:
@@ -739,6 +914,7 @@ class RecruiterFinder:
         location: str = "india",
         output_csv: Optional[str] = None,
         db_path: Optional[str] = None,
+        refresh: bool = False,
     ) -> Tuple[List[dict], str]:
         path = Path(csv_path)
         if not path.exists():
@@ -767,28 +943,49 @@ class RecruiterFinder:
         all_results: List[dict] = []
         all_contacts_for_db: List[RecruiterContact] = []
 
-        for i, (_, row) in enumerate(seen.items()):
-            company   = (row.get("company") or "").strip()
-            job_url   = row.get("job_url", "")
+        items = list(seen.items())
+
+        def _process_company(idx_row):
+            idx, (_, row) = idx_row
+            company = (row.get("company") or "").strip()
+            job_url = row.get("job_url", "")
             job_title = row.get("title", "")
             job_score = row.get("final_score", "")
             description = row.get("description", "")
-            emails_col  = row.get("emails", "")
-
-            self.log.info("[RECRUITER] [%d/%d] %r", i+1, len(seen), company)
-
+            emails_col = row.get("emails", "")
+            self.log.info("[RECRUITER] [%d/%d] %r", idx + 1, len(items), company)
             contacts = self.find(
                 company=company, job_url=job_url, job_title=job_title,
                 job_score=job_score, description=description,
                 emails_col=emails_col, location=location,
-                max_results=10,
+                max_results=10, refresh=refresh,
             )
-            all_contacts_for_db.extend(contacts)
+            return company, job_url, job_title, job_score, contacts
 
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {
+                pool.submit(_process_company, (i, item)): i
+                for i, item in enumerate(items)
+            }
+            results_by_idx: dict[int, tuple] = {}
+            for future in as_completed(futures):
+                idx = futures[future]
+                try:
+                    results_by_idx[idx] = future.result()
+                except Exception as e:
+                    _, row = items[idx]
+                    company = (row.get("company") or "").strip()
+                    self.log.warning("[RECRUITER] Failed for %r: %s", company, e)
+                    results_by_idx[idx] = (company, row.get("job_url", ""), row.get("title", ""), row.get("final_score", ""), [])
+
+        for idx in sorted(results_by_idx):
+            company, job_url, job_title, job_score, contacts = results_by_idx[idx]
+            all_contacts_for_db.extend(contacts)
             if contacts:
                 for c in contacts:
                     all_results.append(c.to_dict())
-                self.log.info("[RECRUITER]  → %d contact(s)", len(contacts))
+                self.log.info("[RECRUITER]  %r → %d contact(s)", company, len(contacts))
             else:
                 all_results.append({
                     "company": company, "name": None, "title": None,
@@ -797,7 +994,7 @@ class RecruiterFinder:
                     "source": "not_found", "confidence": "none",
                     "job_url": job_url, "job_title": job_title, "job_score": job_score,
                 })
-                self.log.info("[RECRUITER]  → no contacts found")
+                self.log.info("[RECRUITER]  %r → no contacts found", company)
 
         # Bulk persist to DuckDB
         if _db:
