@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     nextauth_secret: str
     environment: str = "development"
     allowed_origins: list[str] = ["http://localhost:3000"]
+    openrouter_api_key: str = ""
 
 
 settings = Settings()

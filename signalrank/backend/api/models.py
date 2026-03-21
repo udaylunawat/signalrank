@@ -168,3 +168,11 @@ class Embedding(Base):
     __table_args__ = (
         UniqueConstraint("text_fp", "cfg_fp", name="uq_embedding_text_cfg"),
     )
+
+
+class LLMCache(Base):
+    __tablename__ = "llm_cache"
+
+    prompt_hash: Mapped[str] = mapped_column(String(32), primary_key=True)
+    response_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
