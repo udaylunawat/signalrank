@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import settings
 from api.database import AsyncSessionLocal
-from api.routes import auth, profile, runs
+from api.routes import applications, auth, jobs, onboarding, profile, runs
 from batch.worker import worker_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -41,6 +41,9 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(runs.router)
+app.include_router(jobs.router)
+app.include_router(applications.router)
+app.include_router(onboarding.router)
 
 
 @app.get("/health")
