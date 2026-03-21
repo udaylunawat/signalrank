@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "/Users/examplecandidate/.claude/projects/-Users-examplecandidate-Projects-job-ranker"
+    ],
+    "allow": [
+      "Bash(ls -1 *.csv)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(.venv/bin/pytest:*)",
+      "Bash(.venv/bin/pip:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(uv run:*)",
+      "Bash(uv pip:*)",
+      "Bash(uv add:*)",
+      "Bash(uv sync:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | grep -qE '\\.py$' && just lint 2>/dev/null || true",
+            "statusMessage": "Linting...",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
