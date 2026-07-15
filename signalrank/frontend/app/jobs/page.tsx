@@ -34,6 +34,7 @@ function JobsPageContent() {
   const searchParams = useSearchParams();
 
   const page = Math.max(1, Number(searchParams.get("page")) || 1);
+  const urlQuery = searchParams.get("q") ?? "";
   const scoreFilter = filterFromScore(searchParams.get("min_score"));
   const sortParam = searchParams.get("sort");
   const sort: SortOption = sortParam === "newest" || sortParam === "company" ? sortParam : "match";
@@ -41,7 +42,7 @@ function JobsPageContent() {
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
-  const [query, setQuery] = useState(searchParams.get("q") ?? "");
+  const [query, setQuery] = useState(urlQuery);
   const [sourceCounts, setSourceCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -62,14 +63,12 @@ function JobsPageContent() {
   }
 
   useEffect(() => {
-    const urlQuery = searchParams.get("q") ?? "";
     if (urlQuery !== query) setQuery(urlQuery);
-    // Only synchronize when browser navigation changes the URL.
+    // Only synchronize when the URL's query itself changes, not other filters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [urlQuery]);
 
   useEffect(() => {
-    const urlQuery = searchParams.get("q") ?? "";
     if (query.trim() === urlQuery) return;
     const timeout = setTimeout(() => updateParams({ q: query.trim() }), 350);
     return () => clearTimeout(timeout);

@@ -4,6 +4,7 @@ import type {
   Job,
   JobListParams,
   JobsResponse,
+  OnboardingResumeResponse,
   OnboardingStatus,
   Profile,
   ProfileResponse,
@@ -146,7 +147,7 @@ export const api = {
     uploadResume: (token: string, file: File) => {
       const form = new FormData();
       form.append("file", file);
-      return request<{ extracted: object; questions: object[] }>(
+      return request<OnboardingResumeResponse>(
         "/api/onboarding/resume",
         { method: "POST", token, body: form }
       );

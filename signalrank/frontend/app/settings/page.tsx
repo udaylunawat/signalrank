@@ -12,10 +12,10 @@ import { cn } from "@/lib/utils";
 import type { ProfileConfig } from "@/types";
 
 const COMPANY_TIERS = [
-  ["tier_s", "Top-tier companies"],
-  ["tier_a", "Strong tech companies"],
-  ["tier_b", "Growth and established companies"],
-  ["any", "Any company"],
+  ["tier_s", "S · Exceptional reputation"],
+  ["tier_a", "A · Strong reputation"],
+  ["tier_b", "B · Established reputation"],
+  ["tier_c", "C · Limited reputation evidence"],
 ] as const;
 
 function asText(values: string[] | undefined) {
@@ -26,24 +26,19 @@ function asList(value: string) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
-function inferRolePreset(roles: string[]) {
-  const value = roles.join(" ").toLowerCase();
-  if (/agent|llm|\bai\b|machine learning|\bml\b/.test(value)) return "agentic_systems";
-  if (/platform|devops|\bsre\b|infrastructure/.test(value)) return "platform_devops";
-  return "software_general";
-}
-
 export default function SettingsPage() {
   const { data: session } = useSession();
   const token = (session as { accessToken?: string })?.accessToken ?? "";
   const [config, setConfig] = useState<ProfileConfig>({});
-  const [roleIntent, setRoleIntent] = useState("");
   const [roles, setRoles] = useState("");
   const [locations, setLocations] = useState("");
   const [preferredCompanies, setPreferredCompanies] = useState("");
   const [excludedCompanies, setExcludedCompanies] = useState("");
   const [excludedTitles, setExcludedTitles] = useState("");
   const [companyTiers, setCompanyTiers] = useState<string[]>([]);
+  const [companyFilterMode, setCompanyFilterMode] = useState<
+    "all" | "top_reputed" | "selected_tiers"
+  >("all");
   const [hasResume, setHasResume] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -59,7 +54,6 @@ export default function SettingsPage() {
         const profile = response.profile;
         const nextConfig = profile?.config_overrides ?? {};
         setConfig(nextConfig);
-        setRoleIntent(profile?.role_intent ?? "");
         setRoles(asText(nextConfig.profile_intent?.roles));
         setLocations(asText(nextConfig.location_scoring?.preferred_locations ?? nextConfig.scraping?.locations));
         setPreferredCompanies(asText(nextConfig.company_preferences?.preferred_companies));
@@ -71,6 +65,7 @@ export default function SettingsPage() {
         setExcludedCompanies(legacyCombined ? "" : asText(companyExclusions));
         setExcludedTitles(asText(titleExclusions));
         setCompanyTiers(nextConfig.company_preferences?.tiers ?? []);
+        setCompanyFilterMode(nextConfig.company_preferences?.filter_mode ?? "all");
         setHasResume(Boolean(profile?.resume_text || profile?.distilled_text));
       })
       .catch(() => active && setError("We couldn’t load your preferences."))
@@ -81,8 +76,8 @@ export default function SettingsPage() {
   }, [token]);
 
   function toggleTier(tier: string) {
+    setCompanyFilterMode("selected_tiers");
     setCompanyTiers((current) => {
-      if (tier === "any") return current.includes("any") ? [] : ["any"];
       const withoutAny = current.filter((item) => item !== "any");
       return withoutAny.includes(tier)
         ? withoutAny.filter((item) => item !== tier)
@@ -99,13 +94,14 @@ export default function SettingsPage() {
     const targetRoles = asList(roles);
     const excludedCompanyValues = asList(excludedCompanies);
     const excludedTitleValues = asList(excludedTitles);
+    const profileIntent = {
+      ...config.profile_intent,
+      roles: targetRoles,
+    };
+    delete profileIntent.preset;
     const nextConfig: ProfileConfig = {
       ...config,
-      profile_intent: {
-        ...config.profile_intent,
-        roles: targetRoles,
-        preset: inferRolePreset(targetRoles),
-      },
+      profile_intent: profileIntent,
       scraping: {
         ...config.scraping,
         locations: preferredLocations,
@@ -117,7 +113,13 @@ export default function SettingsPage() {
       },
       company_preferences: {
         ...config.company_preferences,
-        tiers: companyTiers,
+        filter_mode: companyFilterMode,
+        tiers:
+          companyFilterMode === "all"
+            ? ["any"]
+            : companyFilterMode === "top_reputed"
+              ? ["tier_s", "tier_a"]
+              : companyTiers,
         preferred_companies: asList(preferredCompanies),
         excluded_companies: excludedCompanyValues,
       },
@@ -126,7 +128,8 @@ export default function SettingsPage() {
 
     try {
       await api.profile.patch(token, {
-        role_intent: roleIntent.trim() || null,
+        target_roles: targetRoles,
+        preferred_locations: preferredLocations,
         config_overrides: nextConfig,
       });
       setConfig(nextConfig);
@@ -172,24 +175,14 @@ export default function SettingsPage() {
                 {hasResume ? "Resume on file" : "Resume missing"}
               </span>
             </div>
-            <div className="mt-5 grid gap-5 sm:grid-cols-2">
+            <div className="mt-5 max-w-2xl">
               <div className="space-y-2">
                 <Label htmlFor="roles">Target roles</Label>
                 <Input
                   id="roles"
                   value={roles}
                   onChange={(event) => setRoles(event.target.value)}
-                  placeholder="Staff AI Engineer, Agent Platform Engineer"
-                  className="h-10 rounded-xl bg-white"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="intent">Role intent</Label>
-                <Input
-                  id="intent"
-                  value={roleIntent}
-                  onChange={(event) => setRoleIntent(event.target.value)}
-                  placeholder="Agentic systems and AI platforms"
+                  placeholder="QA Engineer, Product Designer, Financial Analyst"
                   className="h-10 rounded-xl bg-white"
                 />
               </div>
@@ -216,10 +209,32 @@ export default function SettingsPage() {
           <section className="surface-panel p-5 sm:p-6">
             <h2 className="font-semibold tracking-[-0.02em]">Companies and exclusions</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Company tiers and exclusions are hard filters applied before role or resume scoring.
+              Reputation is assessed by a free OpenRouter model using the same role-independent rubric for every company.
             </p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {([
+                ["all", "All companies"],
+                ["top_reputed", "Top reputed (AI)"],
+                ["selected_tiers", "Choose AI tiers"],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={companyFilterMode === mode}
+                  onClick={() => setCompanyFilterMode(mode)}
+                  className={cn(
+                    "rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+                    companyFilterMode === mode
+                      ? "border-primary/25 bg-primary/8 text-primary"
+                      : "border-border bg-white text-muted-foreground hover:border-primary/20 hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <fieldset className="mt-5">
-              <legend className="text-sm font-medium">Target company tiers</legend>
+              <legend className="text-sm font-medium">Eligible reputation tiers</legend>
               <div className="mt-2 flex flex-wrap gap-2">
                 {COMPANY_TIERS.map(([tier, label]) => {
                   const selected = companyTiers.includes(tier);
@@ -227,6 +242,7 @@ export default function SettingsPage() {
                     <button
                       key={tier}
                       type="button"
+                      disabled={companyFilterMode !== "selected_tiers"}
                       aria-pressed={selected}
                       onClick={() => toggleTier(tier)}
                       className={cn(
@@ -270,7 +286,7 @@ export default function SettingsPage() {
                   id="excluded-titles"
                   value={excludedTitles}
                   onChange={(event) => setExcludedTitles(event.target.value)}
-                  placeholder="QA, manual testing, frontend"
+                  placeholder="Titles or work you do not want"
                   className="h-10 rounded-xl bg-white"
                 />
               </div>

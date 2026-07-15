@@ -36,6 +36,8 @@ export default function JobCard({
 }) {
   const score = scoreMeta(job.final_score);
   const posted = postedLabel(job.date_posted);
+  const reputationTier = job.company_tier?.replace(/^tier_/, "").toUpperCase();
+  const matchedSkills = job.explanation?.matched_skills?.slice(0, 4) ?? [];
 
   return (
     <article className="group rounded-2xl border border-border/75 bg-white/90 p-4 shadow-[0_1px_2px_rgba(20,20,35,0.03)] transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_16px_38px_rgba(58,48,120,0.09)] sm:p-5">
@@ -76,12 +78,25 @@ export default function JobCard({
 
           {!compact && (
             <div className="mt-4 flex flex-wrap gap-1.5">
-              {job.company_tier && <Badge variant="secondary">Tier {job.company_tier}</Badge>}
+              {reputationTier &&
+                reputationTier !== "DEFAULT" &&
+                (job.company_reputation_confidence ?? 0) >= 0.7 && (
+                <Badge variant="secondary">Company {reputationTier}</Badge>
+              )}
               {job.is_contract && <Badge variant="outline">Contract</Badge>}
               {job.skills_score != null && (
                 <Badge variant="outline">Skills {Math.round(job.skills_score)}%</Badge>
               )}
+              {matchedSkills.map((skill) => (
+                <Badge key={skill} variant="outline">{skill}</Badge>
+              ))}
             </div>
+          )}
+
+          {!compact && job.company_reputation_rationale && (
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+              Company signal: {job.company_reputation_rationale}
+            </p>
           )}
 
           <div className="mt-4 flex items-center gap-2">

@@ -8,6 +8,9 @@ export interface Profile {
   min_salary: number | null;
   resume_text?: string | null;
   distilled_text?: string | null;
+  target_roles?: string[] | null;
+  target_companies?: string[] | null;
+  preferred_locations?: string[] | null;
   config_overrides: ProfileConfig | null;
   onboarding_complete: boolean;
 }
@@ -26,6 +29,8 @@ export interface ProfileConfig {
   };
   company_preferences?: {
     tiers?: string[];
+    filter_mode?: CompanyFilterMode;
+    reputation_tiers?: CompanyReputationTier[];
     preferred_companies?: string[];
     excluded_companies?: string[];
   };
@@ -56,7 +61,18 @@ export interface Job {
   location_score: number | null;
   recency_score: number | null;
   company_tier: string | null;
+  company_reputation_confidence?: number | null;
+  company_reputation_rationale?: string | null;
+  explanation?: JobExplanation | null;
   is_contract: boolean;
+}
+
+export interface JobExplanation {
+  role_fit?: { lane?: string; title_similarity?: number };
+  matched_skills?: string[];
+  scores?: Record<string, number>;
+  concerns?: string[];
+  [key: string]: unknown;
 }
 
 export interface JobsResponse {
@@ -140,4 +156,63 @@ export interface SourceRunStat {
 export interface OnboardingStatus {
   onboarding_complete: boolean;
   has_resume: boolean;
+  current_step?: "upload" | "questions";
+  parse_status?: ResumeParseStatus;
+  parse_confidence?: number | null;
+  parse_error?: string | null;
+  extracted?: ResumeExtraction | null;
+  questions?: OnboardingQuestion[];
+  draft?: OnboardingDraft | null;
+}
+
+export type CompanyFilterMode = "all" | "top_reputed" | "selected_tiers";
+
+export type CompanyReputationTier = "S" | "A" | "B" | "C";
+
+export type ResumeParseStatus =
+  | "complete"
+  | "partial"
+  | "degraded"
+  | "llm_unavailable"
+  | "failed"
+  | string;
+
+export interface ResumeExtraction {
+  skills?: string[];
+  years_of_experience?: number | null;
+  recent_titles?: string[];
+  industries?: string[];
+  location?: string | null;
+  parse_status?: ResumeParseStatus;
+  parse_confidence?: number | null;
+  parse_source?: string | null;
+  parser_model?: string | null;
+  parse_error?: string | null;
+  warnings?: string[];
+}
+
+export interface OnboardingQuestion {
+  id: string;
+  text: string;
+  type: "text" | "multiselect" | "tags" | string;
+  options?: string[];
+}
+
+export type OnboardingAnswer = string | string[];
+
+export interface OnboardingDraft {
+  current_step?: "upload" | "questions" | "complete" | string;
+  answers?: Record<string, OnboardingAnswer>;
+  questions?: OnboardingQuestion[];
+  extracted?: ResumeExtraction | null;
+  parse_status?: ResumeParseStatus;
+  resume_filename?: string | null;
+  parser_version?: string | null;
+}
+
+export interface OnboardingResumeResponse {
+  extracted: ResumeExtraction;
+  questions: OnboardingQuestion[];
+  parse_status?: ResumeParseStatus;
+  draft?: OnboardingDraft | null;
 }
