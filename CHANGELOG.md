@@ -37,9 +37,15 @@ All notable changes to SignalRank are documented here. The format follows [Keep 
 - Removed role-specific exclusions and labels that incorrectly suppressed valid resumes and professions.
 - Kept explicitly preferred companies eligible when the **Top reputed** filter is active.
 
+### Removed
+
+- Removed the legacy DuckDB/Streamlit Job Ranker packages, duplicated archives, cached embeddings, benchmark artifacts, obsolete root scripts, and unused starter assets from `main`.
+- Removed stale role-specific helper modules that were no longer part of the SaaS ranking path.
+- Moved historical source material out of the production tree; it remains recoverable from `backup/main-2026-07-15`.
+
 ### Validation
 
-- Backend test suite: 122 passing tests.
+- Backend test suite: 121 passing tests.
 - Frontend lint and production build pass.
 - End-to-end resume onboarding verified with a non-platform-engineering QA resume.
 - Live OpenRouter structured extraction verified with currently available free models.
@@ -56,4 +62,4 @@ The original `v0.1.0` release remains available by tag. The pre-promotion `main`
 
 ## Legacy batch engine - 2026-03-10
 
-Before the SaaS application, SignalRank operated as the `job_ranker` DuckDB and Streamlit batch engine. That implementation introduced multi-source JobSpy discovery, deterministic scoring, immutable runs, recruiter tools, and the operational lessons retained in the current architecture. It remains in `job_ranker/` for reference.
+Before the SaaS application, SignalRank operated as a DuckDB and Streamlit batch engine. That implementation introduced multi-source JobSpy discovery, deterministic scoring, immutable runs, recruiter tools, and the operational lessons retained in the current architecture. Its source remains available on the dated backup branch rather than in the active tree.

@@ -1,6 +1,0 @@
-scheduler:
-  enabled: true
-  check_interval_seconds: 86400
-  stale_after_hours: 24
-  auto_start_streamlit: true
-  lockfile: outputs/.run.lock

@@ -2,7 +2,7 @@
 
 SignalRank is a resume- and role-agnostic job discovery, ranking, and match-tracking application. A user uploads a resume, confirms any roles or locations they want, refreshes the shared job catalog, and receives explainable ranked matches.
 
-The active SaaS application lives in [`signalrank/`](signalrank/). The original DuckDB and Streamlit batch engine remains in [`job_ranker/`](job_ranker/) as a legacy implementation and reference.
+The active application lives in [`signalrank/`](signalrank/). Historical Job Ranker implementations and archived artifacts are preserved on `backup/main-2026-07-15` instead of being carried in the production branch.
 
 ## Product principles
 
@@ -167,5 +167,4 @@ Tests use isolated dependencies where appropriate. Live source probes and OpenRo
 
 - [Changelog](CHANGELOG.md)
 - [Recall, relevance, and robustness roadmap](docs/2026-07-15-saas-recall-relevance-roadmap.md)
-- [Setup notes](SETUP.md)
 - [Engineering guidance](AGENTS.md)

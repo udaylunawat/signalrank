@@ -1,46 +1,37 @@
-# Data files — too large for git
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Personal documents and runtime data
+*.pdf
 *.csv
-outputs/
 *.parquet
 *.db
-*.duckdb
-*.duckdb.wal
-duckdb
-duckdb.wal
+*.duckdb*
 
 # Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.pytest_cache/
+.ruff_cache/
 dist/
 build/
 
-# Env — never commit real credentials
-.env
-# Allow the template/copy
-!.env\ copy
-!job_ranker/.env\ copy
+# Node and Next.js
+node_modules/
+.next/
+out/
+coverage/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
 
-# Logs
-*.log
-
-# Mini ranker cache
-.mini_ranker_cache/
-
-# Git worktrees
-.worktrees/
-
-# OS
+# Tooling and OS files
 .DS_Store
-uv.lock
-reports/
-archived/*
-*archive*
-
-# DuckDB databases (too large for GitHub)
-job_ranker/duckdb
-job_ranker/job_ranker/duckdb
-**/duckdb
-*.ddb
-signalrank/frontend/.env.local
+.idea/
+.vscode/
+*.log
+.worktrees/
