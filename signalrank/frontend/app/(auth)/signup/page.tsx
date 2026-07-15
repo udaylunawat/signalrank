@@ -1,74 +1,96 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
 import { signIn } from "next-auth/react";
+import { ArrowRight, LoaderCircle } from "lucide-react";
+import AuthShell from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { api } from "@/lib/api";
 
 export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
     setError("");
+    setSubmitting(true);
     try {
       await api.auth.register(email, password);
-      await signIn("credentials", { email, password, redirect: false });
+      const response = await signIn("credentials", { email, password, redirect: false });
+      if (response?.error) {
+        setError("Your account was created, but sign-in failed. Try signing in directly.");
+        return;
+      }
       router.push("/onboarding");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed");
+    } catch {
+      setError("We couldn’t create that account. The email may already be in use.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Create your account</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-              />
-            </div>
-            {error && <p className="text-sm text-red-500">{error}</p>}
-            <Button type="submit" className="w-full">
-              Create account
-            </Button>
-            <p className="text-sm text-center text-muted-foreground">
-              Have an account?{" "}
-              <a href="/login" className="underline">
-                Sign in
-              </a>
-            </p>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthShell
+      eyebrow="Create your workspace"
+      title="Start with better-fit roles."
+      description="Create an account, add your resume, and get a ranked shortlist built around your experience."
+    >
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="space-y-2">
+          <Label htmlFor="email">Email address</Label>
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@example.com"
+            className="h-11 rounded-xl bg-white"
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="password">Password</Label>
+            <span className="text-xs text-muted-foreground">At least 6 characters</span>
+          </div>
+          <Input
+            id="password"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Create a password"
+            className="h-11 rounded-xl bg-white"
+            required
+            minLength={6}
+          />
+        </div>
+        {error && (
+          <p role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <Button type="submit" size="lg" className="h-11 w-full rounded-xl" disabled={submitting}>
+          {submitting && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
+          {submitting ? "Creating account…" : "Create account"}
+          {!submitting && <ArrowRight data-icon="inline-end" />}
+        </Button>
+        <p className="text-center text-sm text-muted-foreground">
+          Already have an account?{" "}
+          <Link href="/login" className="font-medium text-primary hover:underline">
+            Sign in
+          </Link>
+        </p>
+      </form>
+    </AuthShell>
   );
 }

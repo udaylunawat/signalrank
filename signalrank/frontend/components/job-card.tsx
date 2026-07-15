@@ -1,0 +1,115 @@
+import { ArrowUpRight, BookmarkPlus, Building2, Clock3, MapPin } from "lucide-react";
+import type { Job } from "@/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+function scoreMeta(score: number | null) {
+  const value = score == null ? null : Math.round(score);
+  if (value == null) return { value: "—", label: "Unscored", tone: "bg-muted text-muted-foreground" };
+  if (value >= 80) return { value, label: "Excellent", tone: "bg-emerald-50 text-emerald-700" };
+  if (value >= 65) return { value, label: "Strong", tone: "bg-indigo-50 text-indigo-700" };
+  return { value, label: "Possible", tone: "bg-amber-50 text-amber-700" };
+}
+
+function postedLabel(value: string | null) {
+  if (!value) return null;
+  const days = Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000);
+  if (Number.isNaN(days)) return null;
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return `${days}d ago`;
+}
+
+export default function JobCard({
+  job,
+  compact = false,
+  tracked = false,
+  tracking = false,
+  onTrack,
+}: {
+  job: Job;
+  compact?: boolean;
+  tracked?: boolean;
+  tracking?: boolean;
+  onTrack?: (job: Job) => void;
+}) {
+  const score = scoreMeta(job.final_score);
+  const posted = postedLabel(job.date_posted);
+
+  return (
+    <article className="group rounded-2xl border border-border/75 bg-white/90 p-4 shadow-[0_1px_2px_rgba(20,20,35,0.03)] transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_16px_38px_rgba(58,48,120,0.09)] sm:p-5">
+      <div className="flex items-start gap-3 sm:gap-4">
+        <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-secondary text-secondary-foreground ring-1 ring-primary/8">
+          <Building2 className="size-5" strokeWidth={1.8} />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate text-[15px] font-semibold tracking-[-0.02em] sm:text-base">
+                {job.title}
+              </h3>
+              <p className="mt-0.5 truncate text-sm text-muted-foreground">{job.company}</p>
+            </div>
+            <div className={cn("flex shrink-0 items-center gap-2 rounded-xl px-2.5 py-1.5", score.tone)}>
+              <span className="text-sm font-semibold tabular-nums">{score.value}</span>
+              <span className="hidden text-[11px] font-medium sm:inline">{score.label}</span>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+            {job.location && (
+              <span className="flex items-center gap-1">
+                <MapPin className="size-3.5" />
+                {job.location}
+              </span>
+            )}
+            {posted && (
+              <span className="flex items-center gap-1">
+                <Clock3 className="size-3.5" />
+                {posted}
+              </span>
+            )}
+            {job.site && <span className="capitalize">via {job.site}</span>}
+          </div>
+
+          {!compact && (
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {job.company_tier && <Badge variant="secondary">Tier {job.company_tier}</Badge>}
+              {job.is_contract && <Badge variant="outline">Contract</Badge>}
+              {job.skills_score != null && (
+                <Badge variant="outline">Skills {Math.round(job.skills_score)}%</Badge>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4 flex items-center gap-2">
+            <Button
+              render={<a href={job.job_url} target="_blank" rel="noreferrer" />}
+              nativeButton={false}
+              size="sm"
+              className="rounded-xl"
+            >
+              View role
+              <ArrowUpRight data-icon="inline-end" />
+            </Button>
+            {onTrack && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                disabled={tracked || tracking}
+                onClick={() => onTrack(job)}
+              >
+                <BookmarkPlus data-icon="inline-start" />
+                {tracked ? "Saved" : tracking ? "Saving…" : "Track"}
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}

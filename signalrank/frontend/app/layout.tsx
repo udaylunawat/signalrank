@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "SignalRank",
-  description: "AI-powered job ranking",
+  description: "A focused job search, ranked around you.",
 };
 
 export default function RootLayout({
@@ -28,7 +28,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full">
         <NextAuthSessionProvider>{children}</NextAuthSessionProvider>
       </body>
     </html>

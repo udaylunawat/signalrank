@@ -1,9 +1,12 @@
 import type {
   Application,
+  ApplicationStatus,
   Job,
+  JobListParams,
   JobsResponse,
   OnboardingStatus,
   Profile,
+  ProfileResponse,
   Run,
 } from "@/types";
 
@@ -47,7 +50,7 @@ export const api = {
 
   profile: {
     get: (token: string) =>
-      request<Profile>("/api/profile", { token }),
+      request<ProfileResponse>("/api/profile", { token }),
     patch: (token: string, data: Partial<Profile>) =>
       request<{ status: string }>("/api/profile", {
         method: "PATCH",
@@ -57,8 +60,14 @@ export const api = {
   },
 
   jobs: {
-    list: (token: string, page = 1, limit = 50) =>
-      request<JobsResponse>(`/api/jobs?page=${page}&limit=${limit}`, { token }),
+    list: (token: string, params: JobListParams = {}) => {
+      const query = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== "") query.set(key, String(value));
+      });
+      const suffix = query.size ? `?${query.toString()}` : "";
+      return request<JobsResponse>(`/api/jobs${suffix}`, { token });
+    },
     get: (token: string, id: string) =>
       request<Job>(`/api/jobs/${id}`, { token }),
   },
@@ -79,13 +88,13 @@ export const api = {
     list: (token: string) =>
       request<Application[]>("/api/applications", { token }),
     create: (token: string, data: Partial<Application>) =>
-      request<Application>("/api/applications", {
+      request<{ id: string; status: ApplicationStatus }>("/api/applications", {
         method: "POST",
         token,
         body: JSON.stringify(data),
       }),
     update: (token: string, id: string, data: Partial<Application>) =>
-      request<Application>(`/api/applications/${id}`, {
+      request<{ status: "updated" }>(`/api/applications/${id}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(data),
