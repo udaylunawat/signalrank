@@ -12,6 +12,27 @@ import type {
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function errorDetail(res: Response) {
+  const fallback = `Request failed with status ${res.status}`;
+  try {
+    const body = await res.json();
+    if (typeof body?.detail === "string") return body.detail;
+  } catch {
+    return fallback;
+  }
+  return fallback;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit & { token?: string } = {}
@@ -27,8 +48,7 @@ async function request<T>(
 
   const res = await fetch(`${BASE_URL}${path}`, { ...init, headers });
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`${res.status}: ${detail}`);
+    throw new ApiError(res.status, await errorDetail(res));
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -39,8 +59,7 @@ async function download(path: string, token: string) {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`${res.status}: ${detail}`);
+    throw new ApiError(res.status, await errorDetail(res));
   }
   const disposition = res.headers.get("Content-Disposition") ?? "";
   const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]

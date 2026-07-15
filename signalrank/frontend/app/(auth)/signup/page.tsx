@@ -9,7 +9,7 @@ import AuthShell from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -30,8 +30,14 @@ export default function SignupPage() {
         return;
       }
       router.push("/onboarding");
-    } catch {
-      setError("We couldn’t create that account. The email may already be in use.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setError("An account with that email already exists. Sign in instead.");
+      } else if (error instanceof ApiError && error.status === 422) {
+        setError("Check your email and password, then try again.");
+      } else {
+        setError("Signup is temporarily unavailable. Check that the server is running and try again.");
+      }
     } finally {
       setSubmitting(false);
     }
