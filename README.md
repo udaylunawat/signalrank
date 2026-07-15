@@ -1,227 +1,171 @@
-# Job Ranker
+# SignalRank
 
-A batch-first, deterministic job ranking engine for senior individual contributor roles.
+SignalRank is a resume- and role-agnostic job discovery, ranking, and match-tracking application. A user uploads a resume, confirms any roles or locations they want, refreshes the shared job catalog, and receives explainable ranked matches.
 
-This system is designed to optimize for **ranking correctness, operational calm, and long-term evolvability**, not feature velocity or configurability.
+The active SaaS application lives in [`signalrank/`](signalrank/). The original DuckDB and Streamlit batch engine remains in [`job_ranker/`](job_ranker/) as a legacy implementation and reference.
 
----
+## Product principles
 
-## What This System Is
+- Any resume and any free-text role title must work; there is no fixed role catalog.
+- Resume parsing should improve the experience, not block it. Deterministic extraction remains available when an LLM is unavailable.
+- Discovery favors recall, while ranking remains deterministic and explainable.
+- Company reputation is assessed independently of candidate role, seniority, resume, or location.
+- Model failures degrade visibly and safely instead of breaking onboarding or ranking.
 
-**Job Ranker** is a **job discovery and ranking engine**, not a job board.
+## Current capabilities
 
-It answers one question well:
+### Onboarding and profiles
 
-> "Given a resume and a search intent, which jobs are most worth my attention today?"
+- Email/password accounts with per-user profiles.
+- PDF, DOCX, and TXT resume upload.
+- Strict structured extraction of skills, experience, titles, industries, and education through OpenRouter.
+- Deterministic fallback parsing and explicit parse status, confidence, model, and error metadata.
+- Editable free-text target roles, preferred locations, preferred companies, and exclusions.
+- Degraded parses are retried after model or credential recovery instead of being cached permanently.
 
-Everything in the system exists to support that outcome with:
-- Repeatable results
-- Explainable scoring
-- Minimal hidden state
-- Low operational surprise
+### Discovery and ranking
 
----
+- Durable database-backed refresh runs with leases, retries, stages, and source telemetry.
+- Independent discovery through Indeed and LinkedIn via JobSpy plus Remotive, Himalayas, and Jobicy.
+- Canonicalization, URL deduplication, freshness tracking, and active-job state.
+- Semantic resume-to-job scoring combined with deterministic role, explicit skill, seniority, location, company, recency, and contract signals.
+- Primary and broader-match lanes without profession-specific role presets.
+- Per-match explanations, matched skills, score dimensions, concerns, source links, and CSV export.
+- Application tracking across saved, applied, interviewing, offered, rejected, and withdrawn states.
 
-## Core Properties
+### AI-driven company reputation
 
-### Batch-first by design
-- All scraping, embedding, and ranking happens in batch
-- No ranking logic is executed from the UI
-- Every execution is explicit and auditable
+The **Top reputed** filter is powered by free OpenRouter models rather than a hard-coded company list.
 
-### Immutable runs
-- Each execution produces a new `run_id`
-- Past results are never overwritten
-- History is preserved by default
+- SignalRank discovers currently available free models that support structured output.
+- Companies are evaluated with one global, role-independent rubric covering credibility, product or engineering reputation, organizational maturity, durable standing, and career development.
+- Assessments include a score, S/A/B/C tier, confidence, rationale, model identifier, rubric version, and expiry time.
+- Results are persisted and reused for 60 days by default.
+- **Top reputed** includes assessed S/A employers with confidence of at least `0.7`, plus companies the user explicitly prefers.
+- **All companies** keeps assessed and unassessed employers visible.
 
-### Single state spine
-- DuckDB is the only persistence layer
-- No CSV snapshots
-- No parallel caches for the same data
+OpenRouter is advisory: an unavailable key or model does not prevent resume storage, profile editing, catalog refresh, or ranking in **All companies** mode.
 
-### Deterministic ranking
-- Same inputs produce the same outputs
-- Heuristics run before probabilistic signals
-- LLMs are advisory, never authoritative
+## Architecture
 
----
-
-## High-level Architecture
-
-One writer. Many readers. Always.
-
-```
-CLI / Scheduler
-    ↓
-Batch Run
-    ↓
-DuckDB (runs, jobs, embeddings, results)
-    ↓
-Streamlit UI (read-only)
-```
-
----
-
-## Repository Layout
-
-```
-job_ranker/
-├── app/            # Streamlit UI (read-only)
-├── batch/          # Batch execution pipeline (only writer)
-├── config/         # Static config + per-user overrides
-├── domain/         # Pure scoring and ranking logic
-├── llm/            # Advisory LLM utilities
-├── runtime/        # Scheduler / orchestration
-├── storage/        # DuckDB schema and store
-├── tools/          # One-off operational tools
-└── tests/          # Scoring correctness tests
+```text
+Next.js 16 frontend
+        |
+        v
+FastAPI API + durable background worker
+        |
+        +-- PostgreSQL + pgvector
+        +-- JobSpy and public job APIs
+        +-- OpenRouter free models
 ```
 
-### Intent by directory
+```text
+signalrank/
+├── backend/
+│   ├── api/          # FastAPI routes, auth, database models
+│   ├── batch/        # Discovery, company enrichment, ranking, worker
+│   ├── domain/       # Deterministic scoring functions
+│   ├── llm/          # OpenRouter, resume parsing, reputation assessment
+│   ├── alembic/      # PostgreSQL migrations
+│   └── tests/
+└── frontend/
+    ├── app/          # Next.js routes
+    ├── components/
+    ├── lib/          # Typed API client
+    └── types/
+```
 
-**`domain/`**  
-Pure functions only. No I/O. No database. No environment access.
-
-**`batch/`**  
-Orchestrates scraping, embeddings, scoring, and persistence.
-
-**`storage/`**  
-Owns schema and persistence rules. No scoring logic allowed.
-
-**`app/`**  
-Visualization and inspection only. Never mutates state.
-
----
-
-## Installation
+## Local development
 
 ### Requirements
-- Python ≥ 3.10
-- DuckDB
-- A supported LLM provider (optional)
 
-### Install (editable)
+- Python 3.11+
+- [`uv`](https://docs.astral.sh/uv/)
+- Node.js 20+
+- PostgreSQL with permission to enable the `vector` extension
+- An OpenRouter key for structured resume extraction and company reputation assessment
 
-On macOS, use:
-
-```bash
-uv pip install -e .
-```
-
-Verify environment:
+### 1. Start the backend
 
 ```bash
-job-ranker doctor
+cd signalrank/backend
+cp .env.example .env
+uv sync --extra dev
+uv run alembic upgrade head
+uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
----
+Configure `signalrank/backend/.env`:
 
-## Running the System
+```env
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/signalrank
+NEXTAUTH_SECRET=replace-with-a-long-random-secret
+ALLOWED_ORIGINS=["http://localhost:3000"]
+OPENROUTER_API_KEY=replace-with-your-openrouter-key
+```
 
-### Batch execution (primary interface)
+The API health check is available at `http://localhost:8000/health`.
+
+### 2. Start the frontend
 
 ```bash
-job-ranker run \
-  --user example \
-  --use-case default \
-  --search "mlops|llmops|genai" \
-  --hours-old 24
+cd signalrank/frontend
+npm ci
+npm run dev
 ```
 
-If arguments are omitted, the CLI will prompt interactively.
+Create `signalrank/frontend/.env.local`:
 
-What happens in a run:
-1. Optional scraping (skipped if recent data exists)
-2. Job canonicalization
-3. Embedding generation or reuse
-4. Semantic similarity scoring
-5. Deterministic adjustments (company, role, recency, experience)
-6. Optional LLM veto
-7. Immutable persistence of results
+```env
+AUTH_SECRET=replace-with-a-long-random-secret
+NEXTAUTH_SECRET=replace-with-a-long-random-secret
+AUTH_URL=http://localhost:3000
+AUTH_TRUST_HOST=true
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
 
-### Launching the UI
+Open `http://localhost:3000` and register a local account.
+
+## Database migrations
+
+Run migrations from `signalrank/backend`:
 
 ```bash
-job-ranker ui
+uv run alembic upgrade head
+uv run alembic current
 ```
 
-The UI:
-- Reads from DuckDB only
-- Never triggers batch logic
-- Allows inspection of historical runs
+The current schema includes durable run state, job freshness and source telemetry, embedding storage, resume parse metadata, and cached company-reputation assessments.
 
----
+## Verification
 
-## Configuration Model
+Backend:
 
-### Base configuration
-- Stored in `config/base.yaml`
-- Engine-neutral defaults only
-- Safe to version-control
+```bash
+cd signalrank/backend
+uv run pytest -q
+```
 
-### User overrides
-- Stored in `config/overrides/<user>.yaml`
-- Express intent, not mechanics
-- Limited surface area by design
+Frontend:
 
-Overrides can affect:
-- Resume embedding intent
-- Role weighting
-- Company preferences
-- Experience bounds
-- Location preference
+```bash
+cd signalrank/frontend
+npm run lint
+npm run build
+```
 
----
+Tests use isolated dependencies where appropriate. Live source probes and OpenRouter preflight checks should be run separately because they consume external quotas and depend on current provider availability.
 
-## LLM Usage (Strictly Bounded)
+## Deployment
 
-LLMs are used only for:
-- Resume distillation
-- Optional relevance veto
-- Optional onboarding assistance
+- Backend configuration: [`signalrank/backend/railway.toml`](signalrank/backend/railway.toml)
+- Frontend configuration: [`signalrank/frontend/vercel.json`](signalrank/frontend/vercel.json)
+- Apply Alembic migrations before serving a new backend revision.
+- Keep API keys and database credentials in deployment secrets; never commit `.env` files or resumes.
 
-Hard rules:
-- LLM failure never breaks a run
-- LLM output never directly determines ranking
-- All LLM effects are bounded multipliers or filters
+## Project documentation
 
----
-
-## What This System Explicitly Avoids
-
-- Real-time ranking
-- UI-triggered computation
-- Hidden background jobs
-- Filesystem-based snapshots
-- Unbounded configuration matrices
-- "Latest.csv" semantics
-
-If you are looking for flexibility over correctness, this is not that system.
-
----
-
-## Design Principles
-
-- Prefer simple scoring tweaks over new subsystems
-- Prefer explicit data over inferred state
-- Prefer explainability over cleverness
-- Prefer deletion over abstraction
-
----
-
-## Getting Oriented as a Contributor
-
-Suggested reading order:
-
-1. `DESIGN.md` (see companion document)
-2. `batch/run.py`
-3. `batch/ranker.py`
-4. `domain/scoring.py`
-5. `storage/schema.sql`
-6. `app/pages/dashboard.py`
-
----
-
-## License and Usage
-
-This project is intended for personal and internal use. Open-sourcing focuses on clarity and correctness, not general-purpose extensibility.
+- [Changelog](CHANGELOG.md)
+- [Recall, relevance, and robustness roadmap](docs/2026-07-15-saas-recall-relevance-roadmap.md)
+- [Setup notes](SETUP.md)
+- [Engineering guidance](AGENTS.md)
