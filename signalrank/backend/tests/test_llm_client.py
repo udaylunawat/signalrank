@@ -2,7 +2,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
 from llm.openrouter import (
     FALLBACK_MODELS,
     OpenRouterClient,
@@ -36,9 +35,7 @@ def test_fallback_models_has_three():
 def _mock_success_response(content: str) -> MagicMock:
     resp = MagicMock(spec=httpx.Response)
     resp.status_code = 200
-    resp.json.return_value = {
-        "choices": [{"message": {"content": content}}]
-    }
+    resp.json.return_value = {"choices": [{"message": {"content": content}}]}
     resp.raise_for_status = MagicMock()
     return resp
 

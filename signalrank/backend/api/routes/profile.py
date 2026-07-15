@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,9 +20,25 @@ class ProfileUpdate(BaseModel):
     config_overrides: dict | None = None
     onboarding_complete: bool | None = None
 
+    @field_validator("config_overrides")
+    @classmethod
+    def validate_company_tiers(cls, value: dict | None) -> dict | None:
+        if value is None:
+            return value
+        tiers = value.get("company_preferences", {}).get("tiers", [])
+        allowed = {"tier_s", "tier_a", "tier_b", "any"}
+        unknown = {str(tier) for tier in tiers} - allowed
+        if unknown:
+            raise ValueError(f"Unknown company tiers: {', '.join(sorted(unknown))}")
+        if "any" in tiers and len(tiers) > 1:
+            raise ValueError("Any company cannot be combined with specific tiers")
+        return value
+
 
 @router.get("/profile")
-async def get_profile(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_profile(
+    current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(Profile).where(Profile.user_id == current_user.id))
     profile = result.scalar_one_or_none()
     return {
@@ -35,7 +51,9 @@ async def get_profile(current_user: User = Depends(get_current_user), db: AsyncS
             "role_intent": profile.role_intent if profile else None,
             "config_overrides": profile.config_overrides if profile else None,
             "onboarding_complete": profile.onboarding_complete if profile else False,
-        } if profile else None,
+        }
+        if profile
+        else None,
     }
 
 
@@ -51,7 +69,7 @@ async def update_profile(
         profile = Profile(user_id=current_user.id)
         db.add(profile)
 
-    for field, value in body.model_dump(exclude_none=True).items():
+    for field, value in body.model_dump(exclude_unset=True).items():
         setattr(profile, field, value)
 
     await db.commit()

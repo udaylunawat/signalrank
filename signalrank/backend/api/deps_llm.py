@@ -1,5 +1,6 @@
-from api.config import settings
 from llm.openrouter import OpenRouterClient
+
+from api.config import settings
 
 _client: OpenRouterClient | None = None
 

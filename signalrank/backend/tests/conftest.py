@@ -1,10 +1,9 @@
 import pytest
+from api.database import Base, get_db
+from api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-from api.database import Base, get_db
-from api.main import app
 
 TEST_DB_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/signalrank_test"
 

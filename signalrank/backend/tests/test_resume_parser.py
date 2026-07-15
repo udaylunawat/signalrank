@@ -1,9 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
-
 from llm.resume_parser import (
-    EXTRACTION_PROMPT,
     ResumeParseResult,
     _validate_extraction,
     parse_resume,

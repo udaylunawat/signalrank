@@ -13,7 +13,7 @@ def test_generates_questions_from_profile():
     questions = generate_onboarding_questions(profile)
     assert isinstance(questions, list)
     assert len(questions) >= 3
-    assert len(questions) <= 5
+    assert len(questions) <= 6
     assert all(isinstance(q, dict) for q in questions)
     assert all("id" in q and "text" in q for q in questions)
 
@@ -41,4 +41,9 @@ def test_questions_have_options_when_applicable():
     questions = generate_onboarding_questions(profile)
     role_q = next((q for q in questions if q["id"] == "target_roles"), None)
     assert role_q is not None
-    assert "options" in role_q or "text" in role_q
+    assert role_q["type"] == "multiselect"
+    assert role_q["options"]
+    tier_q = next((q for q in questions if q["id"] == "company_tiers"), None)
+    assert tier_q is not None
+    assert tier_q["type"] == "multiselect"
+    assert tier_q["options"]

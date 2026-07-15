@@ -7,11 +7,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.database import get_db
 from api.deps import get_current_user
-from api.models import Application, User
+from api.models import Application, JobRaw, User
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
-VALID_STATUSES = {"interested", "applied", "phone_screen", "interview", "offer", "rejected", "archived"}
+VALID_STATUSES = {
+    "interested",
+    "applied",
+    "phone_screen",
+    "interview",
+    "offer",
+    "rejected",
+    "archived",
+}
 
 
 class ApplicationCreate(BaseModel):
@@ -34,11 +42,11 @@ async def list_applications(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Application)
+        select(Application, JobRaw)
+        .outerjoin(JobRaw, Application.job_id == JobRaw.id)
         .where(Application.user_id == current_user.id)
         .order_by(Application.applied_at.desc().nullslast())
     )
-    apps = result.scalars().all()
     return [
         {
             "id": a.id,
@@ -48,8 +56,11 @@ async def list_applications(
             "status": a.status,
             "applied_at": str(a.applied_at) if a.applied_at else None,
             "notes": a.notes,
+            "job_url": job.job_url if job else None,
+            "source": job.site if job else None,
+            "date_posted": str(job.date_posted) if job and job.date_posted else None,
         }
-        for a in apps
+        for a, job in result.all()
     ]
 
 
@@ -61,6 +72,22 @@ async def create_application(
 ):
     if body.status not in VALID_STATUSES:
         raise HTTPException(status_code=422, detail=f"Invalid status: {body.status}")
+    if body.job_id:
+        existing_result = await db.execute(
+            select(Application).where(
+                Application.user_id == current_user.id,
+                Application.job_id == body.job_id,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            existing.company = body.company or existing.company
+            existing.title = body.title or existing.title
+            existing.status = body.status
+            if body.notes is not None:
+                existing.notes = body.notes
+            await db.commit()
+            return {"id": existing.id, "status": existing.status, "created": False}
     app = Application(
         user_id=current_user.id,
         job_id=body.job_id,
@@ -72,7 +99,7 @@ async def create_application(
     db.add(app)
     await db.commit()
     await db.refresh(app)
-    return {"id": app.id, "status": app.status}
+    return {"id": app.id, "status": app.status, "created": True}
 
 
 @router.patch("/{app_id}", status_code=200)
@@ -83,14 +110,18 @@ async def update_application(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Application).where(Application.id == app_id, Application.user_id == current_user.id)
+        select(Application).where(
+            Application.id == app_id, Application.user_id == current_user.id
+        )
     )
     app = result.scalar_one_or_none()
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
     if body.status:
         if body.status not in VALID_STATUSES:
-            raise HTTPException(status_code=422, detail=f"Invalid status: {body.status}")
+            raise HTTPException(
+                status_code=422, detail=f"Invalid status: {body.status}"
+            )
         app.status = body.status
         if body.status == "applied" and not app.applied_at:
             app.applied_at = datetime.now(timezone.utc)
@@ -107,7 +138,9 @@ async def delete_application(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Application).where(Application.id == app_id, Application.user_id == current_user.id)
+        select(Application).where(
+            Application.id == app_id, Application.user_id == current_user.id
+        )
     )
     app = result.scalar_one_or_none()
     if not app:

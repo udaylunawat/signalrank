@@ -2,6 +2,8 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from llm.openrouter import OpenRouterClient
+from llm.resume_tailor import compile_pdf, render_typst, tailor_resume
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,8 +12,6 @@ from api.database import get_db
 from api.deps import get_current_user
 from api.deps_llm import get_llm_client
 from api.models import JobRaw, Profile, TailoredResume, User
-from llm.openrouter import OpenRouterClient
-from llm.resume_tailor import compile_pdf, render_typst, tailor_resume
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +33,18 @@ async def tailor(
     llm: OpenRouterClient = Depends(get_llm_client),
 ):
     if body.template not in VALID_TEMPLATES:
-        raise HTTPException(status_code=422, detail=f"Template must be one of: {VALID_TEMPLATES}")
+        raise HTTPException(
+            status_code=422, detail=f"Template must be one of: {VALID_TEMPLATES}"
+        )
 
-    profile_res = await db.execute(select(Profile).where(Profile.user_id == current_user.id))
+    profile_res = await db.execute(
+        select(Profile).where(Profile.user_id == current_user.id)
+    )
     profile = profile_res.scalar_one_or_none()
     if not profile or not profile.resume_text:
-        raise HTTPException(status_code=404, detail="Upload a resume first via /api/onboarding/resume")
+        raise HTTPException(
+            status_code=404, detail="Upload a resume first via /api/onboarding/resume"
+        )
 
     job_res = await db.execute(select(JobRaw).where(JobRaw.id == body.job_id))
     job = job_res.scalar_one_or_none()
@@ -63,15 +69,18 @@ async def tailor(
     try:
         typst_src = render_typst(content, body.template)
         pdf_bytes = compile_pdf(typst_src)
-        pdf_b64 = None
     except Exception as e:
         logger.warning("PDF compile failed: %s", e)
         pdf_bytes = None
 
     content_dict = {
-        "name": content.name, "position": content.position,
+        "name": content.name,
+        "position": content.position,
         "email": content.email,
-        "phone": content.phone, "homepage": content.homepage, "linkedin": content.linkedin, "github": content.github,
+        "phone": content.phone,
+        "homepage": content.homepage,
+        "linkedin": content.linkedin,
+        "github": content.github,
         "location": content.location,
         "summary": content.summary,
         "skills": content.skills,
@@ -129,7 +138,9 @@ async def download_tailored(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="resume_{job_id[:8]}.pdf"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="resume_{job_id[:8]}.pdf"'
+        },
     )
 
 

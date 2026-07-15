@@ -1,6 +1,5 @@
-from httpx import ASGITransport, AsyncClient
-
 from api.main import app
+from httpx import ASGITransport, AsyncClient
 
 
 async def test_health():

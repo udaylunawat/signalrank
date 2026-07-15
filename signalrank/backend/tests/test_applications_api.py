@@ -3,13 +3,19 @@ import pytest
 
 @pytest.fixture
 async def auth_token(client):
-    await client.post("/api/auth/register", json={"email": "appuser@test.com", "password": "pass"})
-    r = await client.post("/api/auth/login", json={"email": "appuser@test.com", "password": "pass"})
+    await client.post(
+        "/api/auth/register", json={"email": "appuser@test.com", "password": "pass"}
+    )
+    r = await client.post(
+        "/api/auth/login", json={"email": "appuser@test.com", "password": "pass"}
+    )
     return r.json()["access_token"]
 
 
 async def test_list_applications_empty(client, auth_token):
-    r = await client.get("/api/applications", headers={"Authorization": f"Bearer {auth_token}"})
+    r = await client.get(
+        "/api/applications", headers={"Authorization": f"Bearer {auth_token}"}
+    )
     assert r.status_code == 200
     assert r.json() == []
 
@@ -23,8 +29,46 @@ async def test_create_and_list_application(client, auth_token):
     assert r.status_code == 201
     app_id = r.json()["id"]
 
-    r = await client.get("/api/applications", headers={"Authorization": f"Bearer {auth_token}"})
+    r = await client.get(
+        "/api/applications", headers={"Authorization": f"Bearer {auth_token}"}
+    )
     assert any(a["id"] == app_id for a in r.json())
+
+
+async def test_create_application_is_idempotent_for_job(client, auth_token, db):
+    from api.models import JobRaw
+
+    job = JobRaw(
+        job_url="https://example.com/idempotent-job",
+        title="Staff AI Engineer",
+        company="Acme",
+        site="indeed",
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    payload = {
+        "job_id": job.id,
+        "company": job.company,
+        "title": job.title,
+        "status": "interested",
+    }
+    first = await client.post(
+        "/api/applications",
+        json=payload,
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    second = await client.post(
+        "/api/applications",
+        json=payload,
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
+    assert second.json()["created"] is False
 
 
 async def test_update_application_status(client, auth_token):

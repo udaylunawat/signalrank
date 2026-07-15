@@ -1,9 +1,8 @@
 from collections.abc import Sequence
 
+from api.models import Embedding
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.models import Embedding
 
 
 class PgEmbeddingCache:

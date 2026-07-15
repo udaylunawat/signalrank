@@ -2,28 +2,29 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
+from batch.worker import worker_loop
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import settings
 from api.database import AsyncSessionLocal
 from api.routes import applications, auth, jobs, onboarding, profile, resume, runs
-from batch.worker import worker_loop
 
 logging.basicConfig(level=logging.INFO)
-
-_worker_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _worker_task
-    _worker_task = asyncio.create_task(worker_loop(AsyncSessionLocal))
-    yield
-    if _worker_task:
-        _worker_task.cancel()
+    worker_task = asyncio.create_task(
+        worker_loop(AsyncSessionLocal), name="signalrank-durable-worker"
+    )
+    app.state.worker_task = worker_task
+    try:
+        yield
+    finally:
+        worker_task.cancel()
         try:
-            await _worker_task
+            await worker_task
         except asyncio.CancelledError:
             pass
 

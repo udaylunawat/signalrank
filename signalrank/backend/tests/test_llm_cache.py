@@ -1,6 +1,5 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from llm.cache import PromptCache
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def test_cache_miss_returns_none(db: AsyncSession):

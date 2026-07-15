@@ -1,14 +1,23 @@
 import asyncio
+import inspect
 import logging
-from datetime import datetime, timezone
+import socket
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
-from sqlalchemy import select, update
+from api.models import JobResult, Profile, Run, RunSourceTelemetry
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from api.models import JobResult, Profile, Run
+from batch.ingest import refresh_job_catalog
 from batch.ranker import score_jobs_for_user
 
 logger = logging.getLogger(__name__)
+
+LEASE_SECONDS = 300
+HEARTBEAT_SECONDS = 30
+POLL_SECONDS = 2
 
 _queue: asyncio.Queue | None = None
 
@@ -20,16 +29,260 @@ def get_queue() -> asyncio.Queue:
     return _queue
 
 
-async def process_run(
-    run_id: str, user_id: str, session_factory: async_sessionmaker
+def wake_worker() -> None:
+    queue = get_queue()
+    try:
+        queue.put_nowait(None)
+    except asyncio.QueueFull:
+        pass
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _worker_id() -> str:
+    return f"{socket.gethostname()}:{uuid.uuid4().hex[:12]}"
+
+
+async def _claim_next_run(
+    session_factory: async_sessionmaker,
+    owner: str,
+) -> tuple[str, str] | None:
+    now = _now()
+    async with session_factory() as db, db.begin():
+        result = await db.execute(
+            select(Run)
+            .where(
+                or_(
+                    Run.status == "pending",
+                    (Run.status == "running")
+                    & or_(Run.lease_expires_at.is_(None), Run.lease_expires_at < now),
+                )
+            )
+            .order_by(Run.started_at.asc())
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+        run = result.scalar_one_or_none()
+        if run is None:
+            return None
+
+        run.status = "running"
+        run.stage = "starting"
+        run.progress = max(run.progress or 0, 2)
+        run.error_summary = None
+        run.lease_owner = owner
+        run.lease_expires_at = now + timedelta(seconds=LEASE_SECONDS)
+        run.heartbeat_at = now
+        run.attempt_count = (run.attempt_count or 0) + 1
+        return run.id, run.user_id
+
+
+async def _claim_run(
+    run_id: str,
+    session_factory: async_sessionmaker,
+    owner: str,
+) -> tuple[str, str] | None:
+    now = _now()
+    async with session_factory() as db, db.begin():
+        result = await db.execute(
+            select(Run).where(Run.id == run_id).with_for_update(skip_locked=True)
+        )
+        run = result.scalar_one_or_none()
+        if run is None or run.status not in {"pending", "running"}:
+            return None
+        if (
+            run.status == "running"
+            and run.lease_expires_at is not None
+            and run.lease_expires_at >= now
+            and run.lease_owner != owner
+        ):
+            return None
+
+        run.status = "running"
+        run.stage = "starting"
+        run.progress = max(run.progress or 0, 2)
+        run.error_summary = None
+        run.lease_owner = owner
+        run.lease_expires_at = now + timedelta(seconds=LEASE_SECONDS)
+        run.heartbeat_at = now
+        run.attempt_count = (run.attempt_count or 0) + 1
+        return run.id, run.user_id
+
+
+async def _heartbeat(
+    run_id: str,
+    owner: str,
+    session_factory: async_sessionmaker,
 ) -> None:
-    async with session_factory() as db:
-        try:
+    while True:
+        await asyncio.sleep(HEARTBEAT_SECONDS)
+        now = _now()
+        async with session_factory() as db:
             await db.execute(
-                update(Run).where(Run.id == run_id).values(status="running")
+                update(Run)
+                .where(
+                    Run.id == run_id,
+                    Run.status == "running",
+                    Run.lease_owner == owner,
+                )
+                .values(
+                    heartbeat_at=now,
+                    lease_expires_at=now + timedelta(seconds=LEASE_SECONDS),
+                )
             )
             await db.commit()
 
+
+async def _update_progress(
+    db: AsyncSession,
+    run_id: str,
+    owner: str,
+    stage: str,
+    progress: int,
+) -> None:
+    await db.execute(
+        update(Run)
+        .where(Run.id == run_id, Run.lease_owner == owner)
+        .values(stage=stage, progress=progress)
+    )
+    await db.commit()
+
+
+def _field(value: Any, name: str, default: Any = None) -> Any:
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _catalog_count(result: Any) -> int:
+    if isinstance(result, int):
+        return result
+    for name in (
+        "jobs_persisted",
+        "count",
+        "persisted",
+        "unique_jobs",
+        "total",
+    ):
+        value = _field(result, name)
+        if value is not None:
+            return int(value)
+    return 0
+
+
+def _catalog_reports(result: Any) -> list[Any]:
+    reports = _field(result, "reports", [])
+    return list(reports or [])
+
+
+def _as_datetime(value: Any, fallback: datetime) -> datetime:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return fallback
+
+
+def _summarize_source_errors(reports: list[Any]) -> str | None:
+    errors = []
+    for report in reports:
+        if _field(report, "status", "success") not in {
+            "partial",
+            "failed",
+            "error",
+        }:
+            continue
+        source = str(_field(report, "source", "source"))
+        query = _field(report, "query")
+        error = str(_field(report, "error_summary") or "source did not complete")
+        label = f"{source} ({query})" if query else source
+        errors.append(f"{label}: {error}")
+    if not errors:
+        return None
+    return "; ".join(errors)[:2000]
+
+
+async def _persist_source_telemetry(
+    db: AsyncSession,
+    run_id: str,
+    catalog_result: Any,
+    fallback_started_at: datetime,
+) -> list[Any]:
+    reports = _catalog_reports(catalog_result)
+    await db.execute(
+        delete(RunSourceTelemetry).where(RunSourceTelemetry.run_id == run_id)
+    )
+
+    if not reports:
+        now = _now()
+        reports = [
+            {
+                "source": "catalog",
+                "status": "success",
+                "jobs_found": _catalog_count(catalog_result),
+                "jobs_persisted": _catalog_count(catalog_result),
+                "started_at": fallback_started_at,
+                "finished_at": now,
+                "duration_ms": int((now - fallback_started_at).total_seconds() * 1000),
+            }
+        ]
+
+    for report in reports:
+        finished_at = _as_datetime(_field(report, "finished_at"), _now())
+        started_at = _as_datetime(_field(report, "started_at"), fallback_started_at)
+        duration_ms = _field(report, "duration_ms")
+        if duration_ms is None:
+            duration_ms = max(0, int((finished_at - started_at).total_seconds() * 1000))
+        db.add(
+            RunSourceTelemetry(
+                run_id=run_id,
+                source=str(_field(report, "source", "unknown"))[:100],
+                query=(
+                    str(query)[:500] if (query := _field(report, "query")) else None
+                ),
+                location=(
+                    str(location)[:255]
+                    if (location := _field(report, "location"))
+                    else None
+                ),
+                status=str(_field(report, "status", "success"))[:50],
+                jobs_found=int(_field(report, "jobs_found", 0) or 0),
+                jobs_persisted=int(_field(report, "jobs_persisted", 0) or 0),
+                duration_ms=int(duration_ms),
+                error_summary=(
+                    str(error)[:2000]
+                    if (error := _field(report, "error_summary"))
+                    else None
+                ),
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+        )
+    await db.commit()
+    return reports
+
+
+async def _execute_claimed_run(
+    run_id: str,
+    user_id: str,
+    owner: str,
+    session_factory: async_sessionmaker,
+) -> None:
+    heartbeat_task = asyncio.create_task(
+        _heartbeat(run_id, owner, session_factory),
+        name=f"signalrank-heartbeat-{run_id}",
+    )
+    try:
+        async with session_factory() as db:
+            await _update_progress(db, run_id, owner, "loading_profile", 5)
             profile_result = await db.execute(
                 select(Profile).where(Profile.user_id == user_id)
             )
@@ -37,7 +290,48 @@ async def process_run(
             resume_text = profile.resume_text if profile else ""
             distilled_text = profile.distilled_text if profile else None
             config_overrides = profile.config_overrides if profile else None
+            overrides = config_overrides or {}
+            roles = overrides.get("profile_intent", {}).get("roles")
+            locations = overrides.get("scraping", {}).get("locations")
+            if not locations and profile:
+                locations = profile.preferred_locations
 
+            await _update_progress(db, run_id, owner, "discovering_jobs", 10)
+            ingest_started_at = _now()
+            ingestion_error = None
+            try:
+                kwargs: dict[str, Any] = {"roles": roles}
+                if "locations" in inspect.signature(refresh_job_catalog).parameters:
+                    kwargs["locations"] = locations
+                catalog_result = await refresh_job_catalog(db, **kwargs)
+                logger.info(
+                    "Refreshed job catalog: %d jobs", _catalog_count(catalog_result)
+                )
+            except Exception as exc:
+                logger.exception("Job catalog refresh failed; ranking cached jobs")
+                await db.rollback()
+                ingestion_error = f"Catalog refresh failed: {type(exc).__name__}: {exc}"
+                catalog_result = {
+                    "count": 0,
+                    "reports": [
+                        {
+                            "source": "catalog",
+                            "status": "failed",
+                            "jobs_found": 0,
+                            "jobs_persisted": 0,
+                            "error_summary": ingestion_error,
+                            "started_at": ingest_started_at,
+                            "finished_at": _now(),
+                        }
+                    ],
+                }
+
+            reports = await _persist_source_telemetry(
+                db, run_id, catalog_result, ingest_started_at
+            )
+            source_error = _summarize_source_errors(reports)
+
+            await _update_progress(db, run_id, owner, "ranking_jobs", 60)
             ranked_df = await score_jobs_for_user(
                 db=db,
                 user_id=user_id,
@@ -46,50 +340,112 @@ async def process_run(
                 config_overrides=config_overrides,
             )
 
+            await _update_progress(db, run_id, owner, "saving_results", 90)
+            await db.execute(delete(JobResult).where(JobResult.run_id == run_id))
             for _, row in ranked_df.iterrows():
-                db.add(JobResult(
-                    run_id=run_id,
-                    user_id=user_id,
-                    job_id=row["id"],
-                    semantic_score=float(row.get("semantic_score", 0)),
-                    skills_score=float(row.get("skills_score", 0)),
-                    company_score=float(row.get("company_score", 0)),
-                    seniority_score=float(row.get("seniority_score_dim", 0)),
-                    location_score=float(row.get("location_score", 0)),
-                    recency_score=float(row.get("recency_score", 0)),
-                    final_score=float(row.get("final_score", 0)),
-                    company_tier=str(row.get("company_tier", "")),
-                    is_contract=bool(row.get("is_contract", False)),
-                ))
+                db.add(
+                    JobResult(
+                        run_id=run_id,
+                        user_id=user_id,
+                        job_id=row["id"],
+                        semantic_score=float(row.get("semantic_score", 0)),
+                        skills_score=float(row.get("skills_score", 0)),
+                        company_score=float(row.get("company_score", 0)),
+                        seniority_score=float(row.get("seniority_score_dim", 0)),
+                        location_score=float(row.get("location_score", 0)),
+                        recency_score=float(row.get("recency_score", 0)),
+                        final_score=float(row.get("final_score", 0)),
+                        company_tier=str(row.get("company_tier", "")),
+                        is_contract=bool(row.get("is_contract", False)),
+                    )
+                )
 
+            status = "partial" if ingestion_error or source_error else "success"
+            error_summary = source_error or ingestion_error
             await db.execute(
                 update(Run)
-                .where(Run.id == run_id)
+                .where(Run.id == run_id, Run.lease_owner == owner)
                 .values(
-                    status="success",
-                    finished_at=datetime.now(timezone.utc),
+                    status=status,
+                    stage="complete",
+                    progress=100,
+                    finished_at=_now(),
                     job_count=len(ranked_df),
+                    error_summary=error_summary,
+                    lease_owner=None,
+                    lease_expires_at=None,
                 )
             )
             await db.commit()
-            logger.info("Run %s completed: %d results", run_id, len(ranked_df))
-
-        except Exception:
-            logger.exception("Run %s failed", run_id)
+            logger.info(
+                "Run %s completed with status %s: %d results",
+                run_id,
+                status,
+                len(ranked_df),
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.exception("Run %s failed", run_id)
+        async with session_factory() as db:
             await db.execute(
                 update(Run)
-                .where(Run.id == run_id)
-                .values(status="failed", finished_at=datetime.now(timezone.utc))
+                .where(Run.id == run_id, Run.lease_owner == owner)
+                .values(
+                    status="failed",
+                    stage="failed",
+                    progress=100,
+                    error_summary=f"{type(exc).__name__}: {exc}"[:2000],
+                    finished_at=_now(),
+                    lease_owner=None,
+                    lease_expires_at=None,
+                )
             )
             await db.commit()
+    finally:
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+
+
+async def process_run(
+    run_id: str,
+    user_id: str,
+    session_factory: async_sessionmaker,
+) -> None:
+    owner = _worker_id()
+    claimed = await _claim_run(run_id, session_factory, owner)
+    if claimed is None:
+        return
+    _, claimed_user_id = claimed
+    if claimed_user_id != user_id:
+        logger.warning("Run %s user mismatch; processing persisted owner", run_id)
+    await _execute_claimed_run(run_id, claimed_user_id, owner, session_factory)
 
 
 async def worker_loop(session_factory: async_sessionmaker) -> None:
     queue = get_queue()
-    logger.info("Background worker started")
+    owner = _worker_id()
+    logger.info("Durable background worker started as %s", owner)
     while True:
-        run_id, user_id = await queue.get()
         try:
-            await process_run(run_id, user_id, session_factory)
-        finally:
+            claimed = await _claim_next_run(session_factory, owner)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Worker %s could not claim a run", owner)
+            await asyncio.sleep(POLL_SECONDS)
+            continue
+        if claimed is not None:
+            run_id, user_id = claimed
+            await _execute_claimed_run(run_id, user_id, owner, session_factory)
+            continue
+
+        try:
+            await asyncio.wait_for(queue.get(), timeout=POLL_SECONDS)
+        except TimeoutError:
+            continue
+        else:
             queue.task_done()

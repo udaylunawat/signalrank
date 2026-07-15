@@ -7,6 +7,20 @@ def test_domain_imports():
     from domain.scoring import calculate_seniority_score
     from domain.skills import SkillCanonicalizer
 
+    assert all(
+        callable(value)
+        for value in (
+            compute_weighted_score,
+            CompanyScorer,
+            cosine_similarity,
+            EmbeddingEngine,
+            fingerprint_text,
+            classify_functional_role,
+            calculate_seniority_score,
+            SkillCanonicalizer,
+        )
+    )
+
 
 def test_weighted_score():
     from domain.additive_scoring import compute_weighted_score
@@ -34,6 +48,9 @@ def test_company_scorer():
     }
     scorer = CompanyScorer(cfg)
     assert scorer.classify("Google") == "tier_s"
+    assert scorer.classify("Google India Pvt Ltd") == "tier_s"
+    assert scorer.matches("Google India Pvt Ltd", ["Google"])
+    assert not scorer.matches("Metadata Labs", ["Meta"])
 
 
 def test_fingerprint():

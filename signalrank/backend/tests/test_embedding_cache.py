@@ -1,6 +1,5 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from batch.embedding_cache import PgEmbeddingCache
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def test_fetch_empty(db: AsyncSession):
