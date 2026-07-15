@@ -11,11 +11,12 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 import pandas as pd
-from api.models import JobRaw
 from jobspy import scrape_jobs
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.models import JobRaw
 
 logger = logging.getLogger(__name__)
 
@@ -31,62 +32,8 @@ _TRACKING_QUERY_KEYS = {
     "source",
     "trk",
 }
-_ROLE_EXPANSIONS = {
-    "ai_ml": (
-        "AI Engineer",
-        "Machine Learning Engineer",
-        "Applied AI Engineer",
-        "Generative AI Engineer",
-    ),
-    "agentic": (
-        "AI Agent Engineer",
-        "LLM Engineer",
-        "Generative AI Engineer",
-        "Applied AI Engineer",
-    ),
-    "platform": (
-        "Platform Engineer",
-        "Cloud Platform Engineer",
-        "Site Reliability Engineer",
-        "DevOps Engineer",
-    ),
-    "mlops": (
-        "MLOps Engineer",
-        "AI Platform Engineer",
-        "Machine Learning Platform Engineer",
-        "LLMOps Engineer",
-    ),
-    "backend": (
-        "Backend Engineer",
-        "Python Engineer",
-        "Software Engineer Backend",
-        "Distributed Systems Engineer",
-    ),
-    "fullstack": (
-        "Full Stack Engineer",
-        "Software Engineer",
-        "Backend Engineer",
-        "Frontend Engineer",
-    ),
-    "data": (
-        "Data Scientist",
-        "Machine Learning Engineer",
-        "Applied Scientist",
-        "Data Engineer",
-    ),
-    "security": (
-        "Security Engineer",
-        "Cloud Security Engineer",
-        "Application Security Engineer",
-    ),
-}
-_DEFAULT_QUERIES = (
-    "AI Engineer",
-    "Machine Learning Engineer",
-    "AI Platform Engineer",
-    "Platform Engineer",
-    "Backend Engineer",
-    "Software Engineer",
+_SENIORITY_PREFIX = re.compile(
+    r"^(?:junior|jr\.?|senior|sr\.?|staff|principal|lead|head)\s+", re.I
 )
 JOBSPY_INTER_QUERY_DELAY = 3.0
 JOBSPY_RETRY_BACKOFF = 2.0
@@ -269,45 +216,17 @@ def normalize_jobspy_job(job: dict) -> dict | None:
     }
 
 
-def _role_family(role: str) -> str | None:
-    value = role.lower()
-    if any(term in value for term in ("agent", "llm", "generative", "genai")):
-        return "agentic"
-    if (
-        "mlops" in value
-        or "ai platform" in value
-        or "machine learning platform" in value
-    ):
-        return "mlops"
-    if any(term in value for term in ("machine learning", "ai/ml", "ai engineer")):
-        return "ai_ml"
-    if any(term in value for term in ("devops", "sre", "infrastructure", "platform")):
-        return "platform"
-    if "full" in value and "stack" in value:
-        return "fullstack"
-    if any(term in value for term in ("backend", "back-end", "api engineer")):
-        return "backend"
-    if any(
-        term in value
-        for term in ("data scientist", "data engineer", "applied scientist")
-    ):
-        return "data"
-    if "security" in value:
-        return "security"
-    return None
-
-
 def expand_role_queries(roles: list[str] | None, max_queries: int = 6) -> list[str]:
     candidates: list[str] = []
     for role in roles or []:
-        cleaned = re.sub(r"\s+", " ", str(role).replace("/", " ")).strip()
-        family = _role_family(str(role))
-        if family:
-            candidates.extend(_ROLE_EXPANSIONS[family])
-        elif cleaned:
+        for value in re.split(r"[,;\n]+", str(role)):
+            cleaned = re.sub(r"\s+", " ", value.replace("/", " ")).strip()
+            if not cleaned:
+                continue
             candidates.append(cleaned)
-    if not candidates:
-        candidates.extend(_DEFAULT_QUERIES)
+            without_seniority = _SENIORITY_PREFIX.sub("", cleaned).strip()
+            if without_seniority and without_seniority != cleaned:
+                candidates.append(without_seniority)
 
     unique: list[str] = []
     seen: set[str] = set()

@@ -1,19 +1,10 @@
 from llm.resume_parser import ResumeParseResult
 
-ROLE_OPTIONS = [
-    "AI/ML Engineer",
-    "Data Scientist",
-    "MLOps/Platform Engineer",
-    "Backend Engineer",
-    "Full-Stack Engineer",
-    "DevOps/SRE",
-    "Security Engineer",
-]
-
 TIER_OPTIONS = [
-    "S-tier (FAANG, top startups)",
-    "A-tier (strong tech companies)",
-    "B-tier (good companies)",
+    "S-tier (exceptional reputation)",
+    "A-tier (strong reputation)",
+    "B-tier (established reputation)",
+    "C-tier (limited reputation evidence)",
     "Any company",
 ]
 
@@ -44,15 +35,16 @@ def generate_onboarding_questions(profile: ResumeParseResult) -> list[dict]:
     )
     skills_str = ", ".join(profile.skills[:5]) if profile.skills else "your skills"
 
-    questions.append(
-        {
-            "id": "target_roles",
-            "text": f"I see {yoe_str} of experience with {skills_str} "
-            f"(recent: {titles_str}). What roles are you targeting?",
-            "type": "multiselect",
-            "options": ROLE_OPTIONS,
-        }
-    )
+    role_suggestions = list(dict.fromkeys(profile.recent_titles))[:8]
+    role_question = {
+        "id": "target_roles",
+        "text": f"I see {yoe_str} of experience with {skills_str} "
+        f"(recent: {titles_str}). What roles are you targeting?",
+        "type": "multiselect" if role_suggestions else "text",
+    }
+    if role_suggestions:
+        role_question["options"] = role_suggestions
+    questions.append(role_question)
 
     questions.append(
         {
@@ -66,7 +58,7 @@ def generate_onboarding_questions(profile: ResumeParseResult) -> list[dict]:
     questions.append(
         {
             "id": "company_tiers",
-            "text": "Which company tiers should be eligible for matching?",
+            "text": "Which AI-assessed company reputation tiers should be eligible?",
             "type": "multiselect",
             "options": TIER_OPTIONS,
         }
@@ -91,7 +83,7 @@ def generate_onboarding_questions(profile: ResumeParseResult) -> list[dict]:
     questions.append(
         {
             "id": "excluded_titles",
-            "text": "Any job titles to exclude? (e.g., QA, manual testing, frontend)",
+            "text": "Any job titles to exclude? Separate titles with commas.",
             "type": "text",
         }
     )

@@ -1,17 +1,19 @@
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from batch.ranker import (
     _apply_additive_scoring,
     _apply_pre_filters,
     _apply_role_lane_cap,
     _apply_target_role_filter,
+    _match_explicit_skills,
     _preference_location_weight,
     matched_resume_skills,
     score_jobs_for_user,
 )
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def test_target_role_fit_keeps_broader_matches():
@@ -53,6 +55,14 @@ def test_skill_overlap_is_resume_intersection():
         ["python", "kubernetes", "large language models"],
         {"python", "postgresql"},
     ) == ["python"]
+
+
+def test_explicit_resume_skills_match_without_profession_taxonomy():
+    matched = _match_explicit_skills(
+        "Build browser automation with Selenium WebDriver and JavaScript.",
+        {"java", "selenium webdriver", "financial modeling", "figma"},
+    )
+    assert matched == ["selenium webdriver"]
 
 
 def test_broader_matches_cannot_outrank_primary_role_matches():
@@ -106,6 +116,8 @@ def test_company_tiers_are_hard_filters_before_role_or_resume_scoring():
             "title": ["Accountant", "AI Engineer", "Platform Engineer"],
             "company": ["Google India", "Unknown Startup", "Zscaler"],
             "description": ["", "", ""],
+            "ai_company_tier": ["S", "unknown", "unknown"],
+            "company_reputation_confidence": [0.95, 0.0, 0.0],
         }
     )
     base = {
@@ -115,6 +127,7 @@ def test_company_tiers_are_hard_filters_before_role_or_resume_scoring():
         },
         "company_preferences": {
             "tiers": ["tier_s"],
+            "filter_mode": "selected_tiers",
             "preferred_companies": ["Zscaler"],
         },
     }
@@ -138,6 +151,45 @@ def test_company_tiers_are_hard_filters_before_role_or_resume_scoring():
 
     assert first["company"].tolist() == ["Google India", "Zscaler"]
     assert second["company"].tolist() == first["company"].tolist()
+
+
+def test_top_reputed_filter_requires_ai_tier_and_confidence():
+    frame = pd.DataFrame(
+        {
+            "title": ["QA Engineer", "Designer", "Accountant", "Sales Lead"],
+            "company": ["Trusted", "Low confidence", "Unknown", "Preferred"],
+            "description": ["", "", "", ""],
+            "ai_company_tier": ["A", "S", "unknown", "unknown"],
+            "company_reputation_confidence": [0.9, 0.4, 0.0, 0.0],
+        }
+    )
+    filtered = _apply_pre_filters(
+        frame,
+        {
+            "company_preferences": {
+                "filter_mode": "top_reputed",
+                "preferred_companies": ["Preferred"],
+            }
+        },
+    )
+    assert filtered["company"].tolist() == ["Trusted", "Preferred"]
+
+
+def test_role_matching_is_profession_agnostic_across_multiple_families():
+    cases = [
+        ("QA Automation Engineer", "QA Automation Engineer", "AI Engineer"),
+        ("Product Designer", "Senior Product Designer", "Product Manager"),
+        ("Financial Analyst", "Financial Analyst", "Data Analyst"),
+        ("Account Executive", "Enterprise Account Executive", "Accountant"),
+        ("Data Scientist", "Data Scientist", "UX Researcher"),
+    ]
+    for target, relevant, irrelevant in cases:
+        scored = _apply_target_role_filter(
+            pd.DataFrame({"title": [relevant, irrelevant]}),
+            {"profile_intent": {"roles": [target]}},
+        )
+        assert scored.loc[0, "match_lane"] == "primary"
+        assert scored.loc[0, "target_role_score"] > scored.loc[1, "target_role_score"]
 
 
 def test_any_company_disables_tier_filter_and_exclusion_still_wins():

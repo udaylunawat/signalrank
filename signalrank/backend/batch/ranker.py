@@ -4,7 +4,12 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
-from api.models import JobRaw
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.models import CompanyReputation as CompanyReputationModel, JobRaw
+from batch.context import build_context
+from batch.embedding_cache import PgEmbeddingCache
 from domain.additive_scoring import (
     apply_company_semantic_floor,
     apply_hidden_gem_bonus,
@@ -25,11 +30,7 @@ from domain.embeddings import (
     build_resume_embedding_text,
     fingerprint_text,
 )
-from domain.roles import (
-    classify_functional_role,
-    consulting_dampener,
-    requires_high_semantic_floor,
-)
+from domain.roles import classify_functional_role
 from domain.scoring import (
     calculate_role_and_skill_match_score,
     calculate_seniority_score,
@@ -38,28 +39,22 @@ from domain.scoring import (
     recency_weight,
 )
 from domain.skill_boost import bounded_skill_boost
-from domain.skills import SkillCanonicalizer, extract_skills_from_texts
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from batch.context import build_context
-from batch.embedding_cache import PgEmbeddingCache
+from domain.skills import SkillCanonicalizer
+from llm.company_reputation import canonicalize_company_name
 
 logger = logging.getLogger(__name__)
 
 TOP_N = 200
-_ROLE_SYNONYMS = {
-    "ai": {"ai", "machine learning", "ml", "llm", "agent", "agentic"},
-    "agentic": {"ai", "llm", "agent", "agentic"},
-    "engineer": {"engineer", "developer", "architect"},
-    "platform": {"platform", "infrastructure", "devops", "cloud", "sre"},
-}
-_ROLE_STOPWORDS = {
+_ROLE_GENERIC_WORDS = {
+    "associate",
+    "developer",
     "engineer",
     "junior",
     "lead",
+    "manager",
     "principal",
     "senior",
+    "specialist",
     "staff",
 }
 
@@ -149,7 +144,7 @@ async def load_jobs_dataframe(db: AsyncSession) -> pd.DataFrame:
                 "last_seen",
             ]
         )
-    return pd.DataFrame(
+    frame = pd.DataFrame(
         rows,
         columns=[
             "id",
@@ -163,6 +158,26 @@ async def load_jobs_dataframe(db: AsyncSession) -> pd.DataFrame:
             "last_seen",
         ],
     )
+    reputation_rows = await db.execute(select(CompanyReputationModel))
+    reputations = {row.canonical_name: row for row in reputation_rows.scalars().all()}
+
+    def reputation_value(company: object, field: str, default: object) -> object:
+        row = reputations.get(canonicalize_company_name(str(company or "")))
+        return getattr(row, field, default) if row else default
+
+    frame["ai_company_score"] = frame["company"].apply(
+        lambda company: reputation_value(company, "reputation_score", None)
+    )
+    frame["ai_company_tier"] = frame["company"].apply(
+        lambda company: reputation_value(company, "reputation_tier", "unknown")
+    )
+    frame["company_reputation_confidence"] = frame["company"].apply(
+        lambda company: reputation_value(company, "confidence", 0.0)
+    )
+    frame["company_reputation_rationale"] = frame["company"].apply(
+        lambda company: reputation_value(company, "rationale", None)
+    )
+    return frame
 
 
 def _apply_pre_filters(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
@@ -175,6 +190,7 @@ def _apply_pre_filters(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
         out = out.loc[effective_date.isna() | (effective_date >= cutoff)].copy()
     company_preferences = cfg.get("company_preferences", {})
+    filter_mode = company_preferences.get("filter_mode", "all")
     selected_tiers = {
         str(tier).strip().casefold()
         for tier in company_preferences.get("tiers", [])
@@ -183,11 +199,30 @@ def _apply_pre_filters(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     preferred_companies = _split_preference_values(
         company_preferences.get("preferred_companies", [])
     )
-    if selected_tiers and "any" not in selected_tiers:
-        scorer = CompanyScorer(cfg)
-        tier_match = out["company"].apply(
-            lambda company: scorer.classify(str(company or "")) in selected_tiers
+    if filter_mode == "top_reputed":
+        known_tier = out.get("ai_company_tier", pd.Series("unknown", index=out.index))
+        confidence = out.get(
+            "company_reputation_confidence", pd.Series(0.0, index=out.index)
         )
+        scorer = CompanyScorer(cfg)
+        preferred_match = out["company"].apply(
+            lambda company: scorer.matches(str(company or ""), preferred_companies)
+        )
+        out = out.loc[
+            ((known_tier.isin(["S", "A"])) & (confidence >= 0.7)) | preferred_match
+        ].copy()
+    elif (
+        filter_mode == "selected_tiers"
+        and selected_tiers
+        and "any" not in selected_tiers
+    ):
+        scorer = CompanyScorer(cfg)
+        selected_ai_tiers = {
+            tier.removeprefix("tier_").upper() for tier in selected_tiers
+        }
+        tier_match = out.get(
+            "ai_company_tier", pd.Series("unknown", index=out.index)
+        ).isin(selected_ai_tiers)
         preferred_match = out["company"].apply(
             lambda company: scorer.matches(str(company or ""), preferred_companies)
         )
@@ -223,64 +258,47 @@ def _apply_target_role_filter(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         out["match_lane"] = "primary"
         return out
 
-    role_patterns: list[list[re.Pattern]] = []
+    role_signatures: list[tuple[str, set[str]]] = []
     for role in roles:
-        patterns = []
-        for token in re.findall(r"[a-z]+", str(role).lower()):
-            if token not in _ROLE_STOPWORDS and len(token) > 1:
-                terms = _ROLE_SYNONYMS.get(token, {token})
-                patterns.append(
-                    re.compile(
-                        r"\b(?:%s)\b" % "|".join(map(re.escape, sorted(terms))),
-                        re.I,
-                    )
-                )
-        if patterns:
-            role_patterns.append(patterns)
+        normalized = " ".join(re.findall(r"[a-z0-9+#.]+", str(role).casefold()))
+        tokens = set(normalized.split())
+        discriminative = tokens - _ROLE_GENERIC_WORDS
+        role_signatures.append((normalized, discriminative or tokens))
 
-    if not role_patterns:
+    if not role_signatures:
         out["target_role_score"] = 1.0
         out["match_lane"] = "primary"
         return out
 
     def target_score(title: str) -> float:
-        scores = []
-        for patterns in role_patterns:
-            matched = sum(bool(pattern.search(title)) for pattern in patterns)
-            scores.append(matched / len(patterns))
-        best = max(scores, default=0.0)
-        if best >= 1.0:
-            return 1.15
-        if best >= 0.5:
-            return 1.0
-        if best > 0:
-            return 0.9
-        return 0.8
+        normalized_title = " ".join(re.findall(r"[a-z0-9+#.]+", str(title).casefold()))
+        title_tokens = set(normalized_title.split())
+        scores: list[float] = []
+        for role_phrase, tokens in role_signatures:
+            if role_phrase and role_phrase in normalized_title:
+                scores.append(1.0)
+                continue
+            scores.append(len(tokens & title_tokens) / max(1, len(tokens)))
+        return max(scores, default=0.0)
 
     out["target_role_score"] = out["title"].fillna("").astype(str).apply(target_score)
-    out["match_lane"] = np.where(out["target_role_score"] >= 1.0, "primary", "broader")
+    out["match_lane"] = np.where(out["target_role_score"] >= 0.75, "primary", "broader")
     return out
 
 
-def _apply_semantic_gates(
-    df: pd.DataFrame, cfg: dict, role_intent: str
-) -> pd.DataFrame:
+def _apply_semantic_gates(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     out = df.copy()
-    mask_non_ic = out["title"].astype(str).apply(requires_high_semantic_floor)
-    mask_semantic = out["semantic_score"] >= 0.75
-    out = out.loc[~mask_non_ic | mask_semantic].copy()
     out["description_quality"] = out["description"].apply(
         description_quality_multiplier
     )
     ranking = cfg.get("ranking", {})
     min_q = ranking.get("min_quality_multiplier", 0.0)
     out = out.loc[out["description_quality"] >= min_q].copy()
-    thresholds = ranking.get("role_semantic_thresholds", {})
-    min_sem = thresholds.get(role_intent, ranking.get("min_semantic_score", 0.20))
+    min_sem = ranking.get("min_semantic_score", 0.20)
     rescue_sem = ranking.get("broader_match_semantic_score", 0.18)
     primary = out["semantic_score"] >= min_sem
     rescue = (out["semantic_score"] >= rescue_sem) & (
-        (out.get("target_role_score", 0.0) >= 1.0) | (out.get("skill_overlap", 0) >= 2)
+        (out.get("target_role_score", 0.0) >= 0.75) | (out.get("skill_overlap", 0) >= 2)
     )
     out = out.loc[primary | rescue].copy()
     if "match_lane" in out:
@@ -290,18 +308,24 @@ def _apply_semantic_gates(
 
 def _apply_additive_scoring(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     df = df.copy()
-    df["_consulting_damp"] = df["title"].apply(consulting_dampener)
     df["skills_score"] = df.apply(
         lambda r: skills_score_0_100(
             r["semantic_score"],
             r["skill_overlap"],
             r["role_skill_score"],
             r["functional_role_penalty"],
-            r["_consulting_damp"],
+            1.0,
         ),
         axis=1,
     )
-    df["company_score"] = df["company_tier"].apply(company_score_0_100)
+    df["company_score"] = df.apply(
+        lambda row: (
+            float(row["ai_company_score"])
+            if pd.notna(row.get("ai_company_score"))
+            else company_score_0_100(row["company_tier"])
+        ),
+        axis=1,
+    )
     preferred_companies = _split_preference_values(
         cfg.get("company_preferences", {}).get("preferred_companies", [])
     )
@@ -353,7 +377,6 @@ def _apply_additive_scoring(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         axis=1,
     )
     df.loc[df["is_contract"], "final_score"] *= contract_penalty
-    df = df.drop(columns=["_consulting_damp"])
     return df
 
 
@@ -365,6 +388,31 @@ def _apply_role_lane_cap(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     broader = out["match_lane"] == "broader"
     out.loc[broader, "final_score"] = out.loc[broader, "final_score"].clip(upper=cap)
     return out
+
+
+def _build_explanation(row: pd.Series) -> dict:
+    concerns: list[str] = []
+    if row.get("match_lane") == "broader":
+        concerns.append("Title is an adjacent rather than direct target-role match.")
+    confidence = row.get("company_reputation_confidence")
+    if pd.isna(confidence) or float(confidence or 0) < 0.7:
+        concerns.append("Company reputation evidence is limited or unverified.")
+    return {
+        "role_fit": {
+            "lane": str(row.get("match_lane", "primary")),
+            "title_similarity": round(float(row.get("target_role_score", 1.0)), 3),
+        },
+        "matched_skills": list(row.get("matched_skills") or []),
+        "scores": {
+            "semantic": round(float(row.get("semantic_score", 0)) * 100, 1),
+            "skills": round(float(row.get("skills_score", 0)), 1),
+            "company": round(float(row.get("company_score", 0)), 1),
+            "seniority": round(float(row.get("seniority_score_dim", 0)), 1),
+            "location": round(float(row.get("location_score", 0)), 1),
+            "recency": round(float(row.get("recency_score", 0)), 1),
+        },
+        "concerns": concerns,
+    }
 
 
 _SENIORITY_SUFFIXES = re.compile(
@@ -382,20 +430,21 @@ async def _compute_embeddings(
     cfg_fp: str,
     resume_text: str,
     distilled_text: str | None = None,
+    resume_skills: list[str] | None = None,
 ) -> pd.DataFrame:
     cache = PgEmbeddingCache(db, cfg_fp)
 
-    raw_skills = extract_skills_from_texts(df["description"].fillna("").tolist(), cfg)
     canon = SkillCanonicalizer(cfg)
-    df["canonical_skills"] = [sorted(canon.canonicalize(s)) for s in raw_skills]
-    resume_skills = canon.canonicalize(
-        extract_skills_from_texts(
-            ["\n".join(part for part in (resume_text, distilled_text) if part)], cfg
-        )[0]
+    explicit_resume_skills = canon.canonicalize(resume_skills or [])
+    job_text = (
+        df["title"].fillna("").astype(str)
+        + "\n"
+        + df["description"].fillna("").astype(str)
     )
-    df["matched_skills"] = df["canonical_skills"].apply(
-        lambda skills: matched_resume_skills(skills, resume_skills)
+    df["matched_skills"] = job_text.apply(
+        lambda text: _match_explicit_skills(text, explicit_resume_skills)
     )
+    df["canonical_skills"] = df["matched_skills"]
     df["skill_overlap"] = df["matched_skills"].apply(len)
     df["skill_coverage"] = df.apply(
         lambda row: row["skill_overlap"] / max(1, len(row["canonical_skills"])),
@@ -456,12 +505,23 @@ def matched_resume_skills(job_skills: list[str], resume_skills: set[str]) -> lis
     return sorted(set(job_skills) & resume_skills)
 
 
+def _match_explicit_skills(text: str, resume_skills: set[str]) -> list[str]:
+    value = str(text or "").casefold()
+    matched = []
+    for skill in resume_skills:
+        pattern = rf"(?<!\w){re.escape(skill.casefold())}(?!\w)"
+        if re.search(pattern, value):
+            matched.append(skill)
+    return sorted(matched)
+
+
 async def score_jobs_for_user(
     db: AsyncSession,
     user_id: str,
     resume_text: str,
     config_overrides: dict | None,
     distilled_text: str | None = None,
+    resume_skills: list[str] | None = None,
 ) -> pd.DataFrame:
     ctx = build_context(user_id, resume_text, config_overrides)
     cfg = ctx.config
@@ -475,17 +535,17 @@ async def score_jobs_for_user(
     if df.empty:
         return pd.DataFrame(columns=["final_score"])
 
-    role_intent = (
-        cfg.get("profile_intent", {}).get("preset")
-        or cfg.get("ranking", {}).get("default_role")
-        or "software_general"
-    )
-
     df = await _compute_embeddings(
-        df, cfg, db, ctx.config_fp, resume_text, distilled_text=distilled_text
+        df,
+        cfg,
+        db,
+        ctx.config_fp,
+        resume_text,
+        distilled_text=distilled_text,
+        resume_skills=resume_skills,
     )
 
-    df = _apply_semantic_gates(df, cfg, role_intent)
+    df = _apply_semantic_gates(df, cfg)
     if df.empty:
         return pd.DataFrame(columns=["final_score"])
 
@@ -504,13 +564,21 @@ async def score_jobs_for_user(
                 title=r["title"],
                 description=r["description"],
             )
-            * r.get("target_role_score", 1.0)
+            * (0.75 + 0.25 * r.get("target_role_score", 1.0))
         ),
         axis=1,
     )
     scorer = CompanyScorer(cfg)
     df["company_weight"] = df["company"].apply(scorer.score)
-    df["company_tier"] = df["company"].apply(scorer.classify)
+    static_tiers = df["company"].apply(scorer.classify)
+    df["company_tier"] = df.apply(
+        lambda row: (
+            f"tier_{str(row['ai_company_tier']).casefold()}"
+            if str(row.get("ai_company_tier")) in {"S", "A", "B", "C"}
+            else static_tiers.loc[row.name]
+        ),
+        axis=1,
+    )
     df["location_weight"] = df["location"].apply(
         lambda value: _preference_location_weight(value, cfg)
     )
@@ -526,13 +594,11 @@ async def score_jobs_for_user(
         ),
         axis=1,
     )
-    penalties = cfg.get("ranking", {}).get("functional_role_penalties", {})
-    df["functional_role_penalty"] = df["functional_role"].apply(
-        lambda r: penalties.get(r, 1.0)
-    )
+    df["functional_role_penalty"] = 1.0
 
     df = _apply_additive_scoring(df, cfg)
     df = _apply_role_lane_cap(df, cfg)
+    df["explanation"] = df.apply(_build_explanation, axis=1)
 
     df = df.sort_values("final_score", ascending=False).drop_duplicates(
         subset=["job_url"]

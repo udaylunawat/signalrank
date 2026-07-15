@@ -1,11 +1,31 @@
 from unittest.mock import AsyncMock
 
 import pytest
+
 from llm.resume_parser import (
     ResumeParseResult,
+    _heuristic_parse,
     _validate_extraction,
     parse_resume,
 )
+
+
+def test_heuristic_fallback_cleans_pdf_spacing_and_location_suffixes():
+    result = _heuristic_parse("""Technical Skills
+Languages Java, JavaScript, TypeScript
+Automation Playwright, Selenium W ebDriver, TestNG
+T esting Types Functional T esting, Regression T esting
+Professional Experience
+QA Engineer / Functional T ester Pune, India
+QA Engineer India
+""")
+
+    assert result.skills[:3] == ["Java", "JavaScript", "TypeScript"]
+    assert "Selenium WebDriver" in result.skills
+    assert result.recent_titles == [
+        "QA Engineer / Functional Tester",
+        "QA Engineer",
+    ]
 
 
 def test_validate_extraction_with_valid_data():

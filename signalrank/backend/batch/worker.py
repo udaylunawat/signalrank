@@ -1,15 +1,18 @@
 import asyncio
 import inspect
 import logging
+import math
 import socket
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from api.models import JobResult, Profile, Run, RunSourceTelemetry
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from api.deps_llm import get_llm_client
+from api.models import JobResult, Profile, Run, RunSourceTelemetry
+from batch.company_enrichment import enrich_company_reputations
 from batch.ingest import refresh_job_catalog
 from batch.ranker import score_jobs_for_user
 
@@ -156,6 +159,19 @@ def _field(value: Any, name: str, default: Any = None) -> Any:
     return getattr(value, name, default)
 
 
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    parsed = float(value)
+    return None if math.isnan(parsed) else parsed
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    return str(value)
+
+
 def _catalog_count(result: Any) -> int:
     if isinstance(result, int):
         return result
@@ -289,9 +305,16 @@ async def _execute_claimed_run(
             profile = profile_result.scalar_one_or_none()
             resume_text = profile.resume_text if profile else ""
             distilled_text = profile.distilled_text if profile else None
+            resume_skills = (
+                list(profile.skills)
+                if profile and isinstance(profile.skills, list)
+                else None
+            )
             config_overrides = profile.config_overrides if profile else None
             overrides = config_overrides or {}
             roles = overrides.get("profile_intent", {}).get("roles")
+            if not roles and profile:
+                roles = profile.target_roles
             locations = overrides.get("scraping", {}).get("locations")
             if not locations and profile:
                 locations = profile.preferred_locations
@@ -331,12 +354,29 @@ async def _execute_claimed_run(
             )
             source_error = _summarize_source_errors(reports)
 
+            await _update_progress(db, run_id, owner, "assessing_companies", 50)
+            try:
+                enrichment = await enrich_company_reputations(db, get_llm_client())
+                logger.info(
+                    "Company reputation enrichment: %d assessed, %d unknown, %d cached (%s)",
+                    enrichment.assessed,
+                    enrichment.unknown,
+                    enrichment.cached,
+                    enrichment.status,
+                )
+            except Exception:
+                logger.exception(
+                    "Company reputation enrichment failed; ranking without new assessments"
+                )
+                await db.rollback()
+
             await _update_progress(db, run_id, owner, "ranking_jobs", 60)
             ranked_df = await score_jobs_for_user(
                 db=db,
                 user_id=user_id,
                 resume_text=resume_text,
                 distilled_text=distilled_text,
+                resume_skills=resume_skills,
                 config_overrides=config_overrides,
             )
 
@@ -356,6 +396,13 @@ async def _execute_claimed_run(
                         recency_score=float(row.get("recency_score", 0)),
                         final_score=float(row.get("final_score", 0)),
                         company_tier=str(row.get("company_tier", "")),
+                        company_reputation_confidence=_optional_float(
+                            row.get("company_reputation_confidence")
+                        ),
+                        company_reputation_rationale=_optional_text(
+                            row.get("company_reputation_rationale")
+                        ),
+                        explanation=row.get("explanation"),
                         is_contract=bool(row.get("is_contract", False)),
                     )
                 )

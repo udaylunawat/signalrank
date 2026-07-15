@@ -22,13 +22,13 @@ async def test_onboarding_status_initial(client, auth_token):
 
 
 async def test_upload_resume_txt(client, auth_token, monkeypatch):
-    import llm.resume_parser as rp
+    import api.routes.onboarding as onboarding_route
     from llm.resume_parser import ResumeParseResult
 
     async def mock_parse(text, llm_client):
         return ResumeParseResult(skills=["python"], years_of_experience=3)
 
-    monkeypatch.setattr(rp, "parse_resume", mock_parse)
+    monkeypatch.setattr(onboarding_route, "parse_resume", mock_parse)
 
     r = await client.post(
         "/api/onboarding/resume",
@@ -73,11 +73,54 @@ async def test_refine_saves_answer(client, auth_token):
         "/api/profile", headers={"Authorization": f"Bearer {auth_token}"}
     )
     overrides = profile.json()["profile"]["config_overrides"]
-    assert overrides["profile_intent"]["preset"] == "agentic_systems"
+    assert overrides["profile_intent"] == {"roles": ["AI/ML Engineer"]}
     assert overrides["location_scoring"]["preferred_locations"] == [
         "Bengaluru",
         "Remote",
     ]
+
+
+async def test_onboarding_status_restores_durable_draft(
+    client, auth_token, monkeypatch
+):
+    import api.routes.onboarding as onboarding_route
+    from llm.resume_parser import ResumeParseResult
+
+    async def mock_parse(text, llm_client):
+        return ResumeParseResult(
+            skills=["Playwright"],
+            recent_titles=["QA Automation Engineer"],
+            status="degraded",
+            confidence=0.7,
+            source="heuristic",
+        )
+
+    monkeypatch.setattr(onboarding_route, "parse_resume", mock_parse)
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    uploaded = await client.post(
+        "/api/onboarding/resume",
+        files={"file": ("resume.txt", b"QA Automation Engineer", "text/plain")},
+        headers=headers,
+    )
+    await client.post(
+        "/api/onboarding/refine",
+        json={"question_id": "target_roles", "answer": ["SDET"]},
+        headers=headers,
+    )
+
+    status = (await client.get("/api/onboarding/status", headers=headers)).json()
+    assert uploaded.status_code == 200
+    assert status["draft"]["answers"]["target_roles"] == ["SDET"]
+    assert status["parse_status"] == "degraded"
+
+
+async def test_resume_upload_rejects_files_over_10_mb(client, auth_token):
+    response = await client.post(
+        "/api/onboarding/resume",
+        files={"file": ("resume.txt", b"x" * (10 * 1024 * 1024 + 1), "text/plain")},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    assert response.status_code == 413
 
 
 async def test_refine_wires_company_preferences_and_exclusions(client, auth_token):

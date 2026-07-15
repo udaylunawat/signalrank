@@ -163,6 +163,9 @@ async def list_jobs(
                 "location_score": result.location_score,
                 "recency_score": result.recency_score,
                 "company_tier": result.company_tier,
+                "company_reputation_confidence": (result.company_reputation_confidence),
+                "company_reputation_rationale": (result.company_reputation_rationale),
+                "explanation": result.explanation,
                 "is_contract": result.is_contract,
             }
         )

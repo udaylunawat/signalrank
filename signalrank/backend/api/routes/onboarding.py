@@ -1,12 +1,10 @@
+import hashlib
 import io
 import logging
 import re
 from copy import deepcopy
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from llm.onboarding import generate_onboarding_questions
-from llm.openrouter import OpenRouterClient
-from llm.resume_parser import parse_resume
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,10 +13,14 @@ from api.database import get_db
 from api.deps import get_current_user
 from api.deps_llm import get_llm_client
 from api.models import Profile, User
+from llm.onboarding import generate_onboarding_questions
+from llm.openrouter import OpenRouterClient
+from llm.resume_parser import RESUME_PARSER_VERSION, parse_resume
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
+MAX_RESUME_BYTES = 10 * 1024 * 1024
 
 
 def _extract_text_from_pdf(content: bytes) -> str:
@@ -50,7 +52,9 @@ async def upload_resume(
     db: AsyncSession = Depends(get_db),
     llm: OpenRouterClient = Depends(get_llm_client),
 ):
-    content = await file.read()
+    content = await file.read(MAX_RESUME_BYTES + 1)
+    if len(content) > MAX_RESUME_BYTES:
+        raise HTTPException(status_code=413, detail="Resume must be 10 MB or smaller")
     filename = (file.filename or "").lower()
 
     if filename.endswith(".pdf"):
@@ -65,16 +69,31 @@ async def upload_resume(
     if not resume_text.strip():
         raise HTTPException(status_code=422, detail="Could not extract text from file")
 
-    parsed = await parse_resume(resume_text, llm)
-
     result = await db.execute(select(Profile).where(Profile.user_id == current_user.id))
     profile = result.scalar_one_or_none()
     if not profile:
         profile = Profile(user_id=current_user.id)
         db.add(profile)
 
+    resume_sha256 = hashlib.sha256(content).hexdigest()
+    if (
+        profile.resume_sha256 == resume_sha256
+        and profile.onboarding_draft
+        and profile.resume_parse_status == "complete"
+        and profile.onboarding_draft.get("parser_version") == RESUME_PARSER_VERSION
+    ):
+        return profile.onboarding_draft
+
+    parsed = await parse_resume(resume_text, llm)
+
     profile.resume_text = resume_text
     profile.skills = parsed.skills
+    profile.target_roles = parsed.recent_titles
+    profile.resume_sha256 = resume_sha256
+    profile.resume_parse_status = parsed.status
+    profile.resume_parse_error = parsed.error
+    profile.resume_parse_confidence = parsed.confidence
+    profile.resume_parser_model = parsed.model
     if parsed.skills or parsed.recent_titles or parsed.years_of_experience:
         parts = []
         if parsed.recent_titles:
@@ -84,17 +103,31 @@ async def upload_resume(
         if parsed.years_of_experience:
             parts.append(f"Experience: {parsed.years_of_experience} years")
         profile.distilled_text = "\n".join(parts)
-    await db.commit()
-
     questions = generate_onboarding_questions(parsed)
-    return {
+    draft = {
         "extracted": {
             "skills": parsed.skills,
             "years_of_experience": parsed.years_of_experience,
             "recent_titles": parsed.recent_titles,
+            "industries": parsed.industries,
+            "education": parsed.education,
+            "parse_status": parsed.status,
+            "parse_confidence": parsed.confidence,
+            "parse_source": parsed.source,
+            "parser_model": parsed.model,
+            "parse_error": parsed.error,
         },
         "questions": questions,
+        "answers": {},
+        "current_step": "questions",
+        "resume_filename": file.filename,
+        "resume_sha256": resume_sha256,
+        "parser_version": RESUME_PARSER_VERSION,
     }
+    profile.onboarding_draft = draft
+    profile.onboarding_complete = False
+    await db.commit()
+    return draft
 
 
 @router.get("/status")
@@ -107,6 +140,10 @@ async def onboarding_status(
     return {
         "onboarding_complete": profile.onboarding_complete if profile else False,
         "has_resume": bool(profile and profile.resume_text),
+        "draft": profile.onboarding_draft if profile else None,
+        "parse_status": profile.resume_parse_status if profile else None,
+        "parse_confidence": profile.resume_parse_confidence if profile else None,
+        "parse_error": profile.resume_parse_error if profile else None,
     }
 
 
@@ -135,18 +172,6 @@ def _parse_salary(answer: str | list[str]) -> int | None:
     return round(amount)
 
 
-def _infer_role_preset(answer: str | list[str]) -> str:
-    roles = answer if isinstance(answer, list) else [answer]
-    value = " ".join(roles).lower()
-    if any(
-        term in value for term in ("agent", "llm", " ai ", "machine learning", "ml ")
-    ):
-        return "agentic_systems"
-    if any(term in value for term in ("platform", "devops", "sre", "infrastructure")):
-        return "platform_devops"
-    return "software_general"
-
-
 @router.post("/refine")
 async def refine_onboarding(
     body: RefineAnswer,
@@ -171,7 +196,7 @@ async def refine_onboarding(
         overrides = deepcopy(profile.config_overrides or {})
         intent = overrides.setdefault("profile_intent", {})
         intent["roles"] = roles
-        intent["preset"] = _infer_role_preset(roles)
+        intent.pop("preset", None)
         profile.config_overrides = overrides
         profile.target_roles = roles
     elif qid == "preferred_locations":
@@ -189,32 +214,51 @@ async def refine_onboarding(
             "s-tier (faang, top startups)": "tier_s",
             "a-tier (strong tech companies)": "tier_a",
             "b-tier (good companies)": "tier_b",
+            "s-tier (exceptional reputation)": "tier_s",
+            "a-tier (strong reputation)": "tier_a",
+            "b-tier (established reputation)": "tier_b",
+            "c-tier (limited reputation evidence)": "tier_c",
             "any company": "any",
         }
         tiers = [
             tier_lookup.get(value.casefold(), value) for value in _answer_values(answer)
         ]
-        allowed_tiers = {"tier_s", "tier_a", "tier_b", "any"}
+        allowed_tiers = {"tier_s", "tier_a", "tier_b", "tier_c", "any"}
         if set(tiers) - allowed_tiers or ("any" in tiers and len(tiers) > 1):
             raise HTTPException(
                 status_code=422, detail="Invalid company tier selection"
             )
         overrides.setdefault("company_preferences", {})["tiers"] = tiers
+        overrides["company_preferences"]["filter_mode"] = (
+            "all" if tiers == ["any"] else "selected_tiers"
+        )
+        profile.config_overrides = overrides
+    elif qid == "company_filter_mode":
+        mode = str(answer[0] if isinstance(answer, list) and answer else answer)
+        if mode not in {"all", "top_reputed", "selected_tiers"}:
+            raise HTTPException(status_code=422, detail="Invalid company filter mode")
+        overrides = deepcopy(profile.config_overrides or {})
+        preferences = overrides.setdefault("company_preferences", {})
+        preferences["filter_mode"] = mode
+        if mode == "all":
+            preferences["tiers"] = ["any"]
+        elif mode == "top_reputed":
+            preferences["tiers"] = ["tier_s", "tier_a"]
         profile.config_overrides = overrides
     elif qid == "preferred_companies":
         companies = _answer_values(answer)
         overrides = deepcopy(profile.config_overrides or {})
-        overrides.setdefault("company_preferences", {})["preferred_companies"] = (
-            companies
-        )
+        overrides.setdefault("company_preferences", {})[
+            "preferred_companies"
+        ] = companies
         profile.target_companies = companies
         profile.config_overrides = overrides
     elif qid == "excluded_companies":
         overrides = deepcopy(profile.config_overrides or {})
         exclusions = _answer_values(answer)
-        overrides.setdefault("company_preferences", {})["excluded_companies"] = (
-            exclusions
-        )
+        overrides.setdefault("company_preferences", {})[
+            "excluded_companies"
+        ] = exclusions
         profile.config_overrides = overrides
     elif qid == "excluded_titles":
         overrides = deepcopy(profile.config_overrides or {})
@@ -223,5 +267,11 @@ async def refine_onboarding(
     elif qid == "onboarding_complete":
         profile.onboarding_complete = True
 
+    draft = deepcopy(profile.onboarding_draft or {})
+    answers = draft.setdefault("answers", {})
+    answers[qid] = answer
+    draft["current_step"] = "complete" if qid == "onboarding_complete" else qid
+    profile.onboarding_draft = draft
+
     await db.commit()
-    return {"status": "saved", "question_id": qid}
+    return {"status": "saved", "question_id": qid, "draft": draft}

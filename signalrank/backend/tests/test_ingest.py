@@ -1,7 +1,8 @@
 from datetime import date
 
-import batch.ingest as ingest
 import pandas as pd
+
+import batch.ingest as ingest
 from batch.ingest import (
     SearchRequest,
     _fit_storage_fields,
@@ -85,10 +86,8 @@ def test_role_query_expansion_is_deterministic_and_bounded():
         ["Senior Agentic Platform Engineer", "MLOps Engineer"], max_queries=5
     )
     assert queries == [
-        "AI Agent Engineer",
-        "LLM Engineer",
-        "Generative AI Engineer",
-        "Applied AI Engineer",
+        "Senior Agentic Platform Engineer",
+        "Agentic Platform Engineer",
         "MLOps Engineer",
     ]
 
@@ -99,13 +98,13 @@ def test_query_plan_covers_location_lanes_without_boolean_queries():
         locations=["Bangalore", "Remote only"],
         max_queries=4,
     )
-    assert [request.location for request in plan] == [
-        "Bengaluru, India",
-        "Remote",
-        "Bengaluru, India",
-        "Remote",
-    ]
+    assert [request.location for request in plan] == ["Bengaluru, India"]
     assert all(" OR " not in request.query for request in plan)
+
+
+def test_empty_roles_do_not_fall_back_to_a_specific_profession():
+    assert expand_role_queries([]) == []
+    assert build_query_plan([], locations=["Remote"]) == []
 
 
 def test_normalize_free_source_jobs():
