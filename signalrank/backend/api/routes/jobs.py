@@ -1,6 +1,9 @@
-from typing import Literal
+import csv
+import json
+from io import StringIO
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +12,49 @@ from api.deps import get_current_user
 from api.models import JobRaw, JobResult, Run, User
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+
+CSV_COLUMNS = (
+    "run_id",
+    "run_completed_at",
+    "job_id",
+    "title",
+    "company",
+    "location",
+    "source",
+    "job_url",
+    "date_posted",
+    "description",
+    "final_score",
+    "semantic_score",
+    "skills_score",
+    "company_score",
+    "seniority_score",
+    "location_score",
+    "recency_score",
+    "company_tier",
+    "company_reputation_confidence",
+    "company_reputation_rationale",
+    "score_explanation_json",
+    "is_contract",
+)
+
+
+async def _latest_completed_run(db: AsyncSession, user_id: str) -> Run | None:
+    result = await db.execute(
+        select(Run)
+        .where(Run.user_id == user_id, Run.status.in_(("success", "partial")))
+        .order_by(Run.finished_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+def _safe_csv_value(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
+        return f"'{value}"
+    return value
 
 
 @router.get("")
@@ -22,13 +68,7 @@ async def list_jobs(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    latest_run = await db.execute(
-        select(Run)
-        .where(Run.user_id == current_user.id, Run.status.in_(("success", "partial")))
-        .order_by(Run.finished_at.desc())
-        .limit(1)
-    )
-    run = latest_run.scalar_one_or_none()
+    run = await _latest_completed_run(db, current_user.id)
     if not run:
         return {
             "jobs": [],
@@ -137,6 +177,81 @@ async def list_jobs(
         "strong_count": strong_count,
         "source_counts": source_counts,
     }
+
+
+@router.get("/export.csv")
+async def export_jobs_csv(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    run = await _latest_completed_run(db, current_user.id)
+    output = StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(CSV_COLUMNS)
+
+    if run:
+        results = await db.execute(
+            select(JobResult, JobRaw)
+            .join(JobRaw, JobResult.job_id == JobRaw.id)
+            .where(
+                JobResult.run_id == run.id,
+                JobResult.user_id == current_user.id,
+            )
+            .order_by(
+                JobResult.final_score.desc().nullslast(),
+                JobRaw.date_posted.desc().nullslast(),
+            )
+        )
+        completed_at = run.finished_at.isoformat() if run.finished_at else ""
+        for result, job in results.all():
+            writer.writerow(
+                _safe_csv_value(value)
+                for value in (
+                    run.id,
+                    completed_at,
+                    job.id,
+                    job.title,
+                    job.company,
+                    job.location,
+                    job.site,
+                    job.job_url,
+                    job.date_posted.isoformat() if job.date_posted else "",
+                    job.description,
+                    result.final_score,
+                    result.semantic_score,
+                    result.skills_score,
+                    result.company_score,
+                    result.seniority_score,
+                    result.location_score,
+                    result.recency_score,
+                    result.company_tier,
+                    result.company_reputation_confidence,
+                    result.company_reputation_rationale,
+                    (
+                        json.dumps(
+                            result.explanation, ensure_ascii=False, sort_keys=True
+                        )
+                        if result.explanation
+                        else ""
+                    ),
+                    result.is_contract,
+                )
+            )
+
+    date_suffix = (
+        run.finished_at.date().isoformat()
+        if run and run.finished_at
+        else "no-completed-run"
+    )
+    return Response(
+        content=f"\ufeff{output.getvalue()}",
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="signalrank-jobs-{date_suffix}.csv"'
+            )
+        },
+    )
 
 
 @router.get("/{job_id}")

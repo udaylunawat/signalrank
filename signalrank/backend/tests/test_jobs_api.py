@@ -1,3 +1,6 @@
+import csv
+from io import StringIO
+
 import pytest
 from api.models import JobRaw, JobResult, Run
 
@@ -130,3 +133,90 @@ async def test_jobs_search_and_sort_apply_to_the_full_result_set(
     assert payload["total"] == 1
     assert payload["jobs"][0]["title"] == "Senior Agentic AI Engineer"
     assert payload["source_counts"] == {"indeed": 1, "linkedin": 1}
+
+
+async def test_export_jobs_csv_includes_all_jobs_and_score_breakdown(
+    client, auth_token, db
+):
+    profile = await client.get(
+        "/api/profile", headers={"Authorization": f"Bearer {auth_token}"}
+    )
+    user_id = profile.json()["user_id"]
+    run = Run(user_id=user_id, status="success", job_count=2)
+    first = JobRaw(
+        job_url="https://example.com/first",
+        title="=Spreadsheet Formula",
+        company='Alpha, "Labs"',
+        description="First line\nSecond line",
+        location="Remote",
+        site="indeed",
+    )
+    second = JobRaw(
+        job_url="https://example.com/second",
+        title="Platform Engineer",
+        company="Beta",
+        site="linkedin",
+    )
+    db.add_all([run, first, second])
+    await db.flush()
+    db.add_all(
+        [
+            JobResult(
+                run_id=run.id,
+                user_id=user_id,
+                job_id=first.id,
+                final_score=91,
+                semantic_score=88,
+                skills_score=85,
+                company_score=100,
+                seniority_score=75,
+                location_score=90,
+                recency_score=80,
+                company_tier="tier_s",
+                company_reputation_confidence=0.95,
+                company_reputation_rationale="Strong engineering reputation",
+                explanation={"summary": "Strong fit"},
+                is_contract=False,
+            ),
+            JobResult(
+                run_id=run.id,
+                user_id=user_id,
+                job_id=second.id,
+                final_score=72,
+            ),
+        ]
+    )
+    await db.commit()
+
+    response = await client.get(
+        "/api/jobs/export.csv",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "signalrank-jobs-" in response.headers["content-disposition"]
+    rows = list(csv.DictReader(StringIO(response.text.lstrip("\ufeff"))))
+    assert len(rows) == 2
+    assert rows[0]["title"] == "'=Spreadsheet Formula"
+    assert rows[0]["company"] == 'Alpha, "Labs"'
+    assert rows[0]["description"] == "First line\nSecond line"
+    assert rows[0]["final_score"] == "91.0"
+    assert rows[0]["semantic_score"] == "88.0"
+    assert rows[0]["company_tier"] == "tier_s"
+    assert rows[0]["company_reputation_confidence"] == "0.95"
+    assert rows[0]["company_reputation_rationale"] == ("Strong engineering reputation")
+    assert rows[0]["score_explanation_json"] == '{"summary": "Strong fit"}'
+    assert rows[0]["is_contract"] == "False"
+
+
+async def test_export_jobs_csv_without_a_run_returns_headers_only(client, auth_token):
+    response = await client.get(
+        "/api/jobs/export.csv",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert response.status_code == 200
+    rows = list(csv.reader(StringIO(response.text.lstrip("\ufeff"))))
+    assert len(rows) == 1
+    assert "final_score" in rows[0]

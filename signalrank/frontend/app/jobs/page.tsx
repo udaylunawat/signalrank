@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Search, SlidersHorizontal, Sparkles } from "lucide-react";
+import { Download, Search, SlidersHorizontal, Sparkles } from "lucide-react";
 import AppShell from "@/components/app-shell";
 import JobCard from "@/components/job-card";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,7 @@ function JobsPageContent() {
   const [error, setError] = useState("");
   const [tracked, setTracked] = useState<Set<string>>(new Set());
   const [trackingId, setTrackingId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const limit = 50;
 
   function updateParams(updates: Record<string, string | number | undefined>, resetPage = true) {
@@ -147,6 +148,27 @@ function JobsPageContent() {
     }
   }
 
+  async function exportJobs() {
+    if (!token || exporting) return;
+    setExporting(true);
+    setError("");
+    try {
+      const { blob, filename } = await api.jobs.exportCsv(token);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch {
+      setError("We couldn’t export your matches. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   return (
@@ -160,9 +182,20 @@ function JobsPageContent() {
           <h1 className="page-title">Your matches</h1>
           <p className="page-copy">Search every ranked role, save the promising ones, skip the noise.</p>
         </div>
-        <p className="text-sm font-medium text-muted-foreground">
-          <span className="text-foreground tabular-nums">{total}</span> ranked roles
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm font-medium text-muted-foreground">
+            <span className="text-foreground tabular-nums">{total}</span> ranked roles
+          </p>
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            onClick={exportJobs}
+            disabled={!token || total === 0 || exporting}
+          >
+            <Download className="size-4" />
+            {exporting ? "Exporting…" : "Export CSV"}
+          </Button>
+        </div>
       </section>
 
       <section className="surface-panel mt-7 p-3 sm:p-4">

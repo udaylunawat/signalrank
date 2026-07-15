@@ -34,6 +34,20 @@ async function request<T>(
   return res.json();
 }
 
+async function download(path: string, token: string) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`${res.status}: ${detail}`);
+  }
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+    ?? "signalrank-jobs.csv";
+  return { blob: await res.blob(), filename };
+}
+
 export const api = {
   auth: {
     register: (email: string, password: string) =>
@@ -70,6 +84,7 @@ export const api = {
     },
     get: (token: string, id: string) =>
       request<Job>(`/api/jobs/${id}`, { token }),
+    exportCsv: (token: string) => download("/api/jobs/export.csv", token),
   },
 
   runs: {
