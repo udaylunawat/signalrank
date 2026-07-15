@@ -18,27 +18,10 @@ def _clamp(value: float, lo: float = 0.0, hi: float = 100.0) -> float:
 def skills_score_0_100(
     semantic_score: float,
     skill_overlap: int,
-    role_skill_score: float,
-    functional_role_penalty: float,
-    consulting_damp: float,
 ) -> float:
     base = semantic_score * 100
 
-    # Skill overlap bonus (capped at +8)
     base += min(skill_overlap * 2, 8)
-
-    # Role/skill modifier: clamped [-10, +10]
-    role_mod = (role_skill_score - 1.0) * 25
-    base += _clamp(role_mod, -10, 10)
-
-    # Functional role modifier: clamped [-8, +10]
-    func_mod = (functional_role_penalty - 1.0) * 50
-    base += _clamp(func_mod, -8, 10)
-
-    # Consulting dampener: if < 1.0, subtract 10
-    if consulting_damp < 1.0:
-        base -= 10
-
     return _clamp(base)
 
 

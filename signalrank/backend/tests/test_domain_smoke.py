@@ -3,7 +3,6 @@ def test_domain_imports():
     from domain.company import CompanyScorer
     from domain.embed_math import cosine_similarity
     from domain.embeddings import EmbeddingEngine, fingerprint_text
-    from domain.roles import classify_functional_role
     from domain.scoring import calculate_seniority_score
     from domain.skills import SkillCanonicalizer
 
@@ -15,7 +14,6 @@ def test_domain_imports():
             cosine_similarity,
             EmbeddingEngine,
             fingerprint_text,
-            classify_functional_role,
             calculate_seniority_score,
             SkillCanonicalizer,
         )

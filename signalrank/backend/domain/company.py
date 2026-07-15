@@ -44,21 +44,13 @@ def _strip_legal_suffixes(name: str) -> str:
 
 
 class CompanyScorer:
-    """
-    Deterministic, tiered company preference scorer.
-
-    Supports 5 tiers: tier_s, tier_a, tier_b, tier_c, tier_d.
-    Falls back to legacy preferred/deprioritized if tiers not configured.
-    Alias-aware, no hard filtering.
-    """
+    """Normalize company identities and match explicit preferences."""
 
     # Ordered highest to lowest priority
     _TIERS = ["tier_s", "tier_a", "tier_b", "tier_c", "tier_d"]
 
     def __init__(self, cfg: dict):
         c = cfg.get("company_scoring", {})
-
-        self.default_weight = float(c.get("default_weight", 1.0))
 
         raw_aliases = c.get("aliases", {})
         self.aliases: Dict[str, str] = {
@@ -67,20 +59,10 @@ class CompanyScorer:
             if isinstance(k, str) and isinstance(v, str)
         }
 
-        # Build tier lookup: {normalized_name: tier_name}
         self._tier_lookup: Dict[str, str] = {}
-        has_tiers = any(c.get(t) for t in self._TIERS)
-
-        if has_tiers:
-            for tier in self._TIERS:
-                for name in c.get(tier, []):
-                    self._tier_lookup[_norm(name)] = tier
-        else:
-            # Legacy fallback: preferred → tier_a, deprioritized → tier_d
-            for name in c.get("preferred_companies", []):
-                self._tier_lookup[_norm(name)] = "tier_a"
-            for name in c.get("deprioritized_companies", []):
-                self._tier_lookup[_norm(name)] = "tier_d"
+        for tier in self._TIERS:
+            for name in c.get(tier, []):
+                self._tier_lookup[_norm(name)] = tier
 
     def _canonical(self, company: str) -> str:
         name = _norm(company)
@@ -101,14 +83,3 @@ class CompanyScorer:
             if key and self._canonical(key) == name:
                 return tier
         return "default"
-
-    def score(self, company: str) -> float:
-        """Legacy weight for backward compatibility."""
-        tier = self.classify(company)
-        return {
-            "tier_s": 1.5,
-            "tier_a": 1.3,
-            "tier_b": 1.1,
-            "tier_c": 0.95,
-            "tier_d": 0.85,
-        }.get(tier, self.default_weight)

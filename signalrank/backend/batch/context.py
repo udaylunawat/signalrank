@@ -38,11 +38,6 @@ def load_base_config() -> dict:
         base_path = Path(__file__).parent.parent / "config" / "base.yaml"
         with open(base_path) as f:
             _BASE_CONFIG = yaml.safe_load(f)
-        skills_path = Path(__file__).parent.parent / "config" / "skills.yaml"
-        if skills_path.exists():
-            with open(skills_path) as f:
-                skills = yaml.safe_load(f) or {}
-            _BASE_CONFIG = deep_merge(_BASE_CONFIG, skills)
     return _BASE_CONFIG
 
 

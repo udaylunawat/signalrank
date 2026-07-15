@@ -22,7 +22,6 @@ from domain.additive_scoring import (
     skills_score_0_100,
 )
 from domain.company import CompanyScorer
-from domain.description_quality import description_quality_multiplier
 from domain.embed_math import cosine_similarity
 from domain.embeddings import (
     EmbeddingEngine,
@@ -30,13 +29,10 @@ from domain.embeddings import (
     build_resume_embedding_text,
     fingerprint_text,
 )
-from domain.roles import classify_functional_role
 from domain.scoring import (
-    calculate_role_and_skill_match_score,
     calculate_seniority_score,
     extract_required_yoe,
     location_weight,
-    recency_weight,
 )
 from domain.skill_boost import bounded_skill_boost
 from domain.skills import SkillCanonicalizer
@@ -288,12 +284,7 @@ def _apply_target_role_filter(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
 def _apply_semantic_gates(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     out = df.copy()
-    out["description_quality"] = out["description"].apply(
-        description_quality_multiplier
-    )
     ranking = cfg.get("ranking", {})
-    min_q = ranking.get("min_quality_multiplier", 0.0)
-    out = out.loc[out["description_quality"] >= min_q].copy()
     min_sem = ranking.get("min_semantic_score", 0.20)
     rescue_sem = ranking.get("broader_match_semantic_score", 0.18)
     primary = out["semantic_score"] >= min_sem
@@ -312,9 +303,6 @@ def _apply_additive_scoring(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         lambda r: skills_score_0_100(
             r["semantic_score"],
             r["skill_overlap"],
-            r["role_skill_score"],
-            r["functional_role_penalty"],
-            1.0,
         ),
         axis=1,
     )
@@ -446,10 +434,6 @@ async def _compute_embeddings(
     )
     df["canonical_skills"] = df["matched_skills"]
     df["skill_overlap"] = df["matched_skills"].apply(len)
-    df["skill_coverage"] = df.apply(
-        lambda row: row["skill_overlap"] / max(1, len(row["canonical_skills"])),
-        axis=1,
-    )
 
     job_texts = [
         build_job_embedding_text(
@@ -483,9 +467,7 @@ async def _compute_embeddings(
 
     resume_emb_text = build_resume_embedding_text(
         resume_text=resume_text,
-        distilled=distilled_text or cfg.get("resume", {}).get("distilled_text"),
-        cfg=cfg,
-        use_case="default",
+        distilled=distilled_text,
     )
     resume_fp = fingerprint_text(resume_emb_text)
     resume_cached = await cache.fetch([resume_fp])
@@ -499,10 +481,6 @@ async def _compute_embeddings(
 
     df["semantic_score"] = cosine_similarity(r_emb, vectors)
     return df
-
-
-def matched_resume_skills(job_skills: list[str], resume_skills: set[str]) -> list[str]:
-    return sorted(set(job_skills) & resume_skills)
 
 
 def _match_explicit_skills(text: str, resume_skills: set[str]) -> list[str]:
@@ -551,25 +529,7 @@ async def score_jobs_for_user(
 
     df["semantic_score"] *= df["skill_overlap"].apply(bounded_skill_boost)
 
-    df["functional_role"] = df.apply(
-        lambda r: classify_functional_role(
-            r["title"] or "", r["description"] or "", cfg
-        ),
-        axis=1,
-    )
-    df["role_skill_score"] = df.apply(
-        lambda r: (
-            calculate_role_and_skill_match_score(
-                cfg,
-                title=r["title"],
-                description=r["description"],
-            )
-            * (0.75 + 0.25 * r.get("target_role_score", 1.0))
-        ),
-        axis=1,
-    )
     scorer = CompanyScorer(cfg)
-    df["company_weight"] = df["company"].apply(scorer.score)
     static_tiers = df["company"].apply(scorer.classify)
     df["company_tier"] = df.apply(
         lambda row: (
@@ -582,8 +542,6 @@ async def score_jobs_for_user(
     df["location_weight"] = df["location"].apply(
         lambda value: _preference_location_weight(value, cfg)
     )
-    df["recency_weight"] = df["date_posted"].apply(lambda d: recency_weight(cfg, d))
-
     user_yoe = cfg.get("experience", {}).get("max_yoe")
     df["seniority_score"] = df.apply(
         lambda r: calculate_seniority_score(
@@ -594,8 +552,6 @@ async def score_jobs_for_user(
         ),
         axis=1,
     )
-    df["functional_role_penalty"] = 1.0
-
     df = _apply_additive_scoring(df, cfg)
     df = _apply_role_lane_cap(df, cfg)
     df["explanation"] = df.apply(_build_explanation, axis=1)

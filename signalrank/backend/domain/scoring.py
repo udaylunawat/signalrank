@@ -1,28 +1,7 @@
 # domain/scoring.py
-import math
 import re
-from datetime import datetime, timezone
 
 # domain/scoring.py
-
-
-def recency_weight(cfg, date_posted):
-    ranking = cfg.get("ranking", {})
-    if ranking.get("recency_half_life_days", 0) <= 0:
-        return 1.0
-    if not ranking.get("enable_recency_decay", False):
-        return 1.0
-
-    if not date_posted:
-        return 1.0
-
-    try:
-        posted = datetime.fromisoformat(str(date_posted).replace("Z", "+00:00"))
-        age = (datetime.now(timezone.utc) - posted).days
-        half_life = ranking.get("recency_half_life_days", 21)
-        return math.exp(-age / half_life)
-    except Exception:
-        return 1.0
 
 
 def calculate_seniority_score(
@@ -89,42 +68,6 @@ def calculate_seniority_score(
                 boost *= 0.9
 
     return min(boost, 1.15)
-
-
-def calculate_role_and_skill_match_score(
-    cfg: dict,
-    *,
-    title: str,
-    description: str,
-) -> float:
-    """
-    Strong intent signal.
-    This is NOT semantic similarity.
-    Multiplier range: [0.6, 1.4]
-    """
-
-    ranking = cfg.get("ranking", {})
-    text = f"{title} {description}".lower()
-
-    score = 1.0
-
-    # --------------------
-    # Positive intent boosts
-    # --------------------
-    positives = ranking.get("positive_skill_keywords", {})
-    for kw, weight in positives.items():
-        if kw in text:
-            score *= weight
-
-    # --------------------
-    # Negative intent penalties
-    # --------------------
-    negatives = ranking.get("negative_role_keywords", {})
-    for kw, penalty in negatives.items():
-        if kw in text:
-            score *= penalty
-
-    return max(0.6, min(score, 1.4))
 
 
 def location_weight(location: str, cfg: dict) -> float:

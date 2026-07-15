@@ -11,7 +11,6 @@ from batch.ranker import (
     _apply_target_role_filter,
     _match_explicit_skills,
     _preference_location_weight,
-    matched_resume_skills,
     score_jobs_for_user,
 )
 
@@ -48,13 +47,6 @@ def test_generic_engineer_token_does_not_make_a_role_primary():
     )
 
     assert scored["match_lane"].tolist() == ["primary", "broader", "broader"]
-
-
-def test_skill_overlap_is_resume_intersection():
-    assert matched_resume_skills(
-        ["python", "kubernetes", "large language models"],
-        {"python", "postgresql"},
-    ) == ["python"]
 
 
 def test_explicit_resume_skills_match_without_profession_taxonomy():
@@ -223,8 +215,6 @@ def test_preferred_company_score_is_resume_semantic_independent():
             "company_tier": ["tier_a", "tier_a"],
             "semantic_score": [0.3, 0.9],
             "skill_overlap": [1, 1],
-            "role_skill_score": [1.0, 1.0],
-            "functional_role_penalty": [1.0, 1.0],
             "seniority_score": [1.0, 1.0],
             "location_weight": [1.0, 1.0],
             "date_posted": [datetime.now(timezone.utc)] * 2,
