@@ -378,6 +378,27 @@ def _apply_role_lane_cap(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     return out
 
 
+def _order_match_lanes(df: pd.DataFrame) -> pd.DataFrame:
+    if "match_lane" not in df or "final_score" not in df:
+        return df
+    out = df.copy()
+    out["_match_lane_priority"] = np.where(
+        out["match_lane"] == "primary", 0, 1
+    )
+    return out.sort_values(
+        ["_match_lane_priority", "final_score"],
+        ascending=[True, False],
+    )
+
+
+def _order_ranked_jobs(
+    df: pd.DataFrame, *, prioritize_primary_lane: bool
+) -> pd.DataFrame:
+    if prioritize_primary_lane:
+        return _order_match_lanes(df)
+    return df.sort_values("final_score", ascending=False)
+
+
 def _build_explanation(row: pd.Series) -> dict:
     concerns: list[str] = []
     if row.get("match_lane") == "broader":
@@ -500,6 +521,7 @@ async def score_jobs_for_user(
     config_overrides: dict | None,
     distilled_text: str | None = None,
     resume_skills: list[str] | None = None,
+    prioritize_primary_lane: bool = True,
 ) -> pd.DataFrame:
     ctx = build_context(user_id, resume_text, config_overrides)
     cfg = ctx.config
@@ -556,9 +578,9 @@ async def score_jobs_for_user(
     df = _apply_role_lane_cap(df, cfg)
     df["explanation"] = df.apply(_build_explanation, axis=1)
 
-    df = df.sort_values("final_score", ascending=False).drop_duplicates(
-        subset=["job_url"]
-    )
+    df = _order_ranked_jobs(
+        df, prioritize_primary_lane=prioritize_primary_lane
+    ).drop_duplicates(subset=["job_url"])
     df["_dedup_key"] = (
         df["title"].str.strip().str.lower()
         + "|"
@@ -575,8 +597,12 @@ async def score_jobs_for_user(
         + df["company"].str.strip().str.lower()
     )
     df = df.drop_duplicates(subset="_fuzzy_key", keep="first")
-    df = df.drop(columns=["_dedup_key", "_fuzzy_key"], errors="ignore").reset_index(
-        drop=True
-    )
+    df = _order_ranked_jobs(
+        df.drop(
+            columns=["_dedup_key", "_fuzzy_key", "_match_lane_priority"],
+            errors="ignore",
+        ),
+        prioritize_primary_lane=prioritize_primary_lane,
+    ).drop(columns=["_match_lane_priority"], errors="ignore").reset_index(drop=True)
 
     return df.head(TOP_N)

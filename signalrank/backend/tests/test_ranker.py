@@ -10,6 +10,8 @@ from batch.ranker import (
     _apply_role_lane_cap,
     _apply_target_role_filter,
     _match_explicit_skills,
+    _order_match_lanes,
+    _order_ranked_jobs,
     _preference_location_weight,
     score_jobs_for_user,
 )
@@ -69,6 +71,39 @@ def test_broader_matches_cannot_outrank_primary_role_matches():
     scored = _apply_role_lane_cap(frame, {"ranking": {"broader_match_score_cap": 64}})
 
     assert scored["final_score"].tolist() == [71.0, 64.0]
+
+
+def test_primary_lane_precedes_higher_scoring_broader_match():
+    ordered = _order_match_lanes(
+        pd.DataFrame(
+            {
+                "title": ["Forward Deployed Engineer", "Data Platform Engineer"],
+                "match_lane": ["primary", "broader"],
+                "final_score": [40.11, 54.88],
+            }
+        )
+    )
+
+    assert ordered["title"].tolist() == [
+        "Forward Deployed Engineer",
+        "Data Platform Engineer",
+    ]
+
+
+def test_benchmark_can_replay_pre_fix_score_ordering():
+    frame = pd.DataFrame(
+        {
+            "title": ["Forward Deployed Engineer", "Data Platform Engineer"],
+            "match_lane": ["primary", "broader"],
+            "final_score": [40.11, 54.88],
+        }
+    )
+
+    pre_fix = _order_ranked_jobs(frame, prioritize_primary_lane=False)
+    post_fix = _order_ranked_jobs(frame, prioritize_primary_lane=True)
+
+    assert pre_fix["title"].tolist()[0] == "Data Platform Engineer"
+    assert post_fix["title"].tolist()[0] == "Forward Deployed Engineer"
 
 
 def test_company_and_title_exclusions_are_effective():
