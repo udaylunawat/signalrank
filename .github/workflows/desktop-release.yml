@@ -106,7 +106,7 @@ jobs:
           releaseName: "SignalRank ${{ github.event.inputs.tag || github.ref_name }}"
           releaseBody: "Cross-platform local-first SignalRank desktop release."
           releaseDraft: true
-          includeUpdaterJson: true
+          includeUpdaterJson: false
           args: --config src-tauri/tauri.release.conf.json --bundles ${{ matrix.bundles }}
 
       - name: Packaged lifecycle smoke test
