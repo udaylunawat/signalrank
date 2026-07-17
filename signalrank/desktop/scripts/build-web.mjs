@@ -15,7 +15,9 @@ const frontendDir = resolve(desktopDir, "..", "frontend");
 const standaloneDir = resolve(frontendDir, ".next", "standalone");
 const outputDir = resolve(desktopDir, "dist", "web");
 
-const result = spawnSync("npm", ["run", "build"], {
+// Next.js 16 defaults to Turbopack, which does not emit the standalone server
+// bundle required by the Tauri sidecar. Keep the desktop bundle on webpack.
+const result = spawnSync("npm", ["run", "build", "--", "--webpack"], {
   cwd: frontendDir,
   env: {
     ...process.env,
