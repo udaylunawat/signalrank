@@ -1,8 +1,9 @@
-import { ArrowUpRight, BookmarkPlus, Building2, Clock3, MapPin } from "lucide-react";
-import type { Job } from "@/types";
+import { ArrowUpRight, BookmarkPlus, Building2, Clock3, MapPin, ThumbsDown, ThumbsUp } from "lucide-react";
+import type { Job, JobFeedbackValue } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { openExternal } from "@/lib/desktop";
 
 function scoreMeta(score: number | null) {
   const value = score == null ? null : Math.round(score);
@@ -27,12 +28,18 @@ export default function JobCard({
   tracked = false,
   tracking = false,
   onTrack,
+  feedback,
+  feedbacking = false,
+  onFeedback,
 }: {
   job: Job;
   compact?: boolean;
   tracked?: boolean;
   tracking?: boolean;
   onTrack?: (job: Job) => void;
+  feedback?: JobFeedbackValue | null;
+  feedbacking?: boolean;
+  onFeedback?: (job: Job, value: JobFeedbackValue) => void;
 }) {
   const score = scoreMeta(job.final_score);
   const posted = postedLabel(job.date_posted);
@@ -101,10 +108,10 @@ export default function JobCard({
 
           <div className="mt-4 flex items-center gap-2">
             <Button
-              render={<a href={job.job_url} target="_blank" rel="noreferrer" />}
-              nativeButton={false}
+              type="button"
               size="sm"
               className="rounded-xl"
+              onClick={() => void openExternal(job.job_url)}
             >
               View role
               <ArrowUpRight data-icon="inline-end" />
@@ -121,6 +128,32 @@ export default function JobCard({
                 <BookmarkPlus data-icon="inline-start" />
                 {tracked ? "Saved" : tracking ? "Saving…" : "Track"}
               </Button>
+            )}
+            {!compact && onFeedback && (
+              <>
+                <Button
+                  type="button"
+                  variant={feedback === "relevant" ? "default" : "outline"}
+                  size="sm"
+                  className="rounded-xl"
+                  disabled={feedbacking}
+                  onClick={() => onFeedback(job, "relevant")}
+                >
+                  <ThumbsUp data-icon="inline-start" />
+                  Good match
+                </Button>
+                <Button
+                  type="button"
+                  variant={feedback === "not_relevant" ? "default" : "outline"}
+                  size="sm"
+                  className="rounded-xl"
+                  disabled={feedbacking}
+                  onClick={() => onFeedback(job, "not_relevant")}
+                >
+                  <ThumbsDown data-icon="inline-start" />
+                  Not a fit
+                </Button>
+              </>
             )}
           </div>
         </div>

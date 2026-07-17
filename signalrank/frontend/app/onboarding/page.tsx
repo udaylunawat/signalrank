@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { isDesktopMode } from "@/lib/desktop";
 import type {
   OnboardingAnswer,
   OnboardingQuestion,
@@ -122,6 +123,7 @@ export default function OnboardingPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const token = (session as { accessToken?: string })?.accessToken ?? "";
+  const desktopMode = isDesktopMode();
 
   const [step, setStep] = useState<Step>("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -308,7 +310,9 @@ export default function OnboardingPage() {
               <span className="grid size-8 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
                 <ShieldCheck className="size-4" />
               </span>
-              Your resume stays private to your account
+              {desktopMode
+                ? "Your resume is stored in the local SignalRank database"
+                : "Your resume stays private to your account"}
             </div>
             <div className="flex items-center gap-3">
               <span className="grid size-8 place-items-center rounded-xl bg-indigo-50 text-indigo-700">

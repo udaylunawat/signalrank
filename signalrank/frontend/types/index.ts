@@ -3,6 +3,16 @@ export interface User {
   email: string;
 }
 
+export interface DesktopStatus {
+  provider_configured: boolean;
+  resume_uploaded: boolean;
+  onboarding_complete: boolean;
+  provider?: string | null;
+  active_model?: string | null;
+  degraded?: boolean;
+  message?: string | null;
+}
+
 export interface Profile {
   role_intent: string | null;
   min_salary: number | null;
@@ -65,6 +75,15 @@ export interface Job {
   company_reputation_rationale?: string | null;
   explanation?: JobExplanation | null;
   is_contract: boolean;
+  feedback?: JobFeedback | null;
+}
+
+export type JobFeedbackValue = "relevant" | "not_relevant";
+export type JobFeedbackReason = "wrong_role" | "wrong_seniority" | "wrong_location" | "other";
+
+export interface JobFeedback {
+  value: JobFeedbackValue;
+  reason: JobFeedbackReason | null;
 }
 
 export interface JobExplanation {

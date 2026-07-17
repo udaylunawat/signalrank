@@ -40,6 +40,9 @@ function stageLabel(run: Run) {
   if (stage?.includes("plan")) return "Planning search queries";
   if (stage?.includes("search") || stage?.includes("ingest")) return "Searching job sources";
   if (stage?.includes("dedup")) return "Removing duplicate roles";
+  if (stage?.includes("assess") || stage?.includes("compan")) {
+    return "Checking top employers with OpenRouter";
+  }
   if (stage?.includes("rank") || stage?.includes("score")) return "Ranking matches";
   return run.status === "pending" ? "Waiting for a worker" : "Updating your matches";
 }

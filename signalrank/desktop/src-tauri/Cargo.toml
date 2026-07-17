@@ -1,0 +1,21 @@
+[package]
+name = "signalrank-desktop"
+version = "0.2.0"
+description = "SignalRank local-first desktop app"
+authors = ["SignalRank"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

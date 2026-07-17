@@ -3,12 +3,27 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import sys
+from pathlib import Path
 from typing import List
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 _ENGINE = None
+
+
+def _embedding_model_source(configured: str) -> str:
+    explicit = os.getenv("SIGNALRANK_EMBEDDING_MODEL_PATH", "").strip()
+    if explicit:
+        return explicit
+    bundle_root = getattr(sys, "_MEIPASS", "")
+    if bundle_root:
+        packaged = Path(bundle_root) / "models" / "all-MiniLM-L6-v2"
+        if packaged.is_dir():
+            return str(packaged)
+    return configured
 
 
 def fingerprint_text(text: str) -> str:
@@ -25,6 +40,7 @@ class EmbeddingEngine:
         emb_cfg = cfg["embeddings"]
 
         self.model_name = emb_cfg["model_name"]
+        model_source = _embedding_model_source(self.model_name)
         self.device = emb_cfg.get("device", "cpu")
         self.normalize = emb_cfg["text"].get("normalize_embeddings", True)
 
@@ -36,7 +52,7 @@ class EmbeddingEngine:
         )
 
         self.model = SentenceTransformer(
-            self.model_name,
+            model_source,
             device=self.device,
         )
 

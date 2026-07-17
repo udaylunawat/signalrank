@@ -9,7 +9,8 @@ import JobCard from "@/components/job-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
-import type { Job, JobListParams } from "@/types";
+import { saveDownload } from "@/lib/desktop";
+import type { Job, JobFeedbackValue, JobListParams } from "@/types";
 
 type ScoreFilter = "all" | "excellent" | "strong";
 type SortOption = NonNullable<JobListParams["sort"]>;
@@ -48,6 +49,7 @@ function JobsPageContent() {
   const [error, setError] = useState("");
   const [tracked, setTracked] = useState<Set<string>>(new Set());
   const [trackingId, setTrackingId] = useState<string | null>(null);
+  const [feedbackId, setFeedbackId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const limit = 50;
 
@@ -153,18 +155,27 @@ function JobsPageContent() {
     setError("");
     try {
       const { blob, filename } = await api.jobs.exportCsv(token);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      await saveDownload(blob, filename);
     } catch {
       setError("We couldn’t export your matches. Please try again.");
     } finally {
       setExporting(false);
+    }
+  }
+
+  async function submitFeedback(job: Job, value: JobFeedbackValue) {
+    if (!token || feedbackId) return;
+    setFeedbackId(job.id);
+    setError("");
+    try {
+      const feedback = await api.jobs.feedback(token, job.id, value, value === "not_relevant" ? "other" : undefined);
+      setJobs((current) => current.map((item) => (
+        item.id === job.id ? { ...item, feedback } : item
+      )));
+    } catch {
+      setError("We couldn’t save that match feedback.");
+    } finally {
+      setFeedbackId(null);
     }
   }
 
@@ -280,6 +291,9 @@ function JobsPageContent() {
             tracked={tracked.has(job.id)}
             tracking={trackingId === job.id}
             onTrack={trackJob}
+            feedback={job.feedback?.value}
+            feedbacking={feedbackId === job.id}
+            onFeedback={submitFeedback}
           />
         ))}
         {!loading && jobs.length === 0 && (

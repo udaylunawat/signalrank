@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isDesktopMode } from "@/lib/desktop";
 
 const navigation = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -38,10 +39,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { data: session, status } = useSession();
+  const desktopMode = isDesktopMode();
 
   useEffect(() => {
-    if (status === "unauthenticated") router.replace(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
-  }, [pathname, router, status]);
+    if (status === "unauthenticated") {
+      if (desktopMode) router.replace("/desktop-setup");
+      else router.replace(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
+    }
+  }, [desktopMode, pathname, router, status]);
 
   if (status !== "authenticated") {
     return (
@@ -51,7 +56,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <Sparkles className="size-4" />
           </span>
           <p className="mt-3 text-sm text-muted-foreground">
-            {status === "loading" ? "Opening your workspace…" : "Taking you to sign in…"}
+            {status === "loading"
+              ? "Opening your workspace…"
+              : desktopMode
+                ? "Starting your local session…"
+                : "Taking you to sign in…"}
           </p>
         </div>
       </main>
@@ -90,17 +99,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         <div className="mt-auto rounded-2xl border border-border/70 bg-white/75 p-3">
           <p className="truncate text-xs font-medium text-foreground">
-            {session?.user?.email ?? "Your workspace"}
+            {desktopMode ? "Local workspace" : session?.user?.email ?? "Your workspace"}
           </p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Personal search</p>
-          <button
-            type="button"
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            className="mt-3 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <LogOut className="size-3.5" />
-            Sign out
-          </button>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {desktopMode ? "Stored on this device" : "Personal search"}
+          </p>
+          {!desktopMode && (
+            <button
+              type="button"
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="mt-3 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <LogOut className="size-3.5" />
+              Sign out
+            </button>
+          )}
         </div>
       </aside>
 
@@ -108,7 +121,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border/70 bg-background/85 px-4 backdrop-blur-xl lg:hidden">
           <Brand />
           <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm ring-1 ring-border/70">
-            Personal
+            {desktopMode ? "Local" : "Personal"}
           </span>
         </header>
 

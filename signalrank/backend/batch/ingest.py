@@ -15,7 +15,8 @@ import httpx
 import pandas as pd
 from jobspy import scrape_jobs
 from sqlalchemy import func
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import JobRaw
@@ -490,7 +491,10 @@ async def refresh_job_catalog(
     if not rows:
         return IngestResult(jobs_discovered=0, jobs_persisted=0, reports=reports)
 
-    statement = insert(JobRaw).values(rows)
+    insert_fn = (
+        sqlite_insert if db.get_bind().dialect.name == "sqlite" else postgresql_insert
+    )
+    statement = insert_fn(JobRaw).values(rows)
     update_values = {
         "title": statement.excluded.title,
         "company": statement.excluded.company,
