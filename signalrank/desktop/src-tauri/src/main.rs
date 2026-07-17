@@ -329,7 +329,11 @@ async fn start_sidecars(
     let (mut web_events, web_child) = handle
         .shell()
         .sidecar("signalrank-web")?
-        .args([server_js.to_string_lossy().to_string()])
+        .args(["--eval", "require(process.env.SIGNALRANK_WEB_SERVER)"])
+        .env(
+            "SIGNALRANK_WEB_SERVER",
+            server_js.to_string_lossy().to_string(),
+        )
         .env("HOSTNAME", "127.0.0.1")
         .env("PORT", web_port.to_string())
         .env("BACKEND_URL", &backend_url)

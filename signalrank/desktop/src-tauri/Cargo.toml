@@ -1,6 +1,6 @@
 [package]
 name = "signalrank-desktop"
-version = "0.2.0"
+version = "0.2.1"
 description = "SignalRank local-first desktop app"
 authors = ["SignalRank"]
 edition = "2021"
