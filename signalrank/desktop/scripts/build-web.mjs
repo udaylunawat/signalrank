@@ -25,6 +25,7 @@ const result = spawnSync(npm, ["run", "build", "--", "--webpack"], {
     SIGNALRANK_MODE: "desktop",
     NEXT_PUBLIC_SIGNALRANK_MODE: "desktop",
   },
+  shell: process.platform === "win32",
   stdio: "inherit",
 });
 
