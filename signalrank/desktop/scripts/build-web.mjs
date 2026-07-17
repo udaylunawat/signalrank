@@ -17,7 +17,8 @@ const outputDir = resolve(desktopDir, "dist", "web");
 
 // Next.js 16 defaults to Turbopack, which does not emit the standalone server
 // bundle required by the Tauri sidecar. Keep the desktop bundle on webpack.
-const result = spawnSync("npm", ["run", "build", "--", "--webpack"], {
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const result = spawnSync(npm, ["run", "build", "--", "--webpack"], {
   cwd: frontendDir,
   env: {
     ...process.env,
@@ -27,6 +28,10 @@ const result = spawnSync("npm", ["run", "build", "--", "--webpack"], {
   stdio: "inherit",
 });
 
+if (result.error) {
+  console.error(`Unable to start ${npm}: ${result.error.message}`);
+  process.exit(1);
+}
 if (result.status) process.exit(result.status);
 if (!existsSync(standaloneDir)) {
   throw new Error(
