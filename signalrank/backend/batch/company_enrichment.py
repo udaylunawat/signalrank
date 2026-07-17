@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import CompanyReputation as CompanyReputationModel, JobRaw
@@ -24,19 +24,33 @@ class EnrichmentResult:
     status: str = "complete"
 
 
+def _expired(expires_at: datetime | None, now: datetime) -> bool:
+    if expires_at is None:
+        return True
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at <= now
+
+
 async def enrich_company_reputations(
     db: AsyncSession,
     llm: OpenRouterClient,
     *,
     ttl_days: int = 60,
+    max_companies: int | None = None,
 ) -> EnrichmentResult:
-    rows = await db.execute(
-        select(JobRaw.company)
+    company_count = func.count(JobRaw.id)
+    statement = (
+        select(JobRaw.company, company_count)
         .where(JobRaw.active.is_(True), JobRaw.company.is_not(None))
-        .distinct()
+        .group_by(JobRaw.company)
+        .order_by(company_count.desc(), JobRaw.company)
     )
+    if max_companies is not None:
+        statement = statement.limit(max(0, max_companies))
+    rows = await db.execute(statement)
     display_names: dict[str, str] = {}
-    for company in rows.scalars():
+    for company, _ in rows:
         canonical = canonicalize_company_name(str(company or ""))
         if canonical:
             display_names.setdefault(canonical, str(company).strip())
@@ -56,7 +70,7 @@ async def enrich_company_reputations(
         if name not in existing
         or (
             not existing[name].manual_override
-            and (existing[name].expires_at is None or existing[name].expires_at <= now)
+            and _expired(existing[name].expires_at, now)
         )
     ]
     if not pending:

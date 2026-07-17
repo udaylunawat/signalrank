@@ -2,14 +2,55 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { api } from "@/lib/api";
 
+const desktopMode =
+  process.env.SIGNALRANK_MODE === "desktop" ||
+  process.env.NEXT_PUBLIC_SIGNALRANK_MODE === "desktop";
+const desktopCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  path: "/",
+  secure: false,
+};
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  cookies: desktopMode
+    ? {
+        sessionToken: {
+          name: "signalrank.desktop.session-token",
+          options: desktopCookieOptions,
+        },
+        callbackUrl: {
+          name: "signalrank.desktop.callback-url",
+          options: desktopCookieOptions,
+        },
+        csrfToken: {
+          name: "signalrank.desktop.csrf-token",
+          options: desktopCookieOptions,
+        },
+      }
+    : undefined,
   providers: [
     Credentials({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        desktop: { label: "Desktop", type: "text" },
       },
       async authorize(credentials) {
+        if (desktopMode) {
+          if (credentials?.desktop !== "true") return null;
+          try {
+            const data = await api.desktop.session();
+            if (!data.access_token) return null;
+            return {
+              id: "desktop-user",
+              email: "local@signalrank.desktop",
+              accessToken: data.access_token,
+            };
+          } catch {
+            return null;
+          }
+        }
         if (!credentials?.email || !credentials?.password) return null;
         try {
           const data = await api.auth.login(

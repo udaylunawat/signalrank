@@ -1,0 +1,7 @@
+dist/
+node_modules/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+src-tauri/gen/
+src-tauri/node-libs/
+src-tauri/target/

@@ -3,6 +3,16 @@ export interface User {
   email: string;
 }
 
+export interface DesktopStatus {
+  provider_configured: boolean;
+  resume_uploaded: boolean;
+  onboarding_complete: boolean;
+  provider?: string | null;
+  active_model?: string | null;
+  degraded?: boolean;
+  message?: string | null;
+}
+
 export interface Profile {
   role_intent: string | null;
   min_salary: number | null;

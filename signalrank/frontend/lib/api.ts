@@ -9,9 +9,23 @@ import type {
   Profile,
   ProfileResponse,
   Run,
+  DesktopStatus,
 } from "@/types";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+function baseUrl() {
+  if (typeof window !== "undefined") return "/api/backend";
+  const configured =
+    process.env.BACKEND_URL ??
+    process.env.API_URL_SERVER ??
+    process.env.NEXT_PUBLIC_API_URL;
+  const desktopMode =
+    process.env.SIGNALRANK_MODE === "desktop" ||
+    process.env.NEXT_PUBLIC_SIGNALRANK_MODE === "desktop";
+  if (desktopMode && !configured) {
+    throw new Error("BACKEND_URL is required in desktop mode");
+  }
+  return (configured ?? "http://localhost:8000").replace(/\/+$/, "");
+}
 
 export class ApiError extends Error {
   constructor(
@@ -43,11 +57,23 @@ async function request<T>(
     ...(init.headers as Record<string, string>),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (
+    typeof window === "undefined" &&
+    process.env.SIGNALRANK_MODE === "desktop" &&
+    process.env.SIGNALRANK_DESKTOP_BOOTSTRAP_TOKEN
+  ) {
+    headers["X-SignalRank-Desktop-Token"] =
+      process.env.SIGNALRANK_DESKTOP_BOOTSTRAP_TOKEN;
+  }
   if (!(init.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...init, headers });
+  const res = await fetch(`${baseUrl()}${path}`, {
+    ...init,
+    headers,
+    cache: "no-store",
+  });
   if (!res.ok) {
     throw new ApiError(res.status, await errorDetail(res));
   }
@@ -56,8 +82,9 @@ async function request<T>(
 }
 
 async function download(path: string, token: string) {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${baseUrl()}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
   });
   if (!res.ok) {
     throw new ApiError(res.status, await errorDetail(res));
@@ -69,6 +96,31 @@ async function download(path: string, token: string) {
 }
 
 export const api = {
+  desktop: {
+    status: (token?: string) =>
+      request<DesktopStatus>("/api/desktop/status", { token }),
+    session: () =>
+      request<{ access_token: string; token_type: "bearer" }>(
+        "/api/desktop/session",
+        { method: "POST" },
+      ),
+    saveProviderKey: (apiKey: string, token?: string) =>
+      request<{
+        status: "ok";
+        provider: "openrouter";
+        persistence: "credential_store" | "session";
+      }>("/api/desktop/provider-key", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ provider: "openrouter", api_key: apiKey }),
+      }),
+    deleteProviderKey: (token?: string) =>
+      request<void>("/api/desktop/provider-key", {
+        method: "DELETE",
+        token,
+      }),
+  },
+
   auth: {
     register: (email: string, password: string) =>
       request<{ id: string; email: string }>("/api/auth/register", {

@@ -1,0 +1,2 @@
+Platform engineer with Python, FastAPI, TypeScript, distributed systems, and
+local-first application experience.

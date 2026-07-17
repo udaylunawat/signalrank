@@ -5,6 +5,8 @@ import re
 import time as time_module
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
+from queue import Empty, Queue
+from threading import Thread
 from time import perf_counter
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -13,7 +15,8 @@ import httpx
 import pandas as pd
 from jobspy import scrape_jobs
 from sqlalchemy import func
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import JobRaw
@@ -38,6 +41,8 @@ _SENIORITY_PREFIX = re.compile(
 JOBSPY_INTER_QUERY_DELAY = 3.0
 JOBSPY_RETRY_BACKOFF = 2.0
 JOBSPY_MAX_ATTEMPTS = 2
+JOBSPY_REQUEST_TIMEOUT_SECONDS = 15.0
+JOBSPY_REFRESH_TIMEOUT_SECONDS = 90.0
 _JOB_FIELD_LIMITS = {
     "title": 500,
     "company": 255,
@@ -279,26 +284,65 @@ def build_query_plan(
     ]
 
 
+def _scrape_jobspy_with_timeout(
+    *, timeout_seconds: float, **kwargs: Any
+) -> pd.DataFrame:
+    result: Queue[tuple[pd.DataFrame | None, Exception | None]] = Queue(maxsize=1)
+
+    def invoke() -> None:
+        try:
+            result.put((scrape_jobs(**kwargs), None))
+        except Exception as exc:
+            result.put((None, exc))
+
+    thread = Thread(target=invoke, daemon=True)
+    thread.start()
+    thread.join(timeout=max(0.0, timeout_seconds))
+    if thread.is_alive():
+        raise TimeoutError(
+            f"JobSpy request exceeded {max(0.0, timeout_seconds):.1f} seconds"
+        )
+    try:
+        frame, error = result.get_nowait()
+    except Empty as exc:
+        raise RuntimeError("JobSpy request ended without a result") from exc
+    if error is not None:
+        raise error
+    if frame is None:
+        raise RuntimeError("JobSpy request returned no dataframe")
+    return frame
+
+
 def scrape_jobspy_jobs(
     plan: list[SearchRequest],
     sleep_fn: Callable[[float], None] = time_module.sleep,
     max_attempts: int = JOBSPY_MAX_ATTEMPTS,
+    request_timeout_seconds: float = JOBSPY_REQUEST_TIMEOUT_SECONDS,
+    refresh_timeout_seconds: float = JOBSPY_REFRESH_TIMEOUT_SECONDS,
 ) -> tuple[list[dict], list[SourceReport]]:
     rows: list[dict] = []
     reports: list[SourceReport] = []
     indeed_requests = 0
+    deadline = perf_counter() + max(0.0, refresh_timeout_seconds)
     for request in plan:
         for site in ("indeed", "linkedin"):
             if site == "indeed" and indeed_requests:
-                sleep_fn(JOBSPY_INTER_QUERY_DELAY)
+                remaining = deadline - perf_counter()
+                if remaining > 0:
+                    sleep_fn(min(JOBSPY_INTER_QUERY_DELAY, remaining))
             if site == "indeed":
                 indeed_requests += 1
             started = perf_counter()
             found: list[dict] = []
             error = None
             for attempt in range(max(1, max_attempts)):
+                remaining = deadline - perf_counter()
+                if remaining <= 0:
+                    error = "JobSpy refresh time budget exceeded"
+                    break
                 try:
-                    frame = scrape_jobs(
+                    frame = _scrape_jobspy_with_timeout(
+                        timeout_seconds=min(request_timeout_seconds, remaining),
                         site_name=[site],
                         search_term=request.query,
                         location=request.location,
@@ -315,7 +359,15 @@ def scrape_jobspy_jobs(
                 except Exception as exc:
                     error = str(exc)[:500]
                     if attempt + 1 < max_attempts:
-                        sleep_fn(JOBSPY_RETRY_BACKOFF * (attempt + 1))
+                        remaining = deadline - perf_counter()
+                        if remaining <= 0:
+                            break
+                        sleep_fn(
+                            min(
+                                JOBSPY_RETRY_BACKOFF * (attempt + 1),
+                                remaining,
+                            )
+                        )
                     else:
                         logger.exception(
                             "JobSpy %s query failed after %d attempts: %s",
@@ -439,7 +491,10 @@ async def refresh_job_catalog(
     if not rows:
         return IngestResult(jobs_discovered=0, jobs_persisted=0, reports=reports)
 
-    statement = insert(JobRaw).values(rows)
+    insert_fn = (
+        sqlite_insert if db.get_bind().dialect.name == "sqlite" else postgresql_insert
+    )
+    statement = insert_fn(JobRaw).values(rows)
     update_values = {
         "title": statement.excluded.title,
         "company": statement.excluded.company,

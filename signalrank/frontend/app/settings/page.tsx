@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { ProfileConfig } from "@/types";
+import DesktopProviderSettings from "@/components/desktop-provider-settings";
 
 const COMPANY_TIERS = [
   ["tier_s", "S · Exceptional reputation"],
@@ -162,6 +163,7 @@ export default function SettingsPage() {
         </div>
       ) : (
         <form onSubmit={savePreferences} className="mt-8 space-y-5">
+          <DesktopProviderSettings token={token} />
           <section className="surface-panel p-5 sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div>

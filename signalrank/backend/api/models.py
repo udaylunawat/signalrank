@@ -1,7 +1,5 @@
-import uuid
 from datetime import datetime
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -14,23 +12,17 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from api.database import Base
-
-
-def gen_uuid() -> str:
-    return str(uuid.uuid4())
+from api.db_types import GUID, JSONField, VectorField, gen_uuid
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=gen_uuid
-    )
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(255))
     provider: Mapped[str] = mapped_column(String(50), default="credentials")
@@ -47,25 +39,23 @@ class User(Base):
 class Profile(Base):
     __tablename__ = "profiles"
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=gen_uuid
-    )
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
     user_id: Mapped[str] = mapped_column(
         ForeignKey("users.id"), unique=True, nullable=False
     )
     resume_text: Mapped[str | None] = mapped_column(Text)
-    resume_embedding: Mapped[list[float] | None] = mapped_column(Vector(384))
+    resume_embedding: Mapped[list[float] | None] = mapped_column(VectorField(384))
     distilled_text: Mapped[str | None] = mapped_column(Text)
-    skills: Mapped[list[str] | None] = mapped_column(JSONB)
-    target_roles: Mapped[list[str] | None] = mapped_column(JSONB)
-    target_companies: Mapped[list[str] | None] = mapped_column(JSONB)
-    preferred_locations: Mapped[list[str] | None] = mapped_column(JSONB)
+    skills: Mapped[list[str] | None] = mapped_column(JSONField())
+    target_roles: Mapped[list[str] | None] = mapped_column(JSONField())
+    target_companies: Mapped[list[str] | None] = mapped_column(JSONField())
+    preferred_locations: Mapped[list[str] | None] = mapped_column(JSONField())
     min_salary: Mapped[int | None] = mapped_column(Integer)
     min_yoe: Mapped[int | None] = mapped_column(Integer)
     max_yoe: Mapped[int | None] = mapped_column(Integer)
     role_intent: Mapped[str | None] = mapped_column(String(100))
-    config_overrides: Mapped[dict | None] = mapped_column(JSONB)
-    onboarding_draft: Mapped[dict | None] = mapped_column(JSONB)
+    config_overrides: Mapped[dict | None] = mapped_column(JSONField())
+    onboarding_draft: Mapped[dict | None] = mapped_column(JSONField())
     resume_sha256: Mapped[str | None] = mapped_column(String(64))
     resume_parse_status: Mapped[str | None] = mapped_column(String(50))
     resume_parse_error: Mapped[str | None] = mapped_column(Text)
@@ -79,9 +69,7 @@ class Profile(Base):
 class JobRaw(Base):
     __tablename__ = "jobs_raw"
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=gen_uuid
-    )
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
     job_url: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     title: Mapped[str | None] = mapped_column(String(500))
     company: Mapped[str | None] = mapped_column(String(255))
@@ -89,7 +77,7 @@ class JobRaw(Base):
     location: Mapped[str | None] = mapped_column(String(255))
     site: Mapped[str | None] = mapped_column(String(100))
     date_posted: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(384))
+    embedding: Mapped[list[float] | None] = mapped_column(VectorField(384))
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -110,9 +98,7 @@ class JobRaw(Base):
 class Run(Base):
     __tablename__ = "runs"
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=gen_uuid
-    )
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="pending")
     stage: Mapped[str] = mapped_column(String(50), default="queued")
@@ -140,6 +126,7 @@ class Run(Base):
             "user_id",
             unique=True,
             postgresql_where=text("status IN ('pending', 'running')"),
+            sqlite_where=text("status IN ('pending', 'running')"),
         ),
     )
 
@@ -147,9 +134,7 @@ class Run(Base):
 class RunSourceTelemetry(Base):
     __tablename__ = "run_source_telemetry"
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=gen_uuid
-    )
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
     run_id: Mapped[str] = mapped_column(
         ForeignKey("runs.id", ondelete="CASCADE"), nullable=False
     )
@@ -176,9 +161,7 @@ class RunSourceTelemetry(Base):
 class JobResult(Base):
     __tablename__ = "job_results"
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=gen_uuid
-    )
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     job_id: Mapped[str] = mapped_column(ForeignKey("jobs_raw.id"), nullable=False)
@@ -192,7 +175,7 @@ class JobResult(Base):
     company_tier: Mapped[str | None] = mapped_column(String(50))
     company_reputation_confidence: Mapped[float | None] = mapped_column(Float)
     company_reputation_rationale: Mapped[str | None] = mapped_column(Text)
-    explanation: Mapped[dict | None] = mapped_column(JSONB)
+    explanation: Mapped[dict | None] = mapped_column(JSONField())
     is_contract: Mapped[bool | None] = mapped_column(Boolean)
 
     run: Mapped["Run"] = relationship(back_populates="results")
@@ -202,9 +185,7 @@ class JobResult(Base):
 class Application(Base):
     __tablename__ = "applications"
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=gen_uuid
-    )
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs_raw.id"))
     company: Mapped[str | None] = mapped_column(String(255))
@@ -224,9 +205,7 @@ class Application(Base):
 class Recruiter(Base):
     __tablename__ = "recruiters"
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=gen_uuid
-    )
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
     company: Mapped[str | None] = mapped_column(String(255))
     name: Mapped[str | None] = mapped_column(String(255))
     linkedin_url: Mapped[str | None] = mapped_column(Text)
@@ -246,12 +225,10 @@ class Recruiter(Base):
 class TailoredResume(Base):
     __tablename__ = "tailored_resumes"
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=gen_uuid
-    )
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs_raw.id"))
-    content_json: Mapped[dict | None] = mapped_column(JSONB)
+    content_json: Mapped[dict | None] = mapped_column(JSONField())
     pdf_path: Mapped[str | None] = mapped_column(String(500))
     template: Mapped[str] = mapped_column(String(50), default="classic")
     created_at: Mapped[datetime] = mapped_column(
@@ -266,12 +243,10 @@ class TailoredResume(Base):
 class Embedding(Base):
     __tablename__ = "embeddings"
 
-    id: Mapped[str] = mapped_column(
-        UUID(as_uuid=False), primary_key=True, default=gen_uuid
-    )
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
     text_fp: Mapped[str] = mapped_column(String(64), nullable=False)
     cfg_fp: Mapped[str] = mapped_column(String(32), nullable=False)
-    vector: Mapped[list[float]] = mapped_column(Vector(384), nullable=False)
+    vector: Mapped[list[float]] = mapped_column(VectorField(384), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -285,7 +260,7 @@ class LLMCache(Base):
     __tablename__ = "llm_cache"
 
     prompt_hash: Mapped[str] = mapped_column(String(32), primary_key=True)
-    response_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    response_json: Mapped[dict] = mapped_column(JSONField(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

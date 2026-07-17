@@ -14,6 +14,7 @@ import AppShell from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { openExternal } from "@/lib/desktop";
 import type { Application, ApplicationStatus } from "@/types";
 
 const columns: Array<{
@@ -183,15 +184,14 @@ export default function TrackerPage() {
                         </div>
                         <div className="mt-3 flex items-center gap-1.5">
                           {application.job_url && (
-                            <a
-                              href={application.job_url}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => void openExternal(application.job_url!)}
                               aria-label={`Open ${application.title}`}
                               className="grid size-7 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-foreground"
                             >
                               <ExternalLink className="size-3.5" />
-                            </a>
+                            </button>
                           )}
                           <select
                             aria-label={`Status for ${application.title}`}

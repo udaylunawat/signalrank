@@ -7,9 +7,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from api.config import is_desktop_mode, settings
 from api.deps_llm import get_llm_client
 from api.models import JobResult, Profile, Run, RunSourceTelemetry
 from batch.company_enrichment import enrich_company_reputations
@@ -53,8 +54,11 @@ async def _claim_next_run(
     owner: str,
 ) -> tuple[str, str] | None:
     now = _now()
-    async with session_factory() as db, db.begin():
-        result = await db.execute(
+    async with session_factory() as db:
+        sqlite = db.get_bind().dialect.name == "sqlite"
+        if sqlite:
+            await db.execute(text("BEGIN IMMEDIATE"))
+        statement = (
             select(Run)
             .where(
                 or_(
@@ -64,11 +68,14 @@ async def _claim_next_run(
                 )
             )
             .order_by(Run.started_at.asc())
-            .with_for_update(skip_locked=True)
             .limit(1)
         )
+        if not sqlite:
+            statement = statement.with_for_update(skip_locked=True)
+        result = await db.execute(statement)
         run = result.scalar_one_or_none()
         if run is None:
+            await db.rollback()
             return None
 
         run.status = "running"
@@ -79,6 +86,7 @@ async def _claim_next_run(
         run.lease_expires_at = now + timedelta(seconds=LEASE_SECONDS)
         run.heartbeat_at = now
         run.attempt_count = (run.attempt_count or 0) + 1
+        await db.commit()
         return run.id, run.user_id
 
 
@@ -88,12 +96,17 @@ async def _claim_run(
     owner: str,
 ) -> tuple[str, str] | None:
     now = _now()
-    async with session_factory() as db, db.begin():
-        result = await db.execute(
-            select(Run).where(Run.id == run_id).with_for_update(skip_locked=True)
-        )
+    async with session_factory() as db:
+        sqlite = db.get_bind().dialect.name == "sqlite"
+        if sqlite:
+            await db.execute(text("BEGIN IMMEDIATE"))
+        statement = select(Run).where(Run.id == run_id)
+        if not sqlite:
+            statement = statement.with_for_update(skip_locked=True)
+        result = await db.execute(statement)
         run = result.scalar_one_or_none()
         if run is None or run.status not in {"pending", "running"}:
+            await db.rollback()
             return None
         if (
             run.status == "running"
@@ -101,6 +114,7 @@ async def _claim_run(
             and run.lease_expires_at >= now
             and run.lease_owner != owner
         ):
+            await db.rollback()
             return None
 
         run.status = "running"
@@ -111,6 +125,7 @@ async def _claim_run(
         run.lease_expires_at = now + timedelta(seconds=LEASE_SECONDS)
         run.heartbeat_at = now
         run.attempt_count = (run.attempt_count or 0) + 1
+        await db.commit()
         return run.id, run.user_id
 
 
@@ -356,7 +371,23 @@ async def _execute_claimed_run(
 
             await _update_progress(db, run_id, owner, "assessing_companies", 50)
             try:
-                enrichment = await enrich_company_reputations(db, get_llm_client())
+                enrichment_task = enrich_company_reputations(
+                    db,
+                    get_llm_client(),
+                    max_companies=(
+                        settings.desktop_company_enrichment_limit
+                        if is_desktop_mode()
+                        else None
+                    ),
+                )
+                enrichment = await asyncio.wait_for(
+                    enrichment_task,
+                    timeout=(
+                        settings.desktop_company_enrichment_timeout_seconds
+                        if is_desktop_mode()
+                        else None
+                    ),
+                )
                 logger.info(
                     "Company reputation enrichment: %d assessed, %d unknown, %d cached (%s)",
                     enrichment.assessed,
@@ -364,6 +395,12 @@ async def _execute_claimed_run(
                     enrichment.cached,
                     enrichment.status,
                 )
+            except TimeoutError:
+                logger.warning(
+                    "Company reputation enrichment exceeded the desktop time budget; "
+                    "continuing with deterministic ranking"
+                )
+                await db.rollback()
             except Exception:
                 logger.exception(
                     "Company reputation enrichment failed; ranking without new assessments"

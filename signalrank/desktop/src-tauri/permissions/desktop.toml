@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-open-external"
+description = "Allow opening a validated HTTPS job link in the system browser"
+commands.allow = ["open_external"]
+
+[[permission]]
+identifier = "allow-save-download"
+description = "Allow saving renderer-generated export data through a native dialog"
+commands.allow = ["save_download"]

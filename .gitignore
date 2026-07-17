@@ -9,6 +9,7 @@
 *.parquet
 *.db
 *.duckdb*
+.benchmark/
 
 # Python
 __pycache__/

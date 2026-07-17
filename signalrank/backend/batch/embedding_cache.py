@@ -1,7 +1,10 @@
 from collections.abc import Sequence
 
+from api.db_types import gen_uuid
 from api.models import Embedding
-from sqlalchemy import select, text
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -24,15 +27,21 @@ class PgEmbeddingCache:
     async def store_vectors(self, rows: list[tuple[str, list[float]]]) -> None:
         if not rows:
             return
+        insert_fn = (
+            sqlite_insert
+            if self.db.get_bind().dialect.name == "sqlite"
+            else postgresql_insert
+        )
         for text_fp, vector in rows:
-            vector_str = "[" + ",".join(str(v) for v in vector) + "]"
-            stmt = text(
-                f"INSERT INTO embeddings (id, text_fp, cfg_fp, vector) "
-                f"VALUES (gen_random_uuid(), :text_fp, :cfg_fp, '{vector_str}'::vector) "
-                f"ON CONFLICT (text_fp, cfg_fp) DO NOTHING"
+            statement = insert_fn(Embedding).values(
+                id=gen_uuid(),
+                text_fp=text_fp,
+                cfg_fp=self.cfg_fp,
+                vector=vector,
             )
             await self.db.execute(
-                stmt,
-                {"text_fp": text_fp, "cfg_fp": self.cfg_fp},
+                statement.on_conflict_do_nothing(
+                    index_elements=[Embedding.text_fp, Embedding.cfg_fp]
+                )
             )
         await self.db.flush()
