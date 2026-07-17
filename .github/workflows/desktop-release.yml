@@ -86,7 +86,20 @@ jobs:
           $config.bundle.windows | Add-Member -NotePropertyName certificateThumbprint -NotePropertyValue $certificate.Thumbprint -Force
           $config | ConvertTo-Json -Depth 20 | Set-Content src-tauri/tauri.conf.json
 
+      - name: Detect Apple signing certificate
+        id: apple-signing
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          if [[ -n "$APPLE_CERTIFICATE" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and attach signed desktop artifacts
+        if: steps.apple-signing.outputs.enabled == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -98,6 +111,25 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SIGNALRANK_MODE: desktop
+          NEXT_PUBLIC_SIGNALRANK_MODE: desktop
+        with:
+          projectPath: signalrank/desktop
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: "SignalRank ${{ github.event.inputs.tag || github.ref_name }}"
+          releaseBody: "Cross-platform local-first SignalRank desktop release."
+          releaseDraft: true
+          includeUpdaterJson: false
+          args: --config src-tauri/tauri.release.conf.json --bundles ${{ matrix.bundles }}
+
+      - name: Build and attach ad-hoc desktop artifacts
+        if: steps.apple-signing.outputs.enabled != 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: "-"
           SIGNALRANK_MODE: desktop
           NEXT_PUBLIC_SIGNALRANK_MODE: desktop
         with:
