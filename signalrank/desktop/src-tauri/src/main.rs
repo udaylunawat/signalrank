@@ -279,8 +279,16 @@ async fn start_sidecars(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let backend_url = format!("http://127.0.0.1:{backend_port}");
     let web_url = format!("http://127.0.0.1:{web_port}");
-    let server_js = find_server_js(&handle.path().resource_dir()?.join("web"))?
+    let resource_dir = handle.path().resource_dir()?;
+    let server_js = find_server_js(&resource_dir.join("web"))?
         .ok_or("Bundled Next.js server.js was not found")?;
+    let web_server = format!(
+        "./{}",
+        server_js
+            .strip_prefix(&resource_dir)?
+            .to_string_lossy()
+            .replace('\\', "/")
+    );
 
     let (mut backend_events, backend_child) = handle
         .shell()
@@ -329,11 +337,9 @@ async fn start_sidecars(
     let (mut web_events, web_child) = handle
         .shell()
         .sidecar("signalrank-web")?
+        .current_dir(&resource_dir)
         .args(["--eval", "require(process.env.SIGNALRANK_WEB_SERVER)"])
-        .env(
-            "SIGNALRANK_WEB_SERVER",
-            server_js.to_string_lossy().to_string(),
-        )
+        .env("SIGNALRANK_WEB_SERVER", web_server)
         .env("HOSTNAME", "127.0.0.1")
         .env("PORT", web_port.to_string())
         .env("BACKEND_URL", &backend_url)

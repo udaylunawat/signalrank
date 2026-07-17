@@ -9,7 +9,7 @@ on:
       tag:
         description: "Release tag"
         required: true
-        default: "desktop-v0.2.1"
+        default: "desktop-v0.2.2"
 
 permissions:
   contents: write
