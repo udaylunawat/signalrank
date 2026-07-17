@@ -199,6 +199,34 @@ class JobResult(Base):
     job: Mapped["JobRaw"] = relationship(back_populates="results")
 
 
+class JobFeedback(Base):
+    __tablename__ = "job_feedback"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("jobs_raw.id", ondelete="CASCADE"), nullable=False
+    )
+    value: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "job_id", name="uq_job_feedback_user_job"),
+        Index("ix_job_feedback_user_value", "user_id", "value"),
+    )
+
+
 class Application(Base):
     __tablename__ = "applications"
 

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.database import get_db
 from api.deps import get_current_user
-from api.models import JobRaw, JobResult, Run, User
+from api.models import JobFeedback, JobRaw, JobResult, Run, User
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -143,6 +143,16 @@ async def list_jobs(
         .limit(limit)
     )
     rows = results.all()
+    feedback_result = await db.execute(
+        select(JobFeedback.job_id, JobFeedback.value, JobFeedback.reason).where(
+            JobFeedback.user_id == current_user.id,
+            JobFeedback.job_id.in_([job.id for _, job in rows]),
+        )
+    )
+    feedback_by_job = {
+        job_id: {"value": value, "reason": reason}
+        for job_id, value, reason in feedback_result.all()
+    }
 
     jobs = []
     for result, job in rows:
@@ -167,6 +177,7 @@ async def list_jobs(
                 "company_reputation_rationale": (result.company_reputation_rationale),
                 "explanation": result.explanation,
                 "is_contract": result.is_contract,
+                "feedback": feedback_by_job.get(job.id),
             }
         )
 

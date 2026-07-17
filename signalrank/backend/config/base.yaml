@@ -17,6 +17,8 @@ ranking:
   hidden_gem_semantic_threshold: 0.70
   hidden_gem_company_bonus: 60
   contract_penalty: 0.9
+  relevant_feedback_bonus: 5
+  not_relevant_feedback_penalty: 35
   scoring_weights:
     skills_match: 0.40
     company_fit: 0.20

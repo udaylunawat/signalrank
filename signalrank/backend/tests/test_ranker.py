@@ -9,12 +9,14 @@ from batch.ranker import (
     _apply_pre_filters,
     _apply_role_lane_cap,
     _apply_target_role_filter,
+    _classify_explicit_skill_matches,
     _match_explicit_skills,
     _order_match_lanes,
     _order_ranked_jobs,
     _preference_location_weight,
     score_jobs_for_user,
 )
+from domain.scoring import calculate_seniority_score, extract_required_yoe_range
 
 
 def test_target_role_fit_keeps_broader_matches():
@@ -57,6 +59,66 @@ def test_explicit_resume_skills_match_without_profession_taxonomy():
         {"java", "selenium webdriver", "financial modeling", "figma"},
     )
     assert matched == ["selenium webdriver"]
+
+
+def test_skill_evidence_distinguishes_required_preferred_and_mentioned():
+    evidence = _classify_explicit_skill_matches(
+        "Python is required. AWS is preferred. Build services with PostgreSQL.",
+        {"python", "aws", "postgresql"},
+    )
+
+    assert evidence == {
+        "required": ["python"],
+        "preferred": ["aws"],
+        "mentioned": ["postgresql"],
+        "all": ["aws", "postgresql", "python"],
+    }
+
+
+def test_role_alias_and_description_phrase_produce_explainable_primary_match():
+    scored = _apply_target_role_filter(
+        pd.DataFrame(
+            {
+                "title": ["Platform specialist", "Office specialist"],
+                "description": [
+                    "Build systems as a machine learning engineer.",
+                    "Support meeting rooms and office operations.",
+                ],
+            }
+        ),
+        {
+            "profile_intent": {
+                "roles": ["ML Engineer"],
+                "role_aliases": {"ML Engineer": ["machine learning engineer"]},
+            }
+        },
+    )
+
+    assert scored.loc[0, "match_lane"] == "primary"
+    assert scored.loc[0, "matched_target_role"] == "ML Engineer"
+    assert scored.loc[0, "role_match_method"] == "description_phrase"
+    assert scored.loc[1, "match_lane"] == "broader"
+
+
+def test_experience_requirement_is_contextual_and_seniority_remains_soft():
+    requirement = extract_required_yoe_range(
+        "Minimum 5 years of relevant experience with distributed systems."
+    )
+    company_history = extract_required_yoe_range(
+        "Our company has over 25 years of experience serving customers."
+    )
+    score = calculate_seniority_score(
+        {},
+        title="Software Engineer",
+        description="Minimum 5 years of relevant experience with distributed systems.",
+        user_yoe=2,
+    )
+
+    assert requirement is not None
+    assert requirement.minimum_years == 5
+    assert requirement.maximum_years is None
+    assert company_history is None
+    assert score <= 0.65
 
 
 def test_broader_matches_cannot_outrank_primary_role_matches():

@@ -4,6 +4,7 @@ import logging
 import math
 import socket
 import uuid
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -310,14 +311,18 @@ async def _execute_claimed_run(
                 if profile and isinstance(profile.skills, list)
                 else None
             )
-            config_overrides = profile.config_overrides if profile else None
-            overrides = config_overrides or {}
+            config_overrides = deepcopy(profile.config_overrides or {}) if profile else {}
+            overrides = config_overrides
             roles = overrides.get("profile_intent", {}).get("roles")
             if not roles and profile:
                 roles = profile.target_roles
+                if roles:
+                    overrides.setdefault("profile_intent", {})["roles"] = roles
             locations = overrides.get("scraping", {}).get("locations")
             if not locations and profile:
                 locations = profile.preferred_locations
+            if profile and profile.max_yoe is not None:
+                overrides.setdefault("experience", {})["max_yoe"] = profile.max_yoe
 
             await _update_progress(db, run_id, owner, "discovering_jobs", 10)
             ingest_started_at = _now()

@@ -1,5 +1,6 @@
 import logging
 import re
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -7,7 +8,11 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.models import CompanyReputation as CompanyReputationModel, JobRaw
+from api.models import (
+    CompanyReputation as CompanyReputationModel,
+    JobFeedback,
+    JobRaw,
+)
 from batch.context import build_context
 from batch.embedding_cache import PgEmbeddingCache
 from domain.additive_scoring import (
@@ -31,7 +36,7 @@ from domain.embeddings import (
 )
 from domain.scoring import (
     calculate_seniority_score,
-    extract_required_yoe,
+    extract_required_yoe_range,
     location_weight,
 )
 from domain.skill_boost import bounded_skill_boost
@@ -236,12 +241,6 @@ def _apply_pre_filters(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
             lambda company: scorer.matches(str(company or ""), excluded_companies)
         )
         out = out.loc[~mask].copy()
-    max_yoe = cfg.get("experience", {}).get("max_yoe")
-    if max_yoe is not None:
-        out["_required_yoe"] = out["description"].apply(extract_required_yoe)
-        out = out.loc[
-            out["_required_yoe"].isna() | (out["_required_yoe"] <= max_yoe)
-        ].copy()
     return out
 
 
@@ -254,30 +253,69 @@ def _apply_target_role_filter(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         out["match_lane"] = "primary"
         return out
 
-    role_signatures: list[tuple[str, set[str]]] = []
+    configured_aliases = cfg.get("profile_intent", {}).get("role_aliases", {})
+    role_signatures: list[tuple[str, set[str], str]] = []
     for role in roles:
-        normalized = " ".join(re.findall(r"[a-z0-9+#.]+", str(role).casefold()))
-        tokens = set(normalized.split())
-        discriminative = tokens - _ROLE_GENERIC_WORDS
-        role_signatures.append((normalized, discriminative or tokens))
+        aliases = [role]
+        if isinstance(configured_aliases, dict):
+            aliases.extend(configured_aliases.get(str(role), []) or [])
+        for alias in aliases:
+            normalized = " ".join(
+                re.findall(r"[a-z0-9+#.]+", str(alias).casefold())
+            )
+            tokens = set(normalized.split())
+            discriminative = tokens - _ROLE_GENERIC_WORDS
+            if normalized:
+                role_signatures.append(
+                    (normalized, discriminative or tokens, str(role))
+                )
 
     if not role_signatures:
         out["target_role_score"] = 1.0
         out["match_lane"] = "primary"
         return out
 
-    def target_score(title: str) -> float:
-        normalized_title = " ".join(re.findall(r"[a-z0-9+#.]+", str(title).casefold()))
+    def target_score(title: str, description: str) -> tuple[float, str | None, str]:
+        normalized_title = " ".join(
+            re.findall(r"[a-z0-9+#.]+", str(title).casefold())
+        )
         title_tokens = set(normalized_title.split())
-        scores: list[float] = []
-        for role_phrase, tokens in role_signatures:
+        normalized_description = " ".join(
+            re.findall(r"[a-z0-9+#.]+", str(description).casefold())
+        )
+        description_tokens = set(normalized_description.split())
+        best = (0.0, None, "none")
+        for role_phrase, tokens, target_role in role_signatures:
             if role_phrase and role_phrase in normalized_title:
-                scores.append(1.0)
-                continue
-            scores.append(len(tokens & title_tokens) / max(1, len(tokens)))
-        return max(scores, default=0.0)
+                candidate = (1.0, target_role, "title_phrase")
+            else:
+                title_coverage = len(tokens & title_tokens) / max(1, len(tokens))
+                candidate = (title_coverage * 0.88, target_role, "title_tokens")
+            if candidate[0] > best[0]:
+                best = candidate
+            if role_phrase and role_phrase in normalized_description:
+                candidate = (0.78, target_role, "description_phrase")
+            else:
+                description_coverage = len(tokens & description_tokens) / max(
+                    1, len(tokens)
+                )
+                candidate = (
+                    description_coverage * 0.68,
+                    target_role,
+                    "description_tokens",
+                )
+            if candidate[0] > best[0]:
+                best = candidate
 
-    out["target_role_score"] = out["title"].fillna("").astype(str).apply(target_score)
+        return best
+
+    role_evidence = out.apply(
+        lambda row: target_score(row.get("title", ""), row.get("description", "")),
+        axis=1,
+    )
+    out["target_role_score"] = role_evidence.apply(lambda item: item[0])
+    out["matched_target_role"] = role_evidence.apply(lambda item: item[1])
+    out["role_match_method"] = role_evidence.apply(lambda item: item[2])
     out["match_lane"] = np.where(out["target_role_score"] >= 0.75, "primary", "broader")
     return out
 
@@ -303,6 +341,8 @@ def _apply_additive_scoring(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         lambda r: skills_score_0_100(
             r["semantic_score"],
             r["skill_overlap"],
+            int(r.get("required_skill_overlap", 0)),
+            int(r.get("preferred_skill_overlap", 0)),
         ),
         axis=1,
     )
@@ -406,12 +446,29 @@ def _build_explanation(row: pd.Series) -> dict:
     confidence = row.get("company_reputation_confidence")
     if pd.isna(confidence) or float(confidence or 0) < 0.7:
         concerns.append("Company reputation evidence is limited or unverified.")
+    required_yoe_min = row.get("required_yoe_min")
+    candidate_yoe = row.get("candidate_yoe")
+    if (
+        pd.notna(required_yoe_min)
+        and pd.notna(candidate_yoe)
+        and float(candidate_yoe) + 1 < float(required_yoe_min)
+    ):
+        concerns.append("The stated experience requirement is above your profile.")
+    if row.get("feedback_value") == "not_relevant":
+        concerns.append("You previously marked this role as not relevant.")
     return {
         "role_fit": {
             "lane": str(row.get("match_lane", "primary")),
             "title_similarity": round(float(row.get("target_role_score", 1.0)), 3),
+            "matched_target": row.get("matched_target_role"),
+            "method": str(row.get("role_match_method", "none")),
         },
         "matched_skills": list(row.get("matched_skills") or []),
+        "skill_evidence": {
+            "required": list(row.get("required_skills") or []),
+            "preferred": list(row.get("preferred_skills") or []),
+            "mentioned": list(row.get("mentioned_skills") or []),
+        },
         "scores": {
             "semantic": round(float(row.get("semantic_score", 0)) * 100, 1),
             "skills": round(float(row.get("skills_score", 0)), 1),
@@ -421,6 +478,17 @@ def _build_explanation(row: pd.Series) -> dict:
             "recency": round(float(row.get("recency_score", 0)), 1),
         },
         "concerns": concerns,
+        "experience": {
+            "required_min_years": (
+                int(required_yoe_min) if pd.notna(required_yoe_min) else None
+            ),
+            "required_max_years": (
+                int(row["required_yoe_max"])
+                if pd.notna(row.get("required_yoe_max"))
+                else None
+            ),
+            "candidate_years": int(candidate_yoe) if pd.notna(candidate_yoe) else None,
+        },
     }
 
 
@@ -450,11 +518,17 @@ async def _compute_embeddings(
         + "\n"
         + df["description"].fillna("").astype(str)
     )
-    df["matched_skills"] = job_text.apply(
-        lambda text: _match_explicit_skills(text, explicit_resume_skills)
+    skill_evidence = job_text.apply(
+        lambda text: _classify_explicit_skill_matches(text, explicit_resume_skills)
     )
+    df["matched_skills"] = skill_evidence.apply(lambda value: value["all"])
+    df["required_skills"] = skill_evidence.apply(lambda value: value["required"])
+    df["preferred_skills"] = skill_evidence.apply(lambda value: value["preferred"])
+    df["mentioned_skills"] = skill_evidence.apply(lambda value: value["mentioned"])
     df["canonical_skills"] = df["matched_skills"]
     df["skill_overlap"] = df["matched_skills"].apply(len)
+    df["required_skill_overlap"] = df["required_skills"].apply(len)
+    df["preferred_skill_overlap"] = df["preferred_skills"].apply(len)
 
     job_texts = [
         build_job_embedding_text(
@@ -505,13 +579,87 @@ async def _compute_embeddings(
 
 
 def _match_explicit_skills(text: str, resume_skills: set[str]) -> list[str]:
+    return _classify_explicit_skill_matches(text, resume_skills)["all"]
+
+
+def _classify_explicit_skill_matches(
+    text: str, resume_skills: set[str]
+) -> dict[str, list[str]]:
     value = str(text or "").casefold()
-    matched = []
+    buckets = {"required": [], "preferred": [], "mentioned": []}
     for skill in resume_skills:
         pattern = rf"(?<!\w){re.escape(skill.casefold())}(?!\w)"
-        if re.search(pattern, value):
-            matched.append(skill)
-    return sorted(matched)
+        matches = list(re.finditer(pattern, value))
+        if not matches:
+            continue
+        contexts = []
+        for match in matches:
+            start = (
+                max(
+                    value.rfind(".", 0, match.start()),
+                    value.rfind("\n", 0, match.start()),
+                )
+                + 1
+            )
+            end_candidates = [
+                position
+                for position in (
+                    value.find(".", match.end()),
+                    value.find("\n", match.end()),
+                )
+                if position != -1
+            ]
+            end = min(end_candidates) if end_candidates else len(value)
+            contexts.append(value[start:end])
+        if any(
+            re.search(r"\b(?:required|must have|must-have|essential|minimum)\b", context)
+            for context in contexts
+        ):
+            buckets["required"].append(skill)
+        elif any(
+            re.search(r"\b(?:preferred|nice to have|nice-to-have|bonus|plus)\b", context)
+            for context in contexts
+        ):
+            buckets["preferred"].append(skill)
+        else:
+            buckets["mentioned"].append(skill)
+    for bucket in buckets.values():
+        bucket.sort()
+    buckets["all"] = sorted(
+        buckets["required"] + buckets["preferred"] + buckets["mentioned"]
+    )
+    return buckets
+
+
+async def _apply_feedback_adjustments(
+    df: pd.DataFrame,
+    db: AsyncSession,
+    user_id: str,
+    cfg: dict,
+) -> pd.DataFrame:
+    try:
+        uuid.UUID(str(user_id))
+    except ValueError:
+        df["feedback_value"] = None
+        return df
+    result = await db.execute(
+        select(JobFeedback.job_id, JobFeedback.value).where(
+            JobFeedback.user_id == user_id
+        )
+    )
+    feedback = dict(result.all())
+    if not feedback:
+        df["feedback_value"] = None
+        return df
+    out = df.copy()
+    out["feedback_value"] = out["id"].map(feedback)
+    ranking = cfg.get("ranking", {})
+    positive_bonus = float(ranking.get("relevant_feedback_bonus", 5))
+    negative_penalty = float(ranking.get("not_relevant_feedback_penalty", 35))
+    out.loc[out["feedback_value"] == "relevant", "final_score"] += positive_bonus
+    out.loc[out["feedback_value"] == "not_relevant", "final_score"] -= negative_penalty
+    out["final_score"] = out["final_score"].clip(lower=0, upper=100)
+    return out
 
 
 async def score_jobs_for_user(
@@ -565,6 +713,14 @@ async def score_jobs_for_user(
         lambda value: _preference_location_weight(value, cfg)
     )
     user_yoe = cfg.get("experience", {}).get("max_yoe")
+    experience_requirements = df["description"].apply(extract_required_yoe_range)
+    df["required_yoe_min"] = experience_requirements.apply(
+        lambda requirement: requirement.minimum_years if requirement else None
+    )
+    df["required_yoe_max"] = experience_requirements.apply(
+        lambda requirement: requirement.maximum_years if requirement else None
+    )
+    df["candidate_yoe"] = user_yoe
     df["seniority_score"] = df.apply(
         lambda r: calculate_seniority_score(
             cfg,
@@ -576,6 +732,7 @@ async def score_jobs_for_user(
     )
     df = _apply_additive_scoring(df, cfg)
     df = _apply_role_lane_cap(df, cfg)
+    df = await _apply_feedback_adjustments(df, db, user_id, cfg)
     df["explanation"] = df.apply(_build_explanation, axis=1)
 
     df = _order_ranked_jobs(

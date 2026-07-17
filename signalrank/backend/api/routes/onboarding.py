@@ -89,6 +89,8 @@ async def upload_resume(
     profile.resume_text = resume_text
     profile.skills = parsed.skills
     profile.target_roles = parsed.recent_titles
+    if parsed.years_of_experience is not None and profile.max_yoe is None:
+        profile.max_yoe = parsed.years_of_experience
     profile.resume_sha256 = resume_sha256
     profile.resume_parse_status = parsed.status
     profile.resume_parse_error = parsed.error
