@@ -29,9 +29,6 @@ jobs:
           - name: Windows
             os: windows-latest
             bundles: nsis,msi
-          - name: Linux
-            os: ubuntu-22.04
-            bundles: appimage,deb,rpm
 
     steps:
       - uses: actions/checkout@v4
