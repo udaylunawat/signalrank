@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from llm.openrouter import OpenRouterClient
 
 logger = logging.getLogger(__name__)
-RESUME_PARSER_VERSION = "resume-parser-v2"
+RESUME_PARSER_VERSION = "resume-parser-v3"
 
 EXTRACTION_PROMPT = """Extract structured data from this resume. Return JSON only with these keys:
 - skills: list of technical skills (strings)
@@ -13,6 +13,12 @@ EXTRACTION_PROMPT = """Extract structured data from this resume. Return JSON onl
 - recent_titles: list of recent job titles (strings)
 - industries: list of industries worked in (strings)
 - education: list of degrees/certifications (strings)
+- intent_suggestions: object with role_aliases (alternative names supported by the
+  recent titles) and seniority_band (intern, entry, mid, senior, lead, manager,
+  executive, or unknown)
+
+`intent_suggestions` is career evidence only. Do not infer a target role,
+required skills, preferred locations, salary, or job-search preference.
 
 Be concise. No explanations.
 
@@ -27,6 +33,31 @@ RESUME_EXTRACTION_SCHEMA = {
         "recent_titles": {"type": "array", "items": {"type": "string"}},
         "industries": {"type": "array", "items": {"type": "string"}},
         "education": {"type": "array", "items": {"type": "string"}},
+        "intent_suggestions": {
+            "type": "object",
+            "properties": {
+                "role_aliases": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 12,
+                },
+                "seniority_band": {
+                    "type": "string",
+                    "enum": [
+                        "intern",
+                        "entry",
+                        "mid",
+                        "senior",
+                        "lead",
+                        "manager",
+                        "executive",
+                        "unknown",
+                    ],
+                },
+            },
+            "required": ["role_aliases", "seniority_band"],
+            "additionalProperties": False,
+        },
     },
     "required": [
         "skills",
@@ -34,6 +65,7 @@ RESUME_EXTRACTION_SCHEMA = {
         "recent_titles",
         "industries",
         "education",
+        "intent_suggestions",
     ],
     "additionalProperties": False,
 }
@@ -83,6 +115,7 @@ class ResumeParseResult:
     recent_titles: list[str] = field(default_factory=list)
     industries: list[str] = field(default_factory=list)
     education: list[str] = field(default_factory=list)
+    intent_suggestions: dict = field(default_factory=dict)
     status: str = "complete"
     confidence: float = 1.0
     source: str = "llm"
@@ -114,12 +147,39 @@ def _validate_extraction(data: dict) -> ResumeParseResult:
         except (ValueError, TypeError):
             return None
 
+    raw_suggestions = data.get("intent_suggestions")
+    aliases = (
+        to_list(raw_suggestions.get("role_aliases"))
+        if isinstance(raw_suggestions, dict)
+        else []
+    )
+    seniority_band = (
+        raw_suggestions.get("seniority_band")
+        if isinstance(raw_suggestions, dict)
+        else "unknown"
+    )
+    if seniority_band not in {
+        "intern",
+        "entry",
+        "mid",
+        "senior",
+        "lead",
+        "manager",
+        "executive",
+        "unknown",
+    }:
+        seniority_band = "unknown"
+
     return ResumeParseResult(
         skills=to_list(data.get("skills")),
         years_of_experience=to_int(data.get("years_of_experience")),
         recent_titles=to_list(data.get("recent_titles")),
         industries=to_list(data.get("industries")),
         education=to_list(data.get("education")),
+        intent_suggestions={
+            "role_aliases": _dedupe(aliases, limit=12),
+            "seniority_band": seniority_band,
+        },
     )
 
 
@@ -189,6 +249,7 @@ def _heuristic_parse(resume_text: str) -> ResumeParseResult:
         skills=skills,
         years_of_experience=years,
         recent_titles=titles,
+        intent_suggestions={},
         status="degraded",
         confidence=round(populated / 3 * 0.7, 2),
         source="heuristic",
@@ -214,6 +275,7 @@ def _merge_with_fallback(
         recent_titles=primary.recent_titles or fallback.recent_titles,
         industries=primary.industries,
         education=primary.education,
+        intent_suggestions=primary.intent_suggestions,
         status="degraded" if primary.error or used_fallback else "complete",
         confidence=(
             max(primary.confidence, fallback.confidence)

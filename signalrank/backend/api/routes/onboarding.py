@@ -88,7 +88,6 @@ async def upload_resume(
 
     profile.resume_text = resume_text
     profile.skills = parsed.skills
-    profile.target_roles = parsed.recent_titles
     if parsed.years_of_experience is not None and profile.max_yoe is None:
         profile.max_yoe = parsed.years_of_experience
     profile.resume_sha256 = resume_sha256
@@ -113,6 +112,7 @@ async def upload_resume(
             "recent_titles": parsed.recent_titles,
             "industries": parsed.industries,
             "education": parsed.education,
+            "intent_suggestions": parsed.intent_suggestions,
             "parse_status": parsed.status,
             "parse_confidence": parsed.confidence,
             "parse_source": parsed.source,

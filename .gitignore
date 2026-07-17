@@ -10,6 +10,7 @@
 *.db
 *.duckdb*
 .benchmark/
+/test_resumes/manifest.local.yaml
 
 # Python
 __pycache__/

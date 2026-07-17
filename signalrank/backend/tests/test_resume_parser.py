@@ -35,11 +35,19 @@ def test_validate_extraction_with_valid_data():
         "recent_titles": ["ML Engineer", "Data Scientist"],
         "industries": ["tech", "finance"],
         "education": ["MS Computer Science"],
+        "intent_suggestions": {
+            "role_aliases": ["Machine Learning Engineer"],
+            "seniority_band": "senior",
+        },
     }
     result = _validate_extraction(data)
     assert isinstance(result, ResumeParseResult)
     assert result.skills == ["python", "ml", "pytorch"]
     assert result.years_of_experience == 5
+    assert result.intent_suggestions == {
+        "role_aliases": ["Machine Learning Engineer"],
+        "seniority_band": "senior",
+    }
 
 
 def test_validate_extraction_with_missing_keys():

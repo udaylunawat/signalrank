@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models import (
     CompanyReputation as CompanyReputationModel,
+    JobEnrichment,
     JobFeedback,
     JobRaw,
 )
@@ -128,7 +129,17 @@ async def load_jobs_dataframe(db: AsyncSession) -> pd.DataFrame:
             JobRaw.site,
             JobRaw.date_posted,
             JobRaw.last_seen,
-        ).where(JobRaw.active.is_(True))
+            JobEnrichment.role_aliases.label("enriched_role_aliases"),
+            JobEnrichment.seniority_band.label("enriched_seniority_band"),
+            JobEnrichment.required_skills.label("enriched_required_skills"),
+            JobEnrichment.preferred_skills.label("enriched_preferred_skills"),
+            JobEnrichment.coherence_status.label("coherence_status"),
+            JobEnrichment.coherence_confidence.label("coherence_confidence"),
+            JobEnrichment.coherence_reason.label("coherence_reason"),
+            JobEnrichment.assessment_status.label("enrichment_status"),
+        )
+        .outerjoin(JobEnrichment, JobEnrichment.job_id == JobRaw.id)
+        .where(JobRaw.active.is_(True))
     )
     rows = result.all()
     if not rows:
@@ -143,6 +154,14 @@ async def load_jobs_dataframe(db: AsyncSession) -> pd.DataFrame:
                 "site",
                 "date_posted",
                 "last_seen",
+                "enriched_role_aliases",
+                "enriched_seniority_band",
+                "enriched_required_skills",
+                "enriched_preferred_skills",
+                "coherence_status",
+                "coherence_confidence",
+                "coherence_reason",
+                "enrichment_status",
             ]
         )
     frame = pd.DataFrame(
@@ -157,6 +176,14 @@ async def load_jobs_dataframe(db: AsyncSession) -> pd.DataFrame:
             "site",
             "date_posted",
             "last_seen",
+            "enriched_role_aliases",
+            "enriched_seniority_band",
+            "enriched_required_skills",
+            "enriched_preferred_skills",
+            "coherence_status",
+            "coherence_confidence",
+            "coherence_reason",
+            "enrichment_status",
         ],
     )
     reputation_rows = await db.execute(select(CompanyReputationModel))
@@ -260,9 +287,7 @@ def _apply_target_role_filter(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         if isinstance(configured_aliases, dict):
             aliases.extend(configured_aliases.get(str(role), []) or [])
         for alias in aliases:
-            normalized = " ".join(
-                re.findall(r"[a-z0-9+#.]+", str(alias).casefold())
-            )
+            normalized = " ".join(re.findall(r"[a-z0-9+#.]+", str(alias).casefold()))
             tokens = set(normalized.split())
             discriminative = tokens - _ROLE_GENERIC_WORDS
             if normalized:
@@ -275,15 +300,28 @@ def _apply_target_role_filter(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         out["match_lane"] = "primary"
         return out
 
-    def target_score(title: str, description: str) -> tuple[float, str | None, str]:
-        normalized_title = " ".join(
-            re.findall(r"[a-z0-9+#.]+", str(title).casefold())
-        )
+    def target_score(
+        title: str,
+        description: str,
+        enriched_aliases: object,
+        enrichment_status: object,
+    ) -> tuple[float, str | None, str]:
+        normalized_title = " ".join(re.findall(r"[a-z0-9+#.]+", str(title).casefold()))
         title_tokens = set(normalized_title.split())
         normalized_description = " ".join(
             re.findall(r"[a-z0-9+#.]+", str(description).casefold())
         )
         description_tokens = set(normalized_description.split())
+        aliases = (
+            [
+                " ".join(re.findall(r"[a-z0-9+#.]+", str(alias).casefold()))
+                for alias in enriched_aliases
+                if isinstance(alias, str)
+            ]
+            if isinstance(enriched_aliases, list)
+            and str(enrichment_status or "") == "assessed"
+            else []
+        )
         best = (0.0, None, "none")
         for role_phrase, tokens, target_role in role_signatures:
             if role_phrase and role_phrase in normalized_title:
@@ -293,6 +331,13 @@ def _apply_target_role_filter(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
                 candidate = (title_coverage * 0.88, target_role, "title_tokens")
             if candidate[0] > best[0]:
                 best = candidate
+            if any(
+                role_phrase and (role_phrase in alias or alias in role_phrase)
+                for alias in aliases
+            ):
+                candidate = (0.86, target_role, "enriched_role_alias")
+                if candidate[0] > best[0]:
+                    best = candidate
             if role_phrase and role_phrase in normalized_description:
                 candidate = (0.78, target_role, "description_phrase")
             else:
@@ -310,7 +355,12 @@ def _apply_target_role_filter(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         return best
 
     role_evidence = out.apply(
-        lambda row: target_score(row.get("title", ""), row.get("description", "")),
+        lambda row: target_score(
+            row.get("title", ""),
+            row.get("description", ""),
+            row.get("enriched_role_aliases", []),
+            row.get("enrichment_status", ""),
+        ),
         axis=1,
     )
     out["target_role_score"] = role_evidence.apply(lambda item: item[0])
@@ -418,13 +468,48 @@ def _apply_role_lane_cap(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     return out
 
 
+def _apply_listing_quality(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """Use a high-confidence job-content contradiction as a conservative gate."""
+
+    out = df.copy()
+    quality = cfg.get("ranking", {}).get("listing_quality", {})
+    contradictory_threshold = float(
+        quality.get("contradictory_confidence_threshold", 0.75)
+    )
+    contradictory_multiplier = float(
+        quality.get("contradictory_score_multiplier", 0.72)
+    )
+    ambiguous_threshold = float(quality.get("ambiguous_confidence_threshold", 0.85))
+    ambiguous_multiplier = float(quality.get("ambiguous_score_multiplier", 0.90))
+    confidence = pd.to_numeric(
+        out.get("coherence_confidence", pd.Series(0.0, index=out.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    status = out.get(
+        "coherence_status", pd.Series("unassessed", index=out.index)
+    ).fillna("unassessed")
+    enrichment_status = out.get(
+        "enrichment_status", pd.Series("pending", index=out.index)
+    ).fillna("pending")
+    assessed = enrichment_status.eq("assessed")
+    contradictory = (
+        assessed & status.eq("contradictory") & (confidence >= contradictory_threshold)
+    )
+    ambiguous = assessed & status.eq("ambiguous") & (confidence >= ambiguous_threshold)
+    out["listing_quality_multiplier"] = 1.0
+    out.loc[ambiguous, "listing_quality_multiplier"] = ambiguous_multiplier
+    out.loc[contradictory, "listing_quality_multiplier"] = contradictory_multiplier
+    out["final_score"] *= out["listing_quality_multiplier"]
+    if "match_lane" in out:
+        out.loc[contradictory, "match_lane"] = "broader"
+    return out
+
+
 def _order_match_lanes(df: pd.DataFrame) -> pd.DataFrame:
     if "match_lane" not in df or "final_score" not in df:
         return df
     out = df.copy()
-    out["_match_lane_priority"] = np.where(
-        out["match_lane"] == "primary", 0, 1
-    )
+    out["_match_lane_priority"] = np.where(out["match_lane"] == "primary", 0, 1)
     return out.sort_values(
         ["_match_lane_priority", "final_score"],
         ascending=[True, False],
@@ -456,6 +541,12 @@ def _build_explanation(row: pd.Series) -> dict:
         concerns.append("The stated experience requirement is above your profile.")
     if row.get("feedback_value") == "not_relevant":
         concerns.append("You previously marked this role as not relevant.")
+    if (
+        row.get("enrichment_status") == "assessed"
+        and row.get("coherence_status") == "contradictory"
+        and float(row.get("coherence_confidence") or 0) >= 0.75
+    ):
+        concerns.append("The listed title and responsibilities appear to conflict.")
     return {
         "role_fit": {
             "lane": str(row.get("match_lane", "primary")),
@@ -489,6 +580,15 @@ def _build_explanation(row: pd.Series) -> dict:
             ),
             "candidate_years": int(candidate_yoe) if pd.notna(candidate_yoe) else None,
         },
+        "listing_quality": {
+            "status": str(row.get("coherence_status") or "unassessed"),
+            "confidence": round(float(row.get("coherence_confidence") or 0), 3),
+            "reason": row.get("coherence_reason"),
+            "assessment_status": str(row.get("enrichment_status") or "pending"),
+            "score_multiplier": round(
+                float(row.get("listing_quality_multiplier") or 1.0), 3
+            ),
+        },
     }
 
 
@@ -517,6 +617,19 @@ async def _compute_embeddings(
         df["title"].fillna("").astype(str)
         + "\n"
         + df["description"].fillna("").astype(str)
+    )
+    enriched_required = df.get(
+        "enriched_required_skills", pd.Series([[]] * len(df), index=df.index)
+    ).apply(lambda value: ", ".join(value) if isinstance(value, list) else "")
+    enriched_preferred = df.get(
+        "enriched_preferred_skills", pd.Series([[]] * len(df), index=df.index)
+    ).apply(lambda value: ", ".join(value) if isinstance(value, list) else "")
+    job_text = (
+        job_text
+        + "\nRequired skills: "
+        + enriched_required
+        + "\nPreferred skills: "
+        + enriched_preferred
     )
     skill_evidence = job_text.apply(
         lambda text: _classify_explicit_skill_matches(text, explicit_resume_skills)
@@ -612,12 +725,16 @@ def _classify_explicit_skill_matches(
             end = min(end_candidates) if end_candidates else len(value)
             contexts.append(value[start:end])
         if any(
-            re.search(r"\b(?:required|must have|must-have|essential|minimum)\b", context)
+            re.search(
+                r"\b(?:required|must have|must-have|essential|minimum)\b", context
+            )
             for context in contexts
         ):
             buckets["required"].append(skill)
         elif any(
-            re.search(r"\b(?:preferred|nice to have|nice-to-have|bonus|plus)\b", context)
+            re.search(
+                r"\b(?:preferred|nice to have|nice-to-have|bonus|plus)\b", context
+            )
             for context in contexts
         ):
             buckets["preferred"].append(skill)
@@ -731,6 +848,7 @@ async def score_jobs_for_user(
         axis=1,
     )
     df = _apply_additive_scoring(df, cfg)
+    df = _apply_listing_quality(df, cfg)
     df = _apply_role_lane_cap(df, cfg)
     df = await _apply_feedback_adjustments(df, db, user_id, cfg)
     df["explanation"] = df.apply(_build_explanation, axis=1)
@@ -754,12 +872,16 @@ async def score_jobs_for_user(
         + df["company"].str.strip().str.lower()
     )
     df = df.drop_duplicates(subset="_fuzzy_key", keep="first")
-    df = _order_ranked_jobs(
-        df.drop(
-            columns=["_dedup_key", "_fuzzy_key", "_match_lane_priority"],
-            errors="ignore",
-        ),
-        prioritize_primary_lane=prioritize_primary_lane,
-    ).drop(columns=["_match_lane_priority"], errors="ignore").reset_index(drop=True)
+    df = (
+        _order_ranked_jobs(
+            df.drop(
+                columns=["_dedup_key", "_fuzzy_key", "_match_lane_priority"],
+                errors="ignore",
+            ),
+            prioritize_primary_lane=prioritize_primary_lane,
+        )
+        .drop(columns=["_match_lane_priority"], errors="ignore")
+        .reset_index(drop=True)
+    )
 
     return df.head(TOP_N)
