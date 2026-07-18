@@ -78,7 +78,7 @@ export default function DesktopSetupPage() {
         if (active) {
           const nextStatus = await refreshStatus(activeToken);
           if (nextStatus.onboarding_complete) {
-            router.replace("/dashboard");
+            window.location.replace("/dashboard");
           }
         }
       } catch (bootError) {
@@ -355,7 +355,7 @@ export default function DesktopSetupPage() {
               <Button
                 size="lg"
                 className="mt-6 h-11 w-full rounded-xl"
-                onClick={() => router.replace("/dashboard")}
+                onClick={() => window.location.replace("/dashboard")}
               >
                 Open dashboard
                 <ArrowRight data-icon="inline-end" />

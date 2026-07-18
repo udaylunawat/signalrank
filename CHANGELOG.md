@@ -11,6 +11,7 @@ All notable changes to SignalRank are documented here. The format follows [Keep 
 - Sidecar exits now fail immediately, persist startup diagnostics, and show Retry and Open Log actions instead of leaving a permanent loading screen.
 - Added startup phases, bounded frontend and proxy requests, missing-session recovery, post-start service failure notices, and stricter packaged smoke tests.
 - Desktop restarts now discard only SignalRank session cookies before creating a fresh local session, preventing stale JWT errors without clearing cached application assets.
+- Desktop dashboard navigation no longer passes through the hosted Auth.js middleware gate, preventing a silent redirect back to local setup when middleware and server session state differ.
 - Backend and web sidecars now exit if the native shell crashes or is force-terminated, preventing orphaned services and idle memory leaks.
 - Moved the local embedding model out of the one-file backend archive, deferred Keychain and heavy ranking imports, and reduced idle desktop worker polling.
 
