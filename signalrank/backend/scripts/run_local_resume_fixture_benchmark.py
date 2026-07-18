@@ -14,6 +14,12 @@ import yaml
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.database import _build_engine, initialize_database
+from batch.ingest import (
+    IngestResult,
+    SearchRequest,
+    build_query_plan,
+    refresh_job_catalog,
+)
 from batch.ranker import score_jobs_for_user
 from llm.resume_parser import _heuristic_parse
 
@@ -181,6 +187,114 @@ def ranking_metrics(ranked: pd.DataFrame) -> tuple[int, bool, float]:
     )
 
 
+def verified_profile_source_inputs(
+    fixtures: list[Fixture],
+) -> tuple[list[str], list[str]]:
+    roles: list[str] = []
+    locations: list[str] = []
+    for fixture in fixtures:
+        if not fixture.is_canonical:
+            continue
+        for value, values in (
+            (fixture.target_roles, roles),
+            (fixture.preferred_locations, locations),
+        ):
+            for item in value:
+                if item.casefold() not in {existing.casefold() for existing in values}:
+                    values.append(item)
+    if not roles:
+        raise ValueError("Fresh collection requires verified target roles")
+    return roles, locations or ["India"]
+
+
+def verified_profile_query_plan(fixtures: list[Fixture]) -> list[SearchRequest]:
+    requests: list[SearchRequest] = []
+    seen: set[tuple[str, str]] = set()
+    for fixture in fixtures:
+        if not fixture.is_canonical:
+            continue
+        locations = fixture.preferred_locations or ("India",)
+        for role in fixture.target_roles:
+            for location in locations:
+                request = build_query_plan([role], locations=[location], max_queries=1)[
+                    0
+                ]
+                key = (request.query.casefold(), request.location.casefold())
+                if key not in seen:
+                    requests.append(request)
+                    seen.add(key)
+    if not requests:
+        raise ValueError("Fresh collection requires verified target roles")
+    return requests
+
+
+async def collect_verified_profile_catalog(
+    fixtures: list[Fixture],
+    catalog_path: Path,
+    max_queries: int,
+    max_query_batches: int,
+) -> tuple[dict[str, object], list[dict]]:
+    unbounded_plan = verified_profile_query_plan(fixtures)
+    batches = [
+        unbounded_plan[index : index + max_queries]
+        for index in range(0, len(unbounded_plan), max_queries)
+    ]
+    if len(batches) > max_query_batches:
+        raise ValueError(
+            "Verified profile queries exceed the configured bounded query batches"
+        )
+    catalog_path.parent.mkdir(parents=True, exist_ok=True)
+    engine = _build_engine(f"sqlite+aiosqlite:///{catalog_path}")
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        await initialize_database(engine)
+        async with factory() as db:
+            results = [
+                await refresh_job_catalog(db, query_plan=batch) for batch in batches
+            ]
+        statuses: dict[str, int] = {}
+        for result in results:
+            for report in result.reports:
+                statuses[report.status] = statuses.get(report.status, 0) + 1
+        provenance = source_provenance_rows(results)
+        return {
+            "query_count": len(unbounded_plan),
+            "batch_count": len(batches),
+            "jobs_discovered": sum(result.jobs_discovered for result in results),
+            "jobs_persisted": sum(result.jobs_persisted for result in results),
+            "report_statuses": statuses,
+            "provenance_rows": len(provenance),
+        }, provenance
+    finally:
+        await engine.dispose()
+
+
+def source_provenance_rows(results: list[IngestResult]) -> list[dict]:
+    rows: list[dict] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for result in results:
+        for report in result.reports:
+            for job_url in report.job_urls:
+                key = (
+                    report.source,
+                    report.query or "",
+                    report.location or "",
+                    job_url,
+                )
+                if key in seen:
+                    continue
+                rows.append(
+                    {
+                        "source": report.source,
+                        "query": report.query,
+                        "location": report.location,
+                        "job_url": job_url,
+                    }
+                )
+                seen.add(key)
+    return rows
+
+
 def ranking_rows(
     fixture: Fixture, ranked: pd.DataFrame, label_depth: int
 ) -> tuple[list[dict], list[dict]]:
@@ -206,7 +320,8 @@ def ranking_rows(
                 "company": str(row.company or ""),
                 "location": str(row.location or ""),
                 "job_url": str(row.job_url or ""),
-                "relevant": None,
+                "relevance_grade": None,
+                "error_tags": [],
                 "reason": "",
             }
         )
@@ -296,7 +411,10 @@ async def audit_fixtures(
 
 
 def render_report(
-    audits: list[FixtureAudit], catalog_sha256: str, label_row_count: int
+    audits: list[FixtureAudit],
+    catalog_sha256: str,
+    label_row_count: int,
+    source_collection: dict[str, object] | None = None,
 ) -> str:
     fixture_count = len(audits)
     canonical_count = len({audit.canonical_id for audit in audits})
@@ -305,6 +423,24 @@ def render_report(
     }
     rankable = [audit for audit in canonical_audits.values() if audit.ranking_attempted]
     primary_eligible = [audit for audit in rankable if audit.primary_available]
+    source_section = "- Source collection: reused frozen catalog."
+    if source_collection:
+        statuses = source_collection["report_statuses"]
+        status_summary = (
+            ", ".join(
+                f"{status}: {count}" for status, count in sorted(statuses.items())
+            )
+            or "none"
+        )
+        source_section = (
+            "- Source collection: bounded refresh from verified profile inputs only; "
+            f"{source_collection['query_count']} queries in "
+            f"{source_collection['batch_count']} batches, "
+            f"{source_collection['jobs_discovered']} discovered, "
+            f"{source_collection['jobs_persisted']} persisted, "
+            f"{source_collection['provenance_rows']} provenance records, "
+            f"reports {status_summary}."
+        )
     return f"""# Phase 2 - Private local resume ranking and label queue
 
 ## Privacy contract
@@ -325,6 +461,7 @@ def render_report(
 
 ## Ranking coverage
 
+{source_section}
 - Canonical fixtures ranked with verified target roles: **{len(rankable)}/{canonical_count}**.
 - Primary-eligible ranked fixtures: **{len(primary_eligible)}/{len(rankable)}**.
 - Mean primary top-10 share: **{sum(audit.primary_top10_share for audit in primary_eligible) / len(primary_eligible) if primary_eligible else 0.0:.1%}**.
@@ -332,9 +469,11 @@ def render_report(
 ## Relevance-label queue
 
 - Top-ranked job records queued for review: **{label_row_count}**.
-- Review decisions are deliberately blank in `relevance-labels.jsonl`; each must be
-  set to `true` or `false` from the candidate's verified target profile, not from
-  the runner's primary/broader lane.
+- Review decisions are deliberately blank in `relevance-labels.jsonl`. Set
+  `relevance_grade` to 0 (irrelevant), 1 (adjacent), 2 (good), or 3 (strong),
+  then use generic `error_tags` only for grades 0 or 1. These judgements come
+  from the candidate's verified target profile, not from the runner's
+  primary/broader lane.
 
 ## Reproducibility
 
@@ -356,20 +495,35 @@ async def run(
     output_dir: Path,
     embedding_device: str,
     label_depth: int,
+    refresh_catalog: bool = False,
+    max_queries: int = 6,
+    max_query_batches: int = 1,
 ) -> Path:
     fixtures = load_manifest(manifest_path)
     pdfs = find_registered_pdfs(resume_dir, fixtures)
     copied_catalog = output_dir / "catalog.db"
-    catalog_sha256 = sha256_file(catalog_path)
-    copy_sqlite_catalog(catalog_path, copied_catalog)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    source_collection = None
+    provenance_rows: list[dict] = []
+    if refresh_catalog:
+        source_collection, provenance_rows = await collect_verified_profile_catalog(
+            fixtures, copied_catalog, max_queries, max_query_batches
+        )
+    else:
+        catalog_sha256 = sha256_file(catalog_path)
+        copy_sqlite_catalog(catalog_path, copied_catalog)
+    catalog_sha256 = sha256_file(copied_catalog)
     audits, ranked_rows, label_rows = await audit_fixtures(
         fixtures, pdfs, copied_catalog, embedding_device, label_depth
     )
     write_jsonl(output_dir / "ranking.jsonl", ranked_rows)
     write_jsonl(output_dir / "relevance-labels.jsonl", label_rows)
+    if refresh_catalog:
+        write_jsonl(output_dir / "source-provenance.jsonl", provenance_rows)
     report_path = output_dir / "phase-2-ranking-and-label-queue.md"
     report_path.write_text(
-        render_report(audits, catalog_sha256, len(label_rows)), encoding="utf-8"
+        render_report(audits, catalog_sha256, len(label_rows), source_collection),
+        encoding="utf-8",
     )
     return report_path
 
@@ -382,9 +536,16 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
     parser.add_argument("--embedding-device", choices=("cpu", "mps"), default="cpu")
     parser.add_argument("--label-depth", type=int, default=20)
+    parser.add_argument("--refresh-catalog", action="store_true")
+    parser.add_argument("--max-queries", type=int, default=6)
+    parser.add_argument("--max-query-batches", type=int, default=1)
     args = parser.parse_args()
     if not 1 <= args.label_depth <= 100:
         parser.error("--label-depth must be between 1 and 100")
+    if not 1 <= args.max_queries <= 6:
+        parser.error("--max-queries must be between 1 and 6")
+    if not 1 <= args.max_query_batches <= 6:
+        parser.error("--max-query-batches must be between 1 and 6")
     manifest = args.manifest or args.resume_dir / "manifest.local.yaml"
     report = asyncio.run(
         run(
@@ -394,6 +555,9 @@ def main() -> None:
             output_dir=args.output_dir,
             embedding_device=args.embedding_device,
             label_depth=args.label_depth,
+            refresh_catalog=args.refresh_catalog,
+            max_queries=args.max_queries,
+            max_query_batches=args.max_query_batches,
         )
     )
     print(f"Private fixture report written: {report}")

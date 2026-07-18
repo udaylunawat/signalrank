@@ -66,6 +66,7 @@ class SourceReport:
     jobs_found: int
     duration_ms: int
     error_summary: str | None = None
+    job_urls: tuple[str, ...] = ()
 
     @property
     def jobs_persisted(self) -> int:
@@ -386,6 +387,7 @@ def scrape_jobspy_jobs(
                     jobs_found=len(found),
                     duration_ms=round((perf_counter() - started) * 1000),
                     error_summary=error,
+                    job_urls=tuple(job["job_url"] for job in found),
                 )
             )
     return rows, reports
@@ -422,6 +424,7 @@ async def _fetch_api(
         jobs_found=len(found),
         duration_ms=round((perf_counter() - started) * 1000),
         error_summary=error,
+        job_urls=tuple(job["job_url"] for job in found),
     )
 
 
@@ -472,8 +475,9 @@ async def refresh_job_catalog(
     locations: list[str] | None = None,
     location: str = "India",
     max_queries: int = 6,
+    query_plan: list[SearchRequest] | None = None,
 ) -> IngestResult:
-    plan = build_query_plan(
+    plan = query_plan or build_query_plan(
         roles,
         locations=locations,
         default_location=location,
