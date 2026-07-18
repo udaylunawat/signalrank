@@ -1,6 +1,6 @@
 # SignalRank
 
-SignalRank is a resume- and role-agnostic job discovery, ranking, and match-tracking application. A user uploads a resume, confirms any roles or locations they want, refreshes the shared job catalog, and receives explainable ranked matches.
+SignalRank is a resume- and role-agnostic job discovery, ranking, and match-tracking application. A user uploads a resume, confirms any roles or locations they want, refreshes the job catalog, and receives explainable ranked matches. It runs either as a fully local macOS/Windows desktop app or as the web deployment.
 
 The active application lives in [`signalrank/`](signalrank/). Historical Job Ranker implementations and archived artifacts are preserved on `backup/main-2026-07-15` instead of being carried in the production branch.
 
@@ -48,6 +48,20 @@ OpenRouter is advisory: an unavailable key or model does not prevent resume stor
 
 ## Architecture
 
+Desktop builds keep the resume, profile, SQLite database, job catalog, ranking, and tracker on the user's device. They bundle a Tauri shell, local FastAPI/Python service, local Next.js service, and embedding model. OpenRouter and job-source scraping are the only normal network paths.
+
+```text
+Tauri 2 shell
+    ├── Next.js workspace on a random loopback port
+    └── FastAPI worker on a random loopback port
+          ├── SQLite
+          ├── local scraping and ranking
+          ├── bundled embedding model
+          └── user-provided OpenRouter key
+```
+
+The web deployment uses:
+
 ```text
 Next.js 16 frontend
         |
@@ -68,11 +82,12 @@ signalrank/
 │   ├── llm/          # OpenRouter, resume parsing, reputation assessment
 │   ├── alembic/      # PostgreSQL migrations
 │   └── tests/
-└── frontend/
+├── frontend/
     ├── app/          # Next.js routes
     ├── components/
     ├── lib/          # Typed API client
-    └── types/
+│   └── types/
+└── desktop/          # Tauri shell, sidecar builds, packaging, smoke tests
 ```
 
 ## Local development

@@ -45,6 +45,7 @@ export default function DesktopSetupPage() {
     const response = await fetch("/api/desktop-session", {
       method: "POST",
       cache: "no-store",
+      signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) {
       throw new Error("The protected local session could not be started.");

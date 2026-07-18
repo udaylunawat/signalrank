@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 function packagedBinary() {
   const release = resolve("src-tauri", "target", "release");
@@ -24,6 +25,82 @@ function packagedBinary() {
 
 const binary = packagedBinary();
 if (!existsSync(binary)) throw new Error(`Missing packaged app binary: ${binary}`);
+
+function freePort() {
+  return new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      server.close(() => resolvePort(port));
+    });
+  });
+}
+
+async function waitForUrl(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (response.ok) return response;
+    } catch {
+    }
+    await new Promise((resolveTimer) => setTimeout(resolveTimer, 300));
+  }
+  throw new Error(`Timed out waiting for ${url}`);
+}
+
+async function smokeSignedBackend() {
+  const backend = resolve(
+    dirname(binary),
+    `signalrank-backend${process.platform === "win32" ? ".exe" : ""}`,
+  );
+  if (!existsSync(backend)) throw new Error(`Missing packaged backend: ${backend}`);
+  const port = await freePort();
+  const dataDir = mkdtempSync(resolve(tmpdir(), "signalrank-backend-signing-smoke-"));
+  const child = spawn(backend, {
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      SIGNALRANK_MODE: "desktop",
+      SIGNALRANK_APP_DATA_DIR: dataDir,
+      SIGNALRANK_DESKTOP_BOOTSTRAP_TOKEN:
+        "signalrank-packaged-signing-smoke-token-0001",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+  const exited = new Promise((_, reject) => {
+    child.once("exit", (code) => {
+      reject(
+        new Error(
+          `Packaged backend exited before health check with code ${code}\n${output.slice(-5000)}`,
+        ),
+      );
+    });
+  });
+  try {
+    await Promise.race([
+      waitForUrl(`http://127.0.0.1:${port}/health`, 120_000),
+      exited,
+    ]);
+    console.log("packaged-backend-signing-ready");
+  } finally {
+    if (child.exitCode === null) child.kill("SIGTERM");
+  }
+}
+
+await smokeSignedBackend();
 
 const appDataDir = mkdtempSync(resolve(tmpdir(), "signalrank-packaged-smoke-"));
 const child = spawn(binary, {
@@ -69,8 +146,8 @@ async function waitForServices() {
     if (backendUrl && webUrl) {
       try {
         const [backend, web] = await Promise.all([
-          fetch(`${backendUrl}/health`),
-          fetch(`${webUrl}/desktop-setup`),
+          fetch(`${backendUrl}/health`, { signal: AbortSignal.timeout(2000) }),
+          fetch(`${webUrl}/desktop-setup`, { signal: AbortSignal.timeout(2000) }),
         ]);
         if (backend.ok && web.ok) return;
       } catch {
@@ -104,7 +181,12 @@ async function assertStopped(url) {
 }
 
 try {
-  await waitForServices();
+  await Promise.race([
+    waitForServices(),
+    childExit.then(() => {
+      throw new Error("Packaged app exited before its services became ready");
+    }),
+  ]);
   console.log(`packaged-services-ready backend=${backendUrl} web=${webUrl}`);
   await waitForExit(20_000);
   if (output.includes("[auth][error]")) {

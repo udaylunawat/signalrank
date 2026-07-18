@@ -60,6 +60,7 @@ async function proxy(
       body,
       redirect: "manual",
       cache: "no-store",
+      signal: AbortSignal.timeout(125_000),
     });
     const headers = new Headers(upstream.headers);
     for (const header of HOP_BY_HOP_HEADERS) headers.delete(header);
@@ -69,8 +70,13 @@ async function proxy(
       headers,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Backend unavailable";
-    return Response.json({ detail: message }, { status: 502 });
+    const timedOut = error instanceof Error && error.name === "TimeoutError";
+    const message = timedOut
+      ? "The local service took too long to respond"
+      : error instanceof Error
+        ? error.message
+        : "Backend unavailable";
+    return Response.json({ detail: message }, { status: timedOut ? 504 : 502 });
   }
 }
 

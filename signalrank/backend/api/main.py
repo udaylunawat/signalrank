@@ -26,8 +26,6 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await initialize_database()
-    if is_desktop_mode():
-        desktop.load_openrouter_key()
     worker_task = asyncio.create_task(
         worker_loop(AsyncSessionLocal), name="signalrank-durable-worker"
     )

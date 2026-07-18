@@ -7,6 +7,9 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(scriptDir, "..");
 mkdirSync(resolve(desktopDir, "src-tauri", "node-libs"), { recursive: true });
 mkdirSync(resolve(desktopDir, "dist", "web"), { recursive: true });
+mkdirSync(resolve(desktopDir, "dist", "models", "all-MiniLM-L6-v2"), {
+  recursive: true,
+});
 
 for (const file of readdirSync(scriptDir).filter((name) => name.endsWith(".mjs"))) {
   const result = spawnSync(process.execPath, ["--check", resolve(scriptDir, file)], {

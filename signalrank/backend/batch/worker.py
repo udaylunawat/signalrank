@@ -4,6 +4,7 @@ import logging
 import math
 import socket
 import uuid
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -11,19 +12,44 @@ from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from api.config import is_desktop_mode, settings
-from api.deps_llm import get_llm_client
 from api.models import JobResult, Profile, Run, RunSourceTelemetry
-from batch.company_enrichment import enrich_company_reputations
-from batch.ingest import refresh_job_catalog
-from batch.ranker import score_jobs_for_user
 
 logger = logging.getLogger(__name__)
 
 LEASE_SECONDS = 300
 HEARTBEAT_SECONDS = 30
 POLL_SECONDS = 2
+DESKTOP_POLL_SECONDS = 30
 
 _queue: asyncio.Queue | None = None
+get_llm_client = None
+enrich_company_reputations = None
+refresh_job_catalog = None
+score_jobs_for_user = None
+
+
+def _load_run_dependencies() -> None:
+    global get_llm_client
+    global enrich_company_reputations
+    global refresh_job_catalog
+    global score_jobs_for_user
+
+    if get_llm_client is None:
+        from api.deps_llm import get_llm_client as dependency
+
+        get_llm_client = dependency
+    if enrich_company_reputations is None:
+        from batch.company_enrichment import enrich_company_reputations as dependency
+
+        enrich_company_reputations = dependency
+    if refresh_job_catalog is None:
+        from batch.ingest import refresh_job_catalog as dependency
+
+        refresh_job_catalog = dependency
+    if score_jobs_for_user is None:
+        from batch.ranker import score_jobs_for_user as dependency
+
+        score_jobs_for_user = dependency
 
 
 def get_queue() -> asyncio.Queue:
@@ -307,6 +333,8 @@ async def _execute_claimed_run(
     owner: str,
     session_factory: async_sessionmaker,
 ) -> None:
+    _load_run_dependencies()
+
     heartbeat_task = asyncio.create_task(
         _heartbeat(run_id, owner, session_factory),
         name=f"signalrank-heartbeat-{run_id}",
@@ -325,14 +353,20 @@ async def _execute_claimed_run(
                 if profile and isinstance(profile.skills, list)
                 else None
             )
-            config_overrides = profile.config_overrides if profile else None
-            overrides = config_overrides or {}
+            config_overrides = (
+                deepcopy(profile.config_overrides or {}) if profile else {}
+            )
+            overrides = config_overrides
             roles = overrides.get("profile_intent", {}).get("roles")
             if not roles and profile:
                 roles = profile.target_roles
+                if roles:
+                    overrides.setdefault("profile_intent", {})["roles"] = roles
             locations = overrides.get("scraping", {}).get("locations")
             if not locations and profile:
                 locations = profile.preferred_locations
+            if profile and profile.max_yoe is not None:
+                overrides.setdefault("experience", {})["max_yoe"] = profile.max_yoe
 
             await _update_progress(db, run_id, owner, "discovering_jobs", 10)
             ingest_started_at = _now()
@@ -512,6 +546,7 @@ async def process_run(
 async def worker_loop(session_factory: async_sessionmaker) -> None:
     queue = get_queue()
     owner = _worker_id()
+    poll_seconds = DESKTOP_POLL_SECONDS if is_desktop_mode() else POLL_SECONDS
     logger.info("Durable background worker started as %s", owner)
     while True:
         try:
@@ -520,7 +555,7 @@ async def worker_loop(session_factory: async_sessionmaker) -> None:
             raise
         except Exception:
             logger.exception("Worker %s could not claim a run", owner)
-            await asyncio.sleep(POLL_SECONDS)
+            await asyncio.sleep(poll_seconds)
             continue
         if claimed is not None:
             run_id, user_id = claimed
@@ -528,7 +563,7 @@ async def worker_loop(session_factory: async_sessionmaker) -> None:
             continue
 
         try:
-            await asyncio.wait_for(queue.get(), timeout=POLL_SECONDS)
+            await asyncio.wait_for(queue.get(), timeout=poll_seconds)
         except TimeoutError:
             continue
         else:

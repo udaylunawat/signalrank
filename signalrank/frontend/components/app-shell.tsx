@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import {
@@ -40,6 +40,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { data: session, status } = useSession();
   const desktopMode = isDesktopMode();
+  const [sessionTimedOut, setSessionTimedOut] = useState(false);
+  const accessToken = (session as { accessToken?: string } | null)?.accessToken;
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -48,7 +50,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [desktopMode, pathname, router, status]);
 
-  if (status !== "authenticated") {
+  useEffect(() => {
+    if (status === "authenticated" && !accessToken) {
+      router.replace(desktopMode ? "/desktop-setup" : "/login");
+    }
+  }, [accessToken, desktopMode, router, status]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setSessionTimedOut(status === "loading"),
+      status === "loading" ? 15_000 : 0,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [status]);
+
+  if (status !== "authenticated" || !accessToken) {
     return (
       <main className="grid min-h-screen place-items-center px-4" aria-live="polite">
         <div className="text-center">
@@ -56,12 +72,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <Sparkles className="size-4" />
           </span>
           <p className="mt-3 text-sm text-muted-foreground">
-            {status === "loading"
+            {sessionTimedOut
+              ? "The local session is taking too long to open."
+              : status === "loading"
               ? "Opening your workspace…"
               : desktopMode
                 ? "Starting your local session…"
                 : "Taking you to sign in…"}
           </p>
+          {sessionTimedOut && (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
+              Retry
+            </button>
+          )}
         </div>
       </main>
     );

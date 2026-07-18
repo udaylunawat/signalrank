@@ -37,6 +37,34 @@ export class ApiError extends Error {
   }
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const LONG_REQUEST_TIMEOUT_MS = 120_000;
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+) {
+  const timeoutController = new AbortController();
+  const timeout = setTimeout(() => timeoutController.abort(), timeoutMs);
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutController.signal])
+    : timeoutController.signal;
+  try {
+    return await fetch(input, { ...init, signal });
+  } catch (error) {
+    if (timeoutController.signal.aborted) {
+      throw new ApiError(
+        504,
+        "The local service took too long to respond. Try again.",
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function errorDetail(res: Response) {
   const fallback = `Request failed with status ${res.status}`;
   try {
@@ -50,9 +78,9 @@ async function errorDetail(res: Response) {
 
 async function request<T>(
   path: string,
-  options: RequestInit & { token?: string } = {}
+  options: RequestInit & { token?: string; timeoutMs?: number } = {}
 ): Promise<T> {
-  const { token, ...init } = options;
+  const { token, timeoutMs, ...init } = options;
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string>),
   };
@@ -69,11 +97,11 @@ async function request<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${baseUrl()}${path}`, {
-    ...init,
-    headers,
-    cache: "no-store",
-  });
+  const res = await fetchWithTimeout(
+    `${baseUrl()}${path}`,
+    { ...init, headers, cache: "no-store" },
+    timeoutMs,
+  );
   if (!res.ok) {
     throw new ApiError(res.status, await errorDetail(res));
   }
@@ -82,10 +110,14 @@ async function request<T>(
 }
 
 async function download(path: string, token: string) {
-  const res = await fetch(`${baseUrl()}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
+  const res = await fetchWithTimeout(
+    `${baseUrl()}${path}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    },
+    LONG_REQUEST_TIMEOUT_MS,
+  );
   if (!res.ok) {
     throw new ApiError(res.status, await errorDetail(res));
   }
@@ -201,7 +233,12 @@ export const api = {
       form.append("file", file);
       return request<OnboardingResumeResponse>(
         "/api/onboarding/resume",
-        { method: "POST", token, body: form }
+        {
+          method: "POST",
+          token,
+          body: form,
+          timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+        },
       );
     },
     refine: (token: string, question_id: string, answer: string | string[]) =>
@@ -209,6 +246,7 @@ export const api = {
         method: "POST",
         token,
         body: JSON.stringify({ question_id, answer }),
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
       }),
   },
 };

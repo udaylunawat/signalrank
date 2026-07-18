@@ -2,8 +2,8 @@
 
 The Tauri 2 shell runs the SignalRank Next.js UI and FastAPI API entirely on
 the user's machine. Both services bind to random `127.0.0.1` ports. The shell
-generates fresh bootstrap and session secrets for each launch and passes them
-to the bundled sidecars through their environment.
+generates a fresh bootstrap token for each launch and shares a persistent,
+installation-local session secret with the bundled sidecars.
 
 No SignalRank cloud service, PostgreSQL server, system Node.js, or system
 Python installation is used by a packaged build. Job-source scraping and

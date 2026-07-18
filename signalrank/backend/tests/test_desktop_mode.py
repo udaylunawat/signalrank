@@ -1,3 +1,4 @@
+import os
 import asyncio
 from types import SimpleNamespace
 
@@ -8,11 +9,29 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.config import settings
 from api.database import _build_engine, get_db, initialize_database
+from api.desktop_main import _desktop_parent_pid, _process_is_running
 from api.main import app
 from api.models import Embedding, Profile, Run, User
 from api.routes import desktop
 from batch.embedding_cache import PgEmbeddingCache
 from batch.worker import _claim_next_run
+
+
+def test_desktop_parent_pid_accepts_a_valid_process(monkeypatch):
+    monkeypatch.setenv("SIGNALRANK_DESKTOP_PARENT_PID", "1234")
+
+    assert _desktop_parent_pid() == 1234
+
+
+@pytest.mark.parametrize("value", ["", "invalid", "0", "1", "-1"])
+def test_desktop_parent_pid_rejects_invalid_values(monkeypatch, value):
+    monkeypatch.setenv("SIGNALRANK_DESKTOP_PARENT_PID", value)
+
+    assert _desktop_parent_pid() is None
+
+
+def test_desktop_parent_watch_detects_current_process():
+    assert _process_is_running(os.getpid())
 
 
 @pytest.fixture
@@ -152,7 +171,9 @@ async def test_desktop_provider_key_uses_keyring_or_session_only(
     assert not list(database_path.parent.glob("*.json"))
 
 
-async def test_desktop_keyring_key_is_loaded_before_worker_use(desktop_runtime, monkeypatch):
+async def test_desktop_keyring_key_is_loaded_before_worker_use(
+    desktop_runtime, monkeypatch
+):
     monkeypatch.setattr(desktop, "_session_openrouter_key", "")
     monkeypatch.setattr(desktop, "_load_keyring_key", lambda: "sk-or-persisted")
 

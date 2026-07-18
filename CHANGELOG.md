@@ -4,6 +4,16 @@ All notable changes to SignalRank are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Desktop reliability and performance
+
+- Fixed macOS startup failures caused by hardened signing of an ad-hoc PyInstaller sidecar whose extracted Python runtime had a different signing identity.
+- Real Apple-signed builds now sign PyInstaller contents with the same identity; ad-hoc builds no longer enable hardened Library Validation.
+- Sidecar exits now fail immediately, persist startup diagnostics, and show Retry and Open Log actions instead of leaving a permanent loading screen.
+- Added startup phases, bounded frontend and proxy requests, missing-session recovery, post-start service failure notices, and stricter packaged smoke tests.
+- Desktop restarts now discard only SignalRank session cookies before creating a fresh local session, preventing stale JWT errors without clearing cached application assets.
+- Backend and web sidecars now exit if the native shell crashes or is force-terminated, preventing orphaned services and idle memory leaks.
+- Moved the local embedding model out of the one-file backend archive, deferred Keychain and heavy ranking imports, and reduced idle desktop worker polling.
+
 ### Added
 
 - Resume- and role-agnostic onboarding for PDF, DOCX, and TXT resumes.

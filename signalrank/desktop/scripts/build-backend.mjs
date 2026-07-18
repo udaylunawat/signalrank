@@ -82,9 +82,16 @@ const args = [
   `${resolve(backendDir, "config")}${delimiter}config`,
   "--add-data",
   `${resolve(backendDir, "templates")}${delimiter}templates`,
-  "--add-data",
-  `${modelDir}${delimiter}models/all-MiniLM-L6-v2`,
 ];
+
+const signingIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim();
+if (
+  process.platform === "darwin" &&
+  signingIdentity &&
+  signingIdentity !== "-"
+) {
+  args.push("--codesign-identity", signingIdentity);
+}
 
 if (process.platform !== "win32") args.push("--strip");
 args.push(entrypoint);
