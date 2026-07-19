@@ -3,7 +3,7 @@ from io import BytesIO
 import pytest
 from api.deps_llm import get_llm_client
 from api.main import app
-from api.models import JobRaw, Profile
+from api.models import JobRaw, Profile, TailoredResume
 from pypdf import PdfReader
 from sqlalchemy import select
 
@@ -146,6 +146,11 @@ async def test_tailor_download_and_email_are_role_agnostic(client, auth_token, d
         json={"job_id": job.id, "template": "modern"},
         headers=headers,
     )
+    regenerated = await client.post(
+        "/api/resume/tailor",
+        json={"job_id": job.id, "template": "minimal"},
+        headers=headers,
+    )
     downloaded = await client.get(f"/api/resume/tailor/{job.id}", headers=headers)
     email = await client.post(
         "/api/resume/email",
@@ -155,6 +160,13 @@ async def test_tailor_download_and_email_are_role_agnostic(client, auth_token, d
 
     assert tailored.status_code == 200
     assert tailored.json()["pdf_available"] is True
+    assert regenerated.status_code == 200
+    saved = await db.execute(
+        select(TailoredResume).where(TailoredResume.job_id == job.id)
+    )
+    drafts = saved.scalars().all()
+    assert len(drafts) == 1
+    assert drafts[0].template == "minimal"
     json_call = next(call for call in fake_llm.calls if call[0] == "json")
     assert json_call[1]["response_schema"]["additionalProperties"] is False
     assert downloaded.status_code == 200

@@ -47,6 +47,7 @@ All notable changes to SignalRank are documented here. The format follows [Keep 
 ### Fixed
 
 - Allowed the packaged loopback renderer to invoke only the validated native link-opening and save-dialog commands, fixing dead job links and desktop downloads without exposing a generic shell or opener permission.
+- Repeated tailored-resume requests now atomically update the existing job draft instead of failing on a duplicate database record.
 - Tailored-resume and outreach failures now return actionable errors instead of blank content, false success, or an uncaught missing-renderer response.
 - Prevented stale degraded resume results from remaining cached after credentials or provider availability improve.
 - Prevented reasoning tokens from consuming the output budget for strict structured extraction.

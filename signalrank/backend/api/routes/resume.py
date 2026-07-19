@@ -15,6 +15,8 @@ from llm.resume_tailor import (
 )
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.database import get_db
@@ -63,14 +65,6 @@ async def tailor(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    existing_res = await db.execute(
-        select(TailoredResume).where(
-            TailoredResume.user_id == current_user.id,
-            TailoredResume.job_id == body.job_id,
-        )
-    )
-    existing = existing_res.scalar_one_or_none()
-
     try:
         content = await tailor_resume(
             resume_text=profile.resume_text,
@@ -101,19 +95,23 @@ async def tailor(
         "projects": content.projects,
     }
 
-    if existing:
-        existing.content_json = content_dict
-        existing.template = body.template
-        existing.pdf_path = None
-    else:
-        db.add(
-            TailoredResume(
-                user_id=current_user.id,
-                job_id=body.job_id,
-                content_json=content_dict,
-                template=body.template,
-            )
-        )
+    dialect_name = db.get_bind().dialect.name
+    insert_factory = sqlite_insert if dialect_name == "sqlite" else postgresql_insert
+    statement = insert_factory(TailoredResume).values(
+        user_id=current_user.id,
+        job_id=body.job_id,
+        content_json=content_dict,
+        template=body.template,
+    )
+    statement = statement.on_conflict_do_update(
+        index_elements=[TailoredResume.user_id, TailoredResume.job_id],
+        set_={
+            "content_json": statement.excluded.content_json,
+            "template": statement.excluded.template,
+            "pdf_path": None,
+        },
+    )
+    await db.execute(statement)
     await db.commit()
 
     return {
