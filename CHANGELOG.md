@@ -4,6 +4,8 @@ All notable changes to SignalRank are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-19
+
 ### Desktop reliability and performance
 
 - Fixed macOS startup failures caused by hardened signing of an ad-hoc PyInstaller sidecar whose extracted Python runtime had a different signing identity.
