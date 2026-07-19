@@ -64,6 +64,9 @@ async function smokeSignedBackend() {
   const child = spawn(backend, {
     env: {
       ...process.env,
+      ...(process.platform === "darwin"
+        ? { PYTHON_KEYRING_BACKEND: "keyring.backends.macOS.Keyring" }
+        : {}),
       HOST: "127.0.0.1",
       PORT: String(port),
       SIGNALRANK_MODE: "desktop",

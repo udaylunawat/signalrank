@@ -249,16 +249,21 @@ fn sanitized_filename(filename: &str) -> String {
 
 #[tauri::command]
 fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    let parsed = Url::parse(&url).map_err(|_| "The link is not a valid URL".to_string())?;
+    let parsed = validated_external_url(&url)?;
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+fn validated_external_url(url: &str) -> Result<Url, String> {
+    let parsed = Url::parse(url).map_err(|_| "The link is not a valid URL".to_string())?;
     if parsed.scheme() != "https" || parsed.host_str().is_none() {
         return Err("Only absolute HTTPS links can be opened".to_string());
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err("Links containing credentials are not allowed".to_string());
     }
-    app.opener()
-        .open_url(parsed.as_str(), None::<&str>)
-        .map_err(|error| error.to_string())
+    Ok(parsed)
 }
 
 #[tauri::command]
@@ -375,9 +380,13 @@ async fn start_sidecars(
     );
     let backend_exited = Arc::new(AtomicBool::new(false));
 
-    let (mut backend_events, backend_child) = handle
-        .shell()
-        .sidecar("signalrank-backend")?
+    let mut backend_command = handle.shell().sidecar("signalrank-backend")?;
+    #[cfg(target_os = "macos")]
+    {
+        backend_command =
+            backend_command.env("PYTHON_KEYRING_BACKEND", "keyring.backends.macOS.Keyring");
+    }
+    let (mut backend_events, backend_child) = backend_command
         .env("HOST", "127.0.0.1")
         .env("PORT", backend_port.to_string())
         .env("SIGNALRANK_MODE", "desktop")
@@ -469,6 +478,12 @@ async fn start_sidecars(
         .env("NEXTAUTH_URL", &web_url)
         .env("AUTH_SECRET", &auth_secret)
         .env("NEXTAUTH_SECRET", &auth_secret)
+        .env(
+            "NODE_OPTIONS",
+            "--max-old-space-size=128 --max-semi-space-size=4",
+        )
+        .env("NODE_COMPILE_CACHE", data_dir.join("node-compile-cache"))
+        .env("NEXT_TELEMETRY_DISABLED", "1")
         .env("SIGNALRANK_MODE", "desktop")
         .env("NEXT_PUBLIC_SIGNALRANK_MODE", "desktop")
         .env("SIGNALRANK_DESKTOP_BOOTSTRAP_TOKEN", bootstrap_token)
@@ -610,5 +625,23 @@ mod tests {
         assert!(is_desktop_session_cookie("signalrank.desktop.callback-url"));
         assert!(!is_desktop_session_cookie("next-auth.session-token"));
         assert!(!is_desktop_session_cookie("another-app.session-token"));
+    }
+
+    #[test]
+    fn external_url_validation_accepts_only_safe_https_links() {
+        assert!(validated_external_url("https://jobs.example.com/role?id=1").is_ok());
+        for invalid in [
+            "http://jobs.example.com/role",
+            "javascript:alert(1)",
+            "file:///tmp/role",
+            "/relative-role",
+            "https://user@jobs.example.com/role",
+            "https://user:secret@jobs.example.com/role",
+        ] {
+            assert!(
+                validated_external_url(invalid).is_err(),
+                "accepted {invalid}"
+            );
+        }
     }
 }

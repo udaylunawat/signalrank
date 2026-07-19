@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import secrets
 
@@ -24,6 +25,8 @@ DESKTOP_USER_EMAIL = "local@signalrank.desktop"
 KEYRING_SERVICE = "SignalRank Desktop"
 KEYRING_USERNAME = "openrouter_api_key"
 _session_openrouter_key = ""
+_keyring_load_task: asyncio.Task[str] | None = None
+KEYRING_TIMEOUT_SECONDS = 8.0
 
 
 class ProviderKeyRequest(BaseModel):
@@ -104,6 +107,25 @@ def load_openrouter_key() -> str:
     return key
 
 
+async def load_openrouter_key_async() -> str:
+    global _keyring_load_task
+    if _session_openrouter_key:
+        return _session_openrouter_key
+    if _keyring_load_task is None:
+        _keyring_load_task = asyncio.create_task(asyncio.to_thread(load_openrouter_key))
+    try:
+        return await asyncio.wait_for(
+            asyncio.shield(_keyring_load_task),
+            timeout=KEYRING_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Desktop credential-store read timed out")
+        return ""
+    finally:
+        if _keyring_load_task is not None and _keyring_load_task.done():
+            _keyring_load_task = None
+
+
 def _reset_llm_client() -> None:
     import api.deps_llm as deps_llm
 
@@ -140,12 +162,13 @@ async def ensure_desktop_user(db: AsyncSession) -> User:
 @router.get("/status", dependencies=[Depends(require_desktop_bootstrap)])
 async def desktop_status(db: AsyncSession = Depends(get_db)):
     user = await ensure_desktop_user(db)
+    provider_key = await load_openrouter_key_async()
     profile = (
         await db.execute(select(Profile).where(Profile.user_id == user.id))
     ).scalar_one()
     return {
         "mode": "desktop",
-        "provider_configured": bool(load_openrouter_key()),
+        "provider_configured": bool(provider_key),
         "resume_uploaded": bool(profile.resume_text),
         "onboarding_complete": bool(profile.onboarding_complete),
         "user_id": user.id,
@@ -191,10 +214,17 @@ async def save_provider_key(body: ProviderKeyRequest):
             or "No compatible free structured-output model is available",
         )
 
-    persisted = _save_keyring_key(api_key)
     _session_openrouter_key = api_key
     settings.openrouter_api_key = api_key
     _reset_llm_client()
+    try:
+        persisted = await asyncio.wait_for(
+            asyncio.to_thread(_save_keyring_key, api_key),
+            timeout=KEYRING_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Desktop credential-store write timed out")
+        persisted = False
     return {
         "status": "ok",
         "provider": "openrouter",
@@ -207,7 +237,19 @@ async def save_provider_key(body: ProviderKeyRequest):
 @router.delete("/provider-key", dependencies=[Depends(require_desktop_bootstrap)])
 async def delete_provider_key():
     global _session_openrouter_key
-    if _load_keyring_key() and not _delete_keyring_key():
+    try:
+        stored_key = await asyncio.wait_for(
+            asyncio.to_thread(_load_keyring_key),
+            timeout=KEYRING_TIMEOUT_SECONDS,
+        )
+        deleted = not stored_key or await asyncio.wait_for(
+            asyncio.to_thread(_delete_keyring_key),
+            timeout=KEYRING_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Desktop credential-store delete timed out")
+        deleted = False
+    if not deleted:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not remove the key from the operating system credential store",

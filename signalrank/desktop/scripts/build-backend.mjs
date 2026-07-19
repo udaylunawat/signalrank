@@ -15,6 +15,33 @@ const modelDir = resolve(
 );
 mkdirSync(resolve(desktopDir, "dist", "pyinstaller"), { recursive: true });
 
+const tlsBinaryName =
+  process.platform === "darwin"
+    ? process.arch === "arm64"
+      ? "tls-client-arm64.dylib"
+      : "tls-client-x86.dylib"
+    : process.platform === "win32"
+      ? "tls-client-64.dll"
+      : process.arch === "arm64"
+        ? "tls-client-arm64.so"
+        : "tls-client-amd64.so";
+const locateTlsBinary = spawnSync(
+  "uv",
+  [
+    "run",
+    "python",
+    "-c",
+    "import pathlib, sys, tls_client; print(pathlib.Path(tls_client.__file__).parent / 'dependencies' / sys.argv[1])",
+    tlsBinaryName,
+  ],
+  { cwd: backendDir, encoding: "utf8" },
+);
+const tlsBinary = locateTlsBinary.stdout?.trim();
+if (locateTlsBinary.status || !tlsBinary || !existsSync(tlsBinary)) {
+  console.error(`Unable to locate the native tls-client library: ${tlsBinaryName}`);
+  process.exit(locateTlsBinary.status ?? 1);
+}
+
 if (!existsSync(resolve(modelDir, "config.json"))) {
   mkdirSync(modelDir, { recursive: true });
   const prepareModel = spawnSync(
@@ -60,29 +87,51 @@ const args = [
   resolve(desktopDir, "dist", "pyinstaller", "build"),
   "--distpath",
   resolve(desktopDir, "dist", "backend"),
-  "--collect-submodules",
-  "api",
-  "--collect-submodules",
-  "batch",
-  "--collect-submodules",
-  "domain",
-  "--collect-submodules",
-  "llm",
   "--hidden-import",
   "aiosqlite",
   "--hidden-import",
+  "api.main",
+  "--hidden-import",
   "keyring",
-  "--collect-submodules",
-  "passlib",
-  "--collect-submodules",
-  "keyring.backends",
-  "--collect-data",
-  "tls_client",
+  "--hidden-import",
+  "passlib.handlers.bcrypt",
+  "--add-binary",
+  `${tlsBinary}${delimiter}tls_client/dependencies`,
+  "--exclude-module",
+  "PIL",
+  "--exclude-module",
+  "pytest",
+  "--exclude-module",
+  "_pytest",
   "--add-data",
   `${resolve(backendDir, "config")}${delimiter}config`,
-  "--add-data",
-  `${resolve(backendDir, "templates")}${delimiter}templates`,
 ];
+
+if (process.platform === "darwin") {
+  args.push("--hidden-import", "keyring.backends.macOS");
+  args.push(
+    "--exclude-module",
+    "keyring.backends.Windows",
+    "--exclude-module",
+    "keyring.backends.SecretService",
+  );
+} else if (process.platform === "win32") {
+  args.push("--hidden-import", "keyring.backends.Windows");
+  args.push(
+    "--exclude-module",
+    "keyring.backends.macOS",
+    "--exclude-module",
+    "keyring.backends.SecretService",
+  );
+} else {
+  args.push("--hidden-import", "keyring.backends.SecretService");
+  args.push(
+    "--exclude-module",
+    "keyring.backends.macOS",
+    "--exclude-module",
+    "keyring.backends.Windows",
+  );
+}
 
 const signingIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim();
 if (

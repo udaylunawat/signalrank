@@ -31,6 +31,8 @@ The active application lives in [`signalrank/`](signalrank/). Historical Job Ran
 - Semantic resume-to-job scoring combined with deterministic role, explicit skill, seniority, location, company, recency, and contract signals.
 - Primary and broader-match lanes without profession-specific role presets.
 - Per-match explanations, matched skills, score dimensions, concerns, source links, and CSV export.
+- Native-safe job-link opening from both web and desktop.
+- Per-role application kits with truthful AI-tailored PDF resumes and editable recruiter outreach drafts.
 - Application tracking across saved, applied, interviewing, offered, rejected, and withdrawn states.
 
 ### AI-driven company reputation
@@ -49,6 +51,8 @@ OpenRouter is advisory: an unavailable key or model does not prevent resume stor
 ## Architecture
 
 Desktop builds keep the resume, profile, SQLite database, job catalog, ranking, and tracker on the user's device. They bundle a Tauri shell, local FastAPI/Python service, local Next.js service, and embedding model. OpenRouter and job-source scraping are the only normal network paths.
+
+Tailored resumes are rendered by the bundled Python service, so desktop users do not need Typst, a browser print service, Microsoft Word, or another system dependency. Generated PDFs are saved through the native file dialog; external job and Gmail links are validated by the native shell before they open.
 
 ```text
 Tauri 2 shell
@@ -169,7 +173,7 @@ npm run lint
 npm run build
 ```
 
-Tests use isolated dependencies where appropriate. Live source probes and OpenRouter preflight checks should be run separately because they consume external quotas and depend on current provider availability.
+Tests use isolated dependencies where appropriate. The backend suite also verifies role-agnostic outreach, tailored PDF rendering, and download headers. Live source probes and OpenRouter preflight checks should be run separately because they consume external quotas and depend on current provider availability.
 
 ## Deployment
 

@@ -1,5 +1,6 @@
-import os
 import asyncio
+import os
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -49,6 +50,7 @@ async def desktop_runtime(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(settings, "openrouter_api_key", "")
     monkeypatch.setattr(desktop, "_session_openrouter_key", "")
+    monkeypatch.setattr(desktop, "_keyring_load_task", None)
     monkeypatch.setattr(desktop, "_load_keyring_key", lambda: "")
 
     async def override_get_db():
@@ -179,6 +181,17 @@ async def test_desktop_keyring_key_is_loaded_before_worker_use(
 
     assert desktop.load_openrouter_key() == "sk-or-persisted"
     assert settings.openrouter_api_key == "sk-or-persisted"
+
+
+async def test_desktop_keyring_timeout_does_not_block_api(desktop_runtime, monkeypatch):
+    monkeypatch.setattr(desktop, "_session_openrouter_key", "")
+    monkeypatch.setattr(desktop, "KEYRING_TIMEOUT_SECONDS", 0.005)
+    monkeypatch.setattr(desktop, "_load_keyring_key", lambda: time.sleep(0.05) or "")
+
+    started = time.monotonic()
+    assert await desktop.load_openrouter_key_async() == ""
+    assert time.monotonic() - started < 0.04
+    await asyncio.sleep(0.06)
 
 
 async def test_sqlite_pragmas_embeddings_and_worker_claim_are_portable(

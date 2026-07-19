@@ -95,6 +95,9 @@ const common = {
   SIGNALRANK_DESKTOP_AUTH_SECRET: authSecret,
   SIGNALRANK_DESKTOP_BOOTSTRAP_TOKEN: bootstrapToken,
 };
+if (process.platform === "darwin") {
+  common.PYTHON_KEYRING_BACKEND = "keyring.backends.macOS.Keyring";
+}
 
 console.log(`sidecars-starting backend=${backendUrl} web=${webUrl}`);
 

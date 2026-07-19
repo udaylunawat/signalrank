@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +16,25 @@ for (const file of readdirSync(scriptDir).filter((name) => name.endsWith(".mjs")
     stdio: "inherit",
   });
   if (result.status) process.exit(result.status);
+}
+
+const loopbackCapability = JSON.parse(
+  readFileSync(
+    resolve(desktopDir, "src-tauri", "capabilities", "loopback-app.json"),
+    "utf8",
+  ),
+);
+const expectedCapability = {
+  windows: ["main"],
+  local: false,
+  remote: { urls: ["http://127.0.0.1:*"] },
+  permissions: ["allow-open-external", "allow-save-download"],
+};
+for (const [key, expected] of Object.entries(expectedCapability)) {
+  if (JSON.stringify(loopbackCapability[key]) !== JSON.stringify(expected)) {
+    console.error(`Unexpected loopback capability ${key}`);
+    process.exit(1);
+  }
 }
 
 const cargo = spawnSync(
