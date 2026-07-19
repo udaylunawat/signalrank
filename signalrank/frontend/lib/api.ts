@@ -109,7 +109,7 @@ async function request<T>(
   return res.json();
 }
 
-async function download(path: string, token: string) {
+async function download(path: string, token: string, fallbackFilename: string) {
   const res = await fetchWithTimeout(
     `${baseUrl()}${path}`,
     {
@@ -123,7 +123,7 @@ async function download(path: string, token: string) {
   }
   const disposition = res.headers.get("Content-Disposition") ?? "";
   const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]
-    ?? "signalrank-jobs.csv";
+    ?? fallbackFilename;
   return { blob: await res.blob(), filename };
 }
 
@@ -188,7 +188,8 @@ export const api = {
     },
     get: (token: string, id: string) =>
       request<Job>(`/api/jobs/${id}`, { token }),
-    exportCsv: (token: string) => download("/api/jobs/export.csv", token),
+    exportCsv: (token: string) =>
+      download("/api/jobs/export.csv", token, "signalrank-jobs.csv"),
   },
 
   runs: {
@@ -222,6 +223,37 @@ export const api = {
       request<void>(`/api/applications/${id}`, {
         method: "DELETE",
         token,
+      }),
+  },
+
+  resume: {
+    tailor: (token: string, data: { job_id: string; template: string }) =>
+      request<{
+        status: "ok";
+        job_id: string;
+        template: string;
+        pdf_available: boolean;
+      }>("/api/resume/tailor", {
+        method: "POST",
+        token,
+        body: JSON.stringify(data),
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+      }),
+    download: (token: string, jobId: string) =>
+      download(
+        `/api/resume/tailor/${jobId}`,
+        token,
+        `tailored-resume-${jobId.slice(0, 8)}.pdf`,
+      ),
+    email: (
+      token: string,
+      data: { job_id: string; recipient_name: string },
+    ) =>
+      request<{ subject: string; body: string }>("/api/resume/email", {
+        method: "POST",
+        token,
+        body: JSON.stringify(data),
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
       }),
   },
 

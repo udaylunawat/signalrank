@@ -328,7 +328,9 @@ export default function DashboardPage() {
           {loading && Array.from({ length: 3 }).map((_, index) => (
             <div key={index} className="h-40 animate-pulse rounded-2xl border border-border/70 bg-white/60" />
           ))}
-          {!loading && jobs.slice(0, 5).map((job) => <JobCard key={job.id} job={job} compact />)}
+          {!loading && jobs.slice(0, 5).map((job) => (
+            <JobCard key={job.id} job={job} compact token={token} />
+          ))}
           {!loading && jobs.length === 0 && (
             <div className="surface-panel px-6 py-12 text-center">
               <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-secondary text-primary">

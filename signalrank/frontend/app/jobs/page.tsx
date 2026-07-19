@@ -274,6 +274,7 @@ function JobsPageContent() {
             tracked={tracked.has(job.id)}
             tracking={trackingId === job.id}
             onTrack={trackJob}
+            token={token}
           />
         ))}
         {!loading && jobs.length === 0 && (

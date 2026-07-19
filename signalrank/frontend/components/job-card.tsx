@@ -1,5 +1,9 @@
+"use client";
+
+import { useState } from "react";
 import { ArrowUpRight, BookmarkPlus, Building2, Clock3, MapPin } from "lucide-react";
 import type { Job } from "@/types";
+import ApplicationKit from "@/components/application-kit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -28,17 +32,29 @@ export default function JobCard({
   tracked = false,
   tracking = false,
   onTrack,
+  token = "",
 }: {
   job: Job;
   compact?: boolean;
   tracked?: boolean;
   tracking?: boolean;
   onTrack?: (job: Job) => void;
+  token?: string;
 }) {
+  const [openError, setOpenError] = useState("");
   const score = scoreMeta(job.final_score);
   const posted = postedLabel(job.date_posted);
   const reputationTier = job.company_tier?.replace(/^tier_/, "").toUpperCase();
   const matchedSkills = job.explanation?.matched_skills?.slice(0, 4) ?? [];
+
+  async function openRole() {
+    setOpenError("");
+    try {
+      await openExternal(job.job_url);
+    } catch (error) {
+      setOpenError(error instanceof Error ? error.message : "This role link could not be opened.");
+    }
+  }
 
   return (
     <article className="group rounded-2xl border border-border/75 bg-white/90 p-4 shadow-[0_1px_2px_rgba(20,20,35,0.03)] transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_16px_38px_rgba(58,48,120,0.09)] sm:p-5">
@@ -105,11 +121,19 @@ export default function JobCard({
               type="button"
               size="sm"
               className="rounded-xl"
-              onClick={() => void openExternal(job.job_url)}
+              onClick={openRole}
             >
               View role
               <ArrowUpRight data-icon="inline-end" />
             </Button>
+            <ApplicationKit
+              token={token}
+              target={{
+                jobId: job.id,
+                title: job.title,
+                company: job.company,
+              }}
+            />
             {onTrack && (
               <Button
                 type="button"
@@ -124,6 +148,9 @@ export default function JobCard({
               </Button>
             )}
           </div>
+          {openError && (
+            <p role="alert" className="mt-2 text-xs text-destructive">{openError}</p>
+          )}
         </div>
       </div>
     </article>

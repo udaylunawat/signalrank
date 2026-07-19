@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import AppShell from "@/components/app-shell";
+import ApplicationKit from "@/components/application-kit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -102,6 +103,20 @@ export default function TrackerPage() {
     }
   }
 
+  async function openApplicationLink(application: Application) {
+    if (!application.job_url) return;
+    setError("");
+    try {
+      await openExternal(application.job_url);
+    } catch (openError) {
+      setError(
+        openError instanceof Error
+          ? openError.message
+          : "That role link could not be opened.",
+      );
+    }
+  }
+
   return (
     <AppShell>
       <section className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -186,12 +201,23 @@ export default function TrackerPage() {
                           {application.job_url && (
                             <button
                               type="button"
-                              onClick={() => void openExternal(application.job_url!)}
+                              onClick={() => openApplicationLink(application)}
                               aria-label={`Open ${application.title}`}
                               className="grid size-7 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:text-foreground"
                             >
                               <ExternalLink className="size-3.5" />
                             </button>
+                          )}
+                          {application.job_id && (
+                            <ApplicationKit
+                              iconOnly
+                              token={token}
+                              target={{
+                                jobId: application.job_id,
+                                title: application.title,
+                                company: application.company,
+                              }}
+                            />
                           )}
                           <select
                             aria-label={`Status for ${application.title}`}
