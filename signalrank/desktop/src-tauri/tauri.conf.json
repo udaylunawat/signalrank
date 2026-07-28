@@ -31,11 +31,11 @@
     "createUpdaterArtifacts": false,
     "resources": {
       "../dist/web": "web",
-      "node-libs": "node-libs"
+      "node-libs": "node-libs",
+      "resources/node": "node"
     },
     "externalBin": [
-      "binaries/signalrank-backend",
-      "binaries/signalrank-web"
+      "binaries/signalrank-backend"
     ],
     "icon": [
       "icons/32x32.png",

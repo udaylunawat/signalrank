@@ -2,6 +2,7 @@ import csv
 import json
 from io import StringIO
 from typing import Any, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, or_, select
@@ -47,6 +48,40 @@ async def _latest_completed_run(db: AsyncSession, user_id: str) -> Run | None:
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+def _job_payload(
+    result: JobResult,
+    job: JobRaw,
+    feedback: dict[str, str | None] | None,
+    *,
+    include_description: bool = False,
+) -> dict[str, Any]:
+    payload = {
+        "id": job.id,
+        "job_url": job.job_url,
+        "title": job.title,
+        "company": job.company,
+        "location": job.location,
+        "site": job.site,
+        "date_posted": str(job.date_posted) if job.date_posted else None,
+        "final_score": result.final_score,
+        "semantic_score": result.semantic_score,
+        "skills_score": result.skills_score,
+        "company_score": result.company_score,
+        "seniority_score": result.seniority_score,
+        "location_score": result.location_score,
+        "recency_score": result.recency_score,
+        "company_tier": result.company_tier,
+        "company_reputation_confidence": result.company_reputation_confidence,
+        "company_reputation_rationale": result.company_reputation_rationale,
+        "explanation": result.explanation,
+        "is_contract": result.is_contract,
+        "feedback": feedback,
+    }
+    if include_description:
+        payload["description"] = job.description
+    return payload
 
 
 def _safe_csv_value(value: Any) -> Any:
@@ -154,32 +189,10 @@ async def list_jobs(
         for job_id, value, reason in feedback_result.all()
     }
 
-    jobs = []
-    for result, job in rows:
-        jobs.append(
-            {
-                "id": job.id,
-                "job_url": job.job_url,
-                "title": job.title,
-                "company": job.company,
-                "location": job.location,
-                "site": job.site,
-                "date_posted": str(job.date_posted) if job.date_posted else None,
-                "final_score": result.final_score,
-                "semantic_score": result.semantic_score,
-                "skills_score": result.skills_score,
-                "company_score": result.company_score,
-                "seniority_score": result.seniority_score,
-                "location_score": result.location_score,
-                "recency_score": result.recency_score,
-                "company_tier": result.company_tier,
-                "company_reputation_confidence": (result.company_reputation_confidence),
-                "company_reputation_rationale": (result.company_reputation_rationale),
-                "explanation": result.explanation,
-                "is_contract": result.is_contract,
-                "feedback": feedback_by_job.get(job.id),
-            }
-        )
+    jobs = [
+        _job_payload(result, job, feedback_by_job.get(job.id))
+        for result, job in rows
+    ]
 
     return {
         "jobs": jobs,
@@ -270,21 +283,42 @@ async def export_jobs_csv(
 
 @router.get("/{job_id}")
 async def get_job(
-    job_id: str,
+    job_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(JobRaw).where(JobRaw.id == job_id))
-    job = result.scalar_one_or_none()
-    if not job:
+    run = await _latest_completed_run(db, current_user.id)
+    if not run:
         raise HTTPException(status_code=404, detail="Job not found")
-    return {
-        "id": job.id,
-        "job_url": job.job_url,
-        "title": job.title,
-        "company": job.company,
-        "description": job.description,
-        "location": job.location,
-        "site": job.site,
-        "date_posted": str(job.date_posted) if job.date_posted else None,
+    row_result = await db.execute(
+        select(JobResult, JobRaw)
+        .join(JobRaw, JobResult.job_id == JobRaw.id)
+        .where(
+            JobResult.run_id == run.id,
+            JobResult.user_id == current_user.id,
+            JobResult.job_id == job_id,
+        )
+    )
+    row = row_result.one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job_result, job = row
+    feedback_result = await db.execute(
+        select(JobFeedback.value, JobFeedback.reason).where(
+            JobFeedback.user_id == current_user.id,
+            JobFeedback.job_id == job.id,
+        )
+    )
+    feedback = feedback_result.one_or_none()
+    feedback_payload = (
+        {"value": feedback.value, "reason": feedback.reason} if feedback else None
+    )
+    return _job_payload(
+        job_result,
+        job,
+        feedback_payload,
+        include_description=True,
+    ) | {
+        "run_id": run.id,
+        "completed_at": str(run.finished_at) if run.finished_at else None,
     }

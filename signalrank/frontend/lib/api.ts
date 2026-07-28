@@ -1,7 +1,7 @@
 import type {
   Application,
   ApplicationStatus,
-  Job,
+  JobDetail,
   JobFeedback,
   JobFeedbackReason,
   JobFeedbackValue,
@@ -117,6 +117,11 @@ export const api = {
         token,
         body: JSON.stringify({ provider: "openrouter", api_key: apiKey }),
       }),
+    restoreProviderKey: (token?: string) =>
+      request<{ status: "ok"; provider: "openrouter" }>(
+        "/api/desktop/provider-key/restore",
+        { method: "POST", token },
+      ),
     deleteProviderKey: (token?: string) =>
       request<void>("/api/desktop/provider-key", {
         method: "DELETE",
@@ -158,7 +163,7 @@ export const api = {
       return request<JobsResponse>(`/api/jobs${suffix}`, { token });
     },
     get: (token: string, id: string) =>
-      request<Job>(`/api/jobs/${id}`, { token }),
+      request<JobDetail>(`/api/jobs/${id}`, { token }),
     exportCsv: (token: string) => download("/api/jobs/export.csv", token),
     feedback: (
       token: string,
@@ -220,6 +225,11 @@ export const api = {
         { method: "POST", token, body: form }
       );
     },
+    retryResume: (token: string) =>
+      request<OnboardingResumeResponse>("/api/onboarding/resume/retry", {
+        method: "POST",
+        token,
+      }),
     refine: (token: string, question_id: string, answer: string | string[]) =>
       request<{ status: string }>("/api/onboarding/refine", {
         method: "POST",

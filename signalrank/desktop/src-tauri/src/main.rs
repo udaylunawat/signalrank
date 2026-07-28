@@ -150,6 +150,14 @@ fn find_server_js(directory: &Path) -> std::io::Result<Option<PathBuf>> {
     Ok(None)
 }
 
+fn bundled_node_runtime(resource_dir: &Path) -> PathBuf {
+    let mut runtime = resource_dir.join("node").join("signalrank-web");
+    if cfg!(windows) {
+        runtime.set_extension("exe");
+    }
+    runtime
+}
+
 fn startup_error(window: &tauri::WebviewWindow, message: &str) {
     let message = format!("Startup failed: {message}");
     let _ = window.eval(format!(
@@ -279,8 +287,13 @@ async fn start_sidecars(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let backend_url = format!("http://127.0.0.1:{backend_port}");
     let web_url = format!("http://127.0.0.1:{web_port}");
-    let server_js = find_server_js(&handle.path().resource_dir()?.join("web"))?
+    let resource_dir = handle.path().resource_dir()?;
+    let server_js = find_server_js(&resource_dir.join("web"))?
         .ok_or("Bundled Next.js server.js was not found")?;
+    let node_runtime = bundled_node_runtime(&resource_dir);
+    if !node_runtime.is_file() {
+        return Err("Bundled Node.js runtime was not found".into());
+    }
 
     let (mut backend_events, backend_child) = handle
         .shell()
@@ -328,7 +341,7 @@ async fn start_sidecars(
 
     let (mut web_events, web_child) = handle
         .shell()
-        .sidecar("signalrank-web")?
+        .command(node_runtime)
         .args([server_js.to_string_lossy().to_string()])
         .env("HOSTNAME", "127.0.0.1")
         .env("PORT", web_port.to_string())

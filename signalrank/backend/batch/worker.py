@@ -5,7 +5,7 @@ import math
 import socket
 import uuid
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, or_, select, text, update
@@ -44,7 +44,7 @@ def wake_worker() -> None:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _worker_id() -> str:
@@ -213,31 +213,40 @@ def _catalog_reports(result: Any) -> list[Any]:
 def _as_datetime(value: Any, fallback: datetime) -> datetime:
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
+            return value.replace(tzinfo=UTC)
         return value
     if isinstance(value, str):
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
         except ValueError:
             pass
     return fallback
 
 
 def _summarize_source_errors(reports: list[Any]) -> str | None:
-    errors = []
+    sources: dict[str, dict[str, Any]] = {}
     for report in reports:
-        if _field(report, "status", "success") not in {
-            "partial",
-            "failed",
-            "error",
-        }:
-            continue
         source = str(_field(report, "source", "source"))
+        summary = sources.setdefault(source, {"completed": False, "errors": []})
+        status = _field(report, "status", "success")
+        if status not in {"partial", "failed", "error"}:
+            summary["completed"] = True
+            continue
+        if status == "partial" and int(_field(report, "jobs_found", 0) or 0) > 0:
+            summary["completed"] = True
+            continue
         query = _field(report, "query")
         error = str(_field(report, "error_summary") or "source did not complete")
         label = f"{source} ({query})" if query else source
-        errors.append(f"{label}: {error}")
+        summary["errors"].append(f"{label}: {error}")
+
+    errors = [
+        error
+        for summary in sources.values()
+        if not summary["completed"]
+        for error in summary["errors"]
+    ]
     if not errors:
         return None
     return "; ".join(errors)[:2000]
@@ -393,7 +402,7 @@ async def _execute_claimed_run(
                     timeout=(
                         settings.desktop_company_enrichment_timeout_seconds
                         if is_desktop_mode()
-                        else None
+                        else settings.company_enrichment_timeout_seconds
                     ),
                 )
                 logger.info(
@@ -405,7 +414,7 @@ async def _execute_claimed_run(
                 )
             except TimeoutError:
                 logger.warning(
-                    "Company reputation enrichment exceeded the desktop time budget; "
+                    "Company reputation enrichment exceeded the time budget; "
                     "continuing with deterministic ranking"
                 )
                 await db.rollback()
@@ -430,7 +439,7 @@ async def _execute_claimed_run(
                     timeout=(
                         settings.desktop_job_enrichment_timeout_seconds
                         if is_desktop_mode()
-                        else None
+                        else settings.job_enrichment_timeout_seconds
                     ),
                 )
                 logger.info(
@@ -442,7 +451,7 @@ async def _execute_claimed_run(
                 )
             except TimeoutError:
                 logger.warning(
-                    "Job enrichment exceeded the desktop time budget; "
+                    "Job enrichment exceeded the time budget; "
                     "continuing with neutral listing assessments"
                 )
                 await db.rollback()

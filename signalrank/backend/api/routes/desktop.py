@@ -1,5 +1,8 @@
 import logging
 import secrets
+import threading
+from collections.abc import Callable
+from typing import TypeVar
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
@@ -24,6 +27,8 @@ DESKTOP_USER_EMAIL = "local@signalrank.desktop"
 KEYRING_SERVICE = "SignalRank Desktop"
 KEYRING_USERNAME = "openrouter_api_key"
 _session_openrouter_key = ""
+KEYRING_TIMEOUT_SECONDS = 2.0
+KeyringValue = TypeVar("KeyringValue")
 
 
 class ProviderKeyRequest(BaseModel):
@@ -52,11 +57,41 @@ def require_desktop_bootstrap(
         )
 
 
+def _run_keyring_operation(
+    operation: Callable[[], KeyringValue], fallback: KeyringValue
+) -> KeyringValue:
+    result: dict[str, KeyringValue] = {"value": fallback}
+
+    def run() -> None:
+        try:
+            result["value"] = operation()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "Desktop credential-store operation unavailable: %s",
+                type(exc).__name__,
+            )
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(KEYRING_TIMEOUT_SECONDS)
+    if thread.is_alive():
+        logger.warning(
+            "Desktop credential-store operation timed out; using session-only key storage"
+        )
+        return fallback
+    return result["value"]
+
+
 def _load_keyring_key() -> str:
     try:
         import keyring
 
-        return (keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME) or "").strip()
+        return _run_keyring_operation(
+            lambda: (
+                keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME) or ""
+            ).strip(),
+            "",
+        )
     except Exception as exc:
         logger.debug(
             "Desktop credential-store read unavailable: %s", type(exc).__name__
@@ -68,8 +103,12 @@ def _save_keyring_key(api_key: str) -> bool:
     try:
         import keyring
 
-        keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, api_key)
-        return True
+        return _run_keyring_operation(
+            lambda: (
+                keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, api_key) is None
+            ),
+            False,
+        )
     except Exception as exc:
         logger.debug(
             "Desktop credential-store write unavailable: %s", type(exc).__name__
@@ -81,11 +120,14 @@ def _delete_keyring_key() -> bool:
     try:
         import keyring
 
-        try:
-            keyring.delete_password(KEYRING_SERVICE, KEYRING_USERNAME)
-        except keyring.errors.PasswordDeleteError:
-            pass
-        return True
+        def delete() -> bool:
+            try:
+                keyring.delete_password(KEYRING_SERVICE, KEYRING_USERNAME)
+            except keyring.errors.PasswordDeleteError:
+                pass
+            return True
+
+        return _run_keyring_operation(delete, False)
     except Exception as exc:
         logger.debug(
             "Desktop credential-store delete unavailable: %s", type(exc).__name__
@@ -145,11 +187,26 @@ async def desktop_status(db: AsyncSession = Depends(get_db)):
     ).scalar_one()
     return {
         "mode": "desktop",
-        "provider_configured": bool(load_openrouter_key()),
+        "provider_configured": bool(_session_openrouter_key),
         "resume_uploaded": bool(profile.resume_text),
         "onboarding_complete": bool(profile.onboarding_complete),
         "user_id": user.id,
     }
+
+
+@router.post("/provider-key/restore", dependencies=[Depends(require_desktop_bootstrap)])
+async def restore_provider_key():
+    global _session_openrouter_key
+    key = _load_keyring_key()
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No saved OpenRouter key could be unlocked",
+        )
+    _session_openrouter_key = key
+    settings.openrouter_api_key = key
+    _reset_llm_client()
+    return {"status": "ok", "provider": "openrouter"}
 
 
 @router.post("/session", dependencies=[Depends(require_desktop_bootstrap)])

@@ -9,6 +9,8 @@ from batch.ranker import (
     _apply_pre_filters,
     _apply_role_lane_cap,
     _apply_target_role_filter,
+    _assess_required_skill_coverage,
+    _build_explanation,
     _classify_explicit_skill_matches,
     _match_explicit_skills,
     _order_match_lanes,
@@ -17,6 +19,7 @@ from batch.ranker import (
     score_jobs_for_user,
 )
 from domain.scoring import calculate_seniority_score, extract_required_yoe_range
+from domain.skills import SkillCanonicalizer
 
 
 def test_target_role_fit_keeps_broader_matches():
@@ -73,6 +76,65 @@ def test_skill_evidence_distinguishes_required_preferred_and_mentioned():
         "mentioned": ["postgresql"],
         "all": ["aws", "postgresql", "python"],
     }
+
+
+def test_required_skill_coverage_is_generic_and_unassessed_is_neutral():
+    canonicalizer = SkillCanonicalizer(
+        {
+            "skills": {
+                "equivalence_groups": {
+                    "postgres": {
+                        "canonical": "postgresql",
+                        "variants": ["postgres"],
+                    }
+                }
+            }
+        }
+    )
+    assessed = _assess_required_skill_coverage(
+        ["Python", "Postgres", "Kubernetes"],
+        {"python", "postgresql"},
+        "assessed",
+        canonicalizer,
+    )
+    unavailable = _assess_required_skill_coverage(
+        ["Python"], {"python"}, "unavailable", canonicalizer
+    )
+
+    assert assessed == {
+        "status": "assessed",
+        "matched": ["postgresql", "python"],
+        "missing": ["kubernetes"],
+        "total": 3,
+        "coverage": 2 / 3,
+    }
+    assert unavailable["status"] == "unassessed"
+    assert unavailable["coverage"] is None
+
+
+def test_required_skill_coverage_is_explainable_without_changing_scores():
+    explanation = _build_explanation(
+        pd.Series(
+            {
+                "required_skill_coverage_status": "assessed",
+                "assessed_matched_required_skills": ["python"],
+                "missing_required_skills": ["kubernetes"],
+                "assessed_required_skill_overlap": 1,
+                "assessed_required_skill_count": 2,
+                "required_skill_coverage": 0.5,
+            }
+        )
+    )
+
+    assert explanation["skill_evidence"]["required_coverage"] == {
+        "status": "assessed",
+        "matched": ["python"],
+        "missing": ["kubernetes"],
+        "matched_count": 1,
+        "total_count": 2,
+        "ratio": 0.5,
+    }
+    assert "required_skill_coverage" not in explanation["scores"]
 
 
 def test_role_alias_and_description_phrase_produce_explainable_primary_match():

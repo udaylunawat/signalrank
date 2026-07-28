@@ -14,6 +14,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(scriptDir, "..");
 const binariesDir = resolve(desktopDir, "src-tauri", "binaries");
 const nodeLibsDir = resolve(desktopDir, "src-tauri", "node-libs");
+const nodeRuntimeDir = resolve(desktopDir, "src-tauri", "resources", "node");
 const isWindows = process.platform === "win32";
 const executableSuffix = isWindows ? ".exe" : "";
 
@@ -45,6 +46,14 @@ function stageBinary(source, name, triple) {
   copyFileSync(source, destination);
   if (!isWindows) chmodSync(destination, 0o755);
   console.log(`staged ${name}: ${destination}`);
+  return destination;
+}
+
+function stageNodeRuntime(source) {
+  const destination = resolve(nodeRuntimeDir, `signalrank-web${executableSuffix}`);
+  copyFileSync(source, destination);
+  if (!isWindows) chmodSync(destination, 0o755);
+  console.log(`staged signalrank-web runtime: ${destination}`);
   return destination;
 }
 
@@ -120,7 +129,7 @@ function stageMacNodeLibraries(nodeSidecar) {
     execFileSync("install_name_tool", [
       "-change",
       dependency,
-      `@executable_path/../Resources/node-libs/${basename(dependency)}`,
+      `@executable_path/../node-libs/${basename(dependency)}`,
       nodeSidecar,
     ]);
   }
@@ -130,6 +139,8 @@ function stageMacNodeLibraries(nodeSidecar) {
 mkdirSync(binariesDir, { recursive: true });
 rmSync(nodeLibsDir, { force: true, recursive: true });
 mkdirSync(nodeLibsDir, { recursive: true });
+rmSync(nodeRuntimeDir, { force: true, recursive: true });
+mkdirSync(nodeRuntimeDir, { recursive: true });
 
 const triple = targetTriple();
 stageBinary(
@@ -142,10 +153,6 @@ stageBinary(
   "signalrank-backend",
   triple,
 );
-const nodeSidecar = stageBinary(
-  realpathSync(process.execPath),
-  "signalrank-web",
-  triple,
-);
+const nodeSidecar = stageNodeRuntime(realpathSync(process.execPath));
 
 if (process.platform === "darwin") stageMacNodeLibraries(nodeSidecar);

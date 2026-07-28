@@ -82,6 +82,10 @@ def test_report_contains_aggregate_metrics_only():
                 has_skills=True,
                 has_titles=False,
                 has_yoe=True,
+                has_skill_evidence=True,
+                has_experiences=True,
+                has_declared_yoe=True,
+                has_computed_yoe=True,
                 ranking_attempted=False,
                 ranked_job_count=0,
                 primary_available=False,
@@ -95,6 +99,7 @@ def test_report_contains_aggregate_metrics_only():
     assert "PDF names, content, parsed fields" in report
     assert "candidate-01" not in report
     assert "private resume text" not in report
+    assert "Grounded work experiences: **1/1**" in report
 
 
 def test_ranking_rows_keep_resume_data_out_of_label_queue(tmp_path):

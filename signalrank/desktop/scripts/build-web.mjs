@@ -15,15 +15,19 @@ const frontendDir = resolve(desktopDir, "..", "frontend");
 const standaloneDir = resolve(frontendDir, ".next", "standalone");
 const outputDir = resolve(desktopDir, "dist", "web");
 
-const result = spawnSync("npm", ["run", "build"], {
-  cwd: frontendDir,
-  env: {
-    ...process.env,
-    SIGNALRANK_MODE: "desktop",
-    NEXT_PUBLIC_SIGNALRANK_MODE: "desktop",
+const result = spawnSync(
+  process.execPath,
+  [resolve(frontendDir, "node_modules", "next", "dist", "bin", "next"), "build"],
+  {
+    cwd: frontendDir,
+    env: {
+      ...process.env,
+      SIGNALRANK_MODE: "desktop",
+      NEXT_PUBLIC_SIGNALRANK_MODE: "desktop",
+    },
+    stdio: "inherit",
   },
-  stdio: "inherit",
-});
+);
 
 if (result.status) process.exit(result.status);
 if (!existsSync(standaloneDir)) {

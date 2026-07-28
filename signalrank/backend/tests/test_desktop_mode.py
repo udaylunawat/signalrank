@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -90,6 +91,23 @@ async def test_desktop_routes_require_bootstrap_and_create_local_identity(
     assert profile.user_id == users[0].id
 
 
+async def test_desktop_status_does_not_unlock_keyring(desktop_runtime, monkeypatch):
+    client, _, _, _ = desktop_runtime
+
+    def unexpected_keyring_read() -> str:
+        raise AssertionError("status must not trigger a credential-store prompt")
+
+    monkeypatch.setattr(desktop, "_load_keyring_key", unexpected_keyring_read)
+
+    response = await client.get(
+        "/api/desktop/status",
+        headers={"X-SignalRank-Desktop-Token": "test-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["provider_configured"] is False
+
+
 async def test_desktop_session_can_trigger_first_scan(desktop_runtime):
     client, _, _, _ = desktop_runtime
     bootstrap_headers = {"X-SignalRank-Desktop-Token": "test-token"}
@@ -152,12 +170,48 @@ async def test_desktop_provider_key_uses_keyring_or_session_only(
     assert not list(database_path.parent.glob("*.json"))
 
 
-async def test_desktop_keyring_key_is_loaded_before_worker_use(desktop_runtime, monkeypatch):
+async def test_desktop_keyring_key_is_loaded_before_worker_use(
+    desktop_runtime, monkeypatch
+):
     monkeypatch.setattr(desktop, "_session_openrouter_key", "")
     monkeypatch.setattr(desktop, "_load_keyring_key", lambda: "sk-or-persisted")
 
     assert desktop.load_openrouter_key() == "sk-or-persisted"
     assert settings.openrouter_api_key == "sk-or-persisted"
+
+
+async def test_restore_provider_key_unlocks_keyring_only_on_request(
+    desktop_runtime, monkeypatch
+):
+    client, _, _, _ = desktop_runtime
+    monkeypatch.setattr(desktop, "_load_keyring_key", lambda: "sk-or-persisted")
+
+    response = await client.post(
+        "/api/desktop/provider-key/restore",
+        headers={"X-SignalRank-Desktop-Token": "test-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "provider": "openrouter"}
+    assert desktop._session_openrouter_key == "sk-or-persisted"
+
+
+async def test_desktop_keyring_timeout_falls_back_without_blocking(
+    desktop_runtime, monkeypatch
+):
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_operation() -> str:
+        started.set()
+        release.wait()
+        return "sk-or-late"
+
+    monkeypatch.setattr(desktop, "KEYRING_TIMEOUT_SECONDS", 0.01)
+
+    assert desktop._run_keyring_operation(blocking_operation, "") == ""
+    assert started.is_set()
+    release.set()
 
 
 async def test_sqlite_pragmas_embeddings_and_worker_claim_are_portable(

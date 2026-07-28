@@ -47,6 +47,10 @@ class FixtureAudit:
     has_skills: bool
     has_titles: bool
     has_yoe: bool
+    has_skill_evidence: bool
+    has_experiences: bool
+    has_declared_yoe: bool
+    has_computed_yoe: bool
     ranking_attempted: bool
     ranked_job_count: int
     primary_available: bool
@@ -398,6 +402,14 @@ async def audit_fixtures(
                         has_skills=bool(parsed.skills),
                         has_titles=bool(parsed.recent_titles),
                         has_yoe=parsed.years_of_experience is not None,
+                        has_skill_evidence=bool(parsed.skill_evidence),
+                        has_experiences=bool(parsed.experiences),
+                        has_declared_yoe=(
+                            parsed.declared_years_of_experience is not None
+                        ),
+                        has_computed_yoe=(
+                            parsed.computed_years_of_experience is not None
+                        ),
                         ranking_attempted=ranking_attempted,
                         ranked_job_count=ranked_count,
                         primary_available=primary_available,
@@ -457,7 +469,11 @@ def render_report(
 - Text extraction success: **{sum(audit.extracted_text for audit in audits)}/{fixture_count}**.
 - Non-empty skills: **{sum(audit.has_skills for audit in audits)}/{fixture_count}**.
 - Non-empty titles: **{sum(audit.has_titles for audit in audits)}/{fixture_count}**.
-- Years of experience found: **{sum(audit.has_yoe for audit in audits)}/{fixture_count}**.
+- Explicit years of experience found: **{sum(audit.has_yoe for audit in audits)}/{fixture_count}**.
+- Grounded skill evidence: **{sum(audit.has_skill_evidence for audit in audits)}/{fixture_count}**.
+- Grounded work experiences: **{sum(audit.has_experiences for audit in audits)}/{fixture_count}**.
+- Explicitly declared experience: **{sum(audit.has_declared_yoe for audit in audits)}/{fixture_count}**.
+- Date-computed experience: **{sum(audit.has_computed_yoe for audit in audits)}/{fixture_count}**.
 
 ## Ranking coverage
 

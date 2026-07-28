@@ -4,4 +4,5 @@ src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
 src-tauri/gen/
 src-tauri/node-libs/
+src-tauri/resources/node/
 src-tauri/target/

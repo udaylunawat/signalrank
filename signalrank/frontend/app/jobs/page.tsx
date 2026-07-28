@@ -10,10 +10,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { saveDownload } from "@/lib/desktop";
-import type { Job, JobFeedbackValue, JobListParams } from "@/types";
+import type {
+  Job,
+  JobDetail,
+  JobFeedbackReason,
+  JobFeedbackValue,
+  JobListParams,
+} from "@/types";
 
 type ScoreFilter = "all" | "excellent" | "strong";
 type SortOption = NonNullable<JobListParams["sort"]>;
+type Density = "comfortable" | "compact";
 
 function scoreFromFilter(filter: ScoreFilter) {
   if (filter === "excellent") return 80;
@@ -40,6 +47,7 @@ function JobsPageContent() {
   const sortParam = searchParams.get("sort");
   const sort: SortOption = sortParam === "newest" || sortParam === "company" ? sortParam : "match";
   const source = searchParams.get("source") ?? "";
+  const density: Density = searchParams.get("density") === "compact" ? "compact" : "comfortable";
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [total, setTotal] = useState(0);
@@ -51,6 +59,12 @@ function JobsPageContent() {
   const [trackingId, setTrackingId] = useState<string | null>(null);
   const [feedbackId, setFeedbackId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [details, setDetails] = useState<Record<string, JobDetail>>({});
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const [detailErrors, setDetailErrors] = useState<Record<string, string>>({});
+  const [hiddenJobIds, setHiddenJobIds] = useState<Set<string>>(new Set());
+  const [hiddenJob, setHiddenJob] = useState<Job | null>(null);
   const limit = 50;
 
   function updateParams(updates: Record<string, string | number | undefined>, resetPage = true) {
@@ -163,15 +177,23 @@ function JobsPageContent() {
     }
   }
 
-  async function submitFeedback(job: Job, value: JobFeedbackValue) {
+  async function submitFeedback(
+    job: Job,
+    value: JobFeedbackValue,
+    reason?: JobFeedbackReason,
+  ) {
     if (!token || feedbackId) return;
     setFeedbackId(job.id);
     setError("");
     try {
-      const feedback = await api.jobs.feedback(token, job.id, value, value === "not_relevant" ? "other" : undefined);
+      const feedback = await api.jobs.feedback(token, job.id, value, reason);
       setJobs((current) => current.map((item) => (
         item.id === job.id ? { ...item, feedback } : item
       )));
+      if (value === "not_relevant") {
+        setHiddenJobIds((current) => new Set(current).add(job.id));
+        setHiddenJob(job);
+      }
     } catch {
       setError("We couldn’t save that match feedback.");
     } finally {
@@ -179,7 +201,53 @@ function JobsPageContent() {
     }
   }
 
+  async function undoHiddenJob() {
+    if (!token || !hiddenJob || feedbackId) return;
+    const job = hiddenJob;
+    setFeedbackId(job.id);
+    setError("");
+    try {
+      await api.jobs.clearFeedback(token, job.id);
+      setJobs((current) => current.map((item) => (
+        item.id === job.id ? { ...item, feedback: null } : item
+      )));
+      setHiddenJobIds((current) => {
+        const next = new Set(current);
+        next.delete(job.id);
+        return next;
+      });
+      setHiddenJob(null);
+    } catch {
+      setError("We couldn’t undo that feedback. Please try again.");
+    } finally {
+      setFeedbackId(null);
+    }
+  }
+
+  async function toggleDetails(job: Job) {
+    if (expandedJobId === job.id) {
+      setExpandedJobId(null);
+      return;
+    }
+    setExpandedJobId(job.id);
+    if (details[job.id] || detailLoadingId === job.id) return;
+    setDetailLoadingId(job.id);
+    setDetailErrors((current) => ({ ...current, [job.id]: "" }));
+    try {
+      const detail = await api.jobs.get(token, job.id);
+      setDetails((current) => ({ ...current, [job.id]: detail }));
+    } catch {
+      setDetailErrors((current) => ({
+        ...current,
+        [job.id]: "We couldn’t load this match explanation. Try again.",
+      }));
+    } finally {
+      setDetailLoadingId(null);
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / limit));
+  const visibleJobs = jobs.filter((job) => !hiddenJobIds.has(job.id));
 
   return (
     <AppShell>
@@ -192,13 +260,31 @@ function JobsPageContent() {
           <h1 className="page-title">Your matches</h1>
           <p className="page-copy">Search every ranked role, save the promising ones, skip the noise.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm font-medium text-muted-foreground">
             <span className="text-foreground tabular-nums">{total}</span> ranked roles
           </p>
+          <div className="flex items-center gap-1 rounded-xl bg-muted/70 p-1" aria-label="Result density">
+            {([
+              ["comfortable", "Comfortable"],
+              ["compact", "Compact"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={density === value}
+                onClick={() => updateParams({ density: value === "comfortable" ? undefined : value })}
+                className={density === value
+                  ? "min-h-9 rounded-lg bg-white px-3 text-xs font-medium text-foreground shadow-sm"
+                  : "min-h-9 rounded-lg px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <Button
             variant="outline"
-            className="rounded-xl"
+            className="min-h-10 rounded-xl"
             onClick={exportJobs}
             disabled={!token || total === 0 || exporting}
           >
@@ -235,15 +321,15 @@ function JobsPageContent() {
                   onClick={() => updateParams({ min_score: scoreFromFilter(value) })}
                   aria-pressed={scoreFilter === value}
                   className={scoreFilter === value
-                    ? "rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-foreground shadow-sm"
-                    : "rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"}
+                    ? "min-h-10 rounded-lg bg-white px-3 text-xs font-medium text-foreground shadow-sm"
+                    : "min-h-10 rounded-lg px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"}
                 >
                   {label}
                 </button>
               ))}
             </div>
             {sourceOptions.length > 1 && (
-              <label className="flex items-center gap-2 rounded-xl border border-border/80 bg-white px-3 py-2 text-xs font-medium text-muted-foreground">
+              <label className="flex min-h-10 items-center gap-2 rounded-xl border border-border/80 bg-white px-3 py-2 text-xs font-medium text-muted-foreground">
                 <span className="sr-only">Source</span>
                 <select
                   value={source}
@@ -257,7 +343,7 @@ function JobsPageContent() {
                 </select>
               </label>
             )}
-            <label className="flex items-center gap-2 rounded-xl border border-border/80 bg-white px-3 py-2 text-xs font-medium text-muted-foreground">
+            <label className="flex min-h-10 items-center gap-2 rounded-xl border border-border/80 bg-white px-3 py-2 text-xs font-medium text-muted-foreground">
               <SlidersHorizontal className="size-3.5" />
               <span className="sr-only sm:not-sr-only">Sort</span>
               <select
@@ -280,38 +366,70 @@ function JobsPageContent() {
         </div>
       )}
 
+      {hiddenJob && (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm">
+          <p>
+            <span className="font-medium">Feedback saved.</span> {hiddenJob.title} is hidden for this view.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-10 rounded-xl"
+            disabled={feedbackId === hiddenJob.id}
+            onClick={() => void undoHiddenJob()}
+          >
+            Undo
+          </Button>
+        </div>
+      )}
+
       <section className="mt-5 space-y-3" aria-live="polite" aria-busy={loading}>
         {loading && Array.from({ length: 5 }).map((_, index) => (
           <div key={index} className="h-48 animate-pulse rounded-2xl border border-border/70 bg-white/60" />
         ))}
-        {!loading && jobs.map((job) => (
+        {!loading && visibleJobs.map((job) => (
           <JobCard
             key={job.id}
             job={job}
+            dense={density === "compact"}
             tracked={tracked.has(job.id)}
             tracking={trackingId === job.id}
             onTrack={trackJob}
             feedback={job.feedback?.value}
             feedbacking={feedbackId === job.id}
             onFeedback={submitFeedback}
+            expanded={expandedJobId === job.id}
+            detail={details[job.id]}
+            detailLoading={detailLoadingId === job.id}
+            detailError={detailErrors[job.id]}
+            onToggleDetails={toggleDetails}
           />
         ))}
-        {!loading && jobs.length === 0 && (
+        {!loading && visibleJobs.length === 0 && (
           <div className="surface-panel px-6 py-14 text-center">
             <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-secondary text-primary">
               <Search className="size-5" />
             </span>
-            <h2 className="mt-4 font-semibold">No matches in this view</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Try a broader search or reset the match filters.</p>
+            <h2 className="mt-4 font-semibold">
+              {jobs.length ? "All matches are hidden for this view" : "No matches in this view"}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {jobs.length ? "Undo feedback to restore a hidden role." : "Try a broader search or reset the match filters."}
+            </p>
             <Button
               variant="outline"
-              className="mt-5 rounded-xl"
+              className="mt-5 min-h-10 rounded-xl"
               onClick={() => {
+                if (jobs.length && hiddenJob) {
+                  void undoHiddenJob();
+                  return;
+                }
                 setQuery("");
                 router.replace(pathname, { scroll: false });
               }}
             >
-              Clear filters
+              {jobs.length ? "Undo feedback" : "Clear filters"}
             </Button>
           </div>
         )}

@@ -36,6 +36,7 @@ export default function DesktopSetupPage() {
   const [resume, setResume] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState(false);
+  const [restoringKey, setRestoringKey] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -128,6 +129,26 @@ export default function DesktopSetupPage() {
       );
     } finally {
       setSavingKey(false);
+    }
+  }
+
+  async function restoreProvider() {
+    setRestoringKey(true);
+    setError("");
+    setNotice("");
+    try {
+      const activeToken = await ensureSession();
+      await api.desktop.restoreProviderKey(activeToken);
+      await refreshStatus(activeToken);
+      setNotice("Saved OpenRouter key unlocked for this session.");
+    } catch (restoreError) {
+      setError(
+        restoreError instanceof Error
+          ? restoreError.message
+          : "The saved OpenRouter key could not be unlocked.",
+      );
+    } finally {
+      setRestoringKey(false);
     }
   }
 
@@ -226,6 +247,19 @@ export default function DesktopSetupPage() {
                 The local backend validates the key before saving it to your operating
                 system credential store. SignalRank never stores it in the local database.
               </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-3 rounded-xl text-muted-foreground"
+                onClick={() => void restoreProvider()}
+                disabled={restoringKey}
+              >
+                {restoringKey && (
+                  <LoaderCircle className="animate-spin" data-icon="inline-start" />
+                )}
+                {restoringKey ? "Unlocking saved key…" : "Use saved key"}
+              </Button>
               <div className="mt-6 space-y-2">
                 <Label htmlFor="openrouter-key">OpenRouter API key</Label>
                 <Input

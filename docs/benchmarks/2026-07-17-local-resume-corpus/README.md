@@ -41,3 +41,6 @@ grade 2, `false` to grade 0, and leaves `null` unreviewed.
 
 The role-agnostic enrichment implementation and its frozen-corpus assessment
 are recorded in [phase-4-role-agnostic-ranking.md](phase-4-role-agnostic-ranking.md).
+Grounded parser v4, compatibility diagnostics, rejected experiments, and the
+accepted non-regression replay are recorded in
+[phase-9-parser-v4-and-compatibility.md](phase-9-parser-v4-and-compatibility.md).

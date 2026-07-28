@@ -23,6 +23,46 @@ router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 MAX_RESUME_BYTES = 10 * 1024 * 1024
 
 
+def _extracted_payload(parsed) -> dict:
+    return {
+        "skills": parsed.skills,
+        "years_of_experience": parsed.years_of_experience,
+        "recent_titles": parsed.recent_titles,
+        "industries": parsed.industries,
+        "education": parsed.education,
+        "skill_evidence": parsed.skill_evidence,
+        "experiences": parsed.experiences,
+        "declared_years_of_experience": parsed.declared_years_of_experience,
+        "computed_years_of_experience": parsed.computed_years_of_experience,
+        "field_confidence": parsed.field_confidence,
+        "intent_suggestions": parsed.intent_suggestions,
+        "parse_status": parsed.status,
+        "parse_confidence": parsed.confidence,
+        "parse_source": parsed.source,
+        "parser_model": parsed.model,
+        "parse_error": parsed.error,
+    }
+
+
+def _apply_parsed_profile(profile: Profile, parsed) -> None:
+    profile.skills = parsed.skills
+    if parsed.years_of_experience is not None and profile.max_yoe is None:
+        profile.max_yoe = parsed.years_of_experience
+    profile.resume_parse_status = parsed.status
+    profile.resume_parse_error = parsed.error
+    profile.resume_parse_confidence = parsed.confidence
+    profile.resume_parser_model = parsed.model
+    if parsed.skills or parsed.recent_titles or parsed.years_of_experience:
+        parts = []
+        if parsed.recent_titles:
+            parts.append("Recent roles: " + ", ".join(parsed.recent_titles))
+        if parsed.skills:
+            parts.append("Skills: " + ", ".join(parsed.skills))
+        if parsed.years_of_experience:
+            parts.append(f"Experience: {parsed.years_of_experience} years")
+        profile.distilled_text = "\n".join(parts)
+
+
 def _extract_text_from_pdf(content: bytes) -> str:
     try:
         import pypdf
@@ -87,38 +127,11 @@ async def upload_resume(
     parsed = await parse_resume(resume_text, llm)
 
     profile.resume_text = resume_text
-    profile.skills = parsed.skills
-    if parsed.years_of_experience is not None and profile.max_yoe is None:
-        profile.max_yoe = parsed.years_of_experience
+    _apply_parsed_profile(profile, parsed)
     profile.resume_sha256 = resume_sha256
-    profile.resume_parse_status = parsed.status
-    profile.resume_parse_error = parsed.error
-    profile.resume_parse_confidence = parsed.confidence
-    profile.resume_parser_model = parsed.model
-    if parsed.skills or parsed.recent_titles or parsed.years_of_experience:
-        parts = []
-        if parsed.recent_titles:
-            parts.append("Recent roles: " + ", ".join(parsed.recent_titles))
-        if parsed.skills:
-            parts.append("Skills: " + ", ".join(parsed.skills))
-        if parsed.years_of_experience:
-            parts.append(f"Experience: {parsed.years_of_experience} years")
-        profile.distilled_text = "\n".join(parts)
     questions = generate_onboarding_questions(parsed)
     draft = {
-        "extracted": {
-            "skills": parsed.skills,
-            "years_of_experience": parsed.years_of_experience,
-            "recent_titles": parsed.recent_titles,
-            "industries": parsed.industries,
-            "education": parsed.education,
-            "intent_suggestions": parsed.intent_suggestions,
-            "parse_status": parsed.status,
-            "parse_confidence": parsed.confidence,
-            "parse_source": parsed.source,
-            "parser_model": parsed.model,
-            "parse_error": parsed.error,
-        },
+        "extracted": _extracted_payload(parsed),
         "questions": questions,
         "answers": {},
         "current_step": "questions",
@@ -128,6 +141,33 @@ async def upload_resume(
     }
     profile.onboarding_draft = draft
     profile.onboarding_complete = False
+    await db.commit()
+    return draft
+
+
+@router.post("/resume/retry")
+async def retry_resume_parse(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    llm: OpenRouterClient = Depends(get_llm_client),
+):
+    result = await db.execute(select(Profile).where(Profile.user_id == current_user.id))
+    profile = result.scalar_one_or_none()
+    if not profile or not profile.resume_text:
+        raise HTTPException(status_code=404, detail="Upload a resume first")
+
+    parsed = await parse_resume(profile.resume_text, llm)
+    _apply_parsed_profile(profile, parsed)
+    previous_draft = deepcopy(profile.onboarding_draft or {})
+    draft = {
+        **previous_draft,
+        "extracted": _extracted_payload(parsed),
+        "questions": generate_onboarding_questions(parsed),
+        "answers": previous_draft.get("answers", {}),
+        "current_step": "questions",
+        "parser_version": RESUME_PARSER_VERSION,
+    }
+    profile.onboarding_draft = draft
     await db.commit()
     return draft
 
@@ -250,17 +290,17 @@ async def refine_onboarding(
     elif qid == "preferred_companies":
         companies = _answer_values(answer)
         overrides = deepcopy(profile.config_overrides or {})
-        overrides.setdefault("company_preferences", {})[
-            "preferred_companies"
-        ] = companies
+        overrides.setdefault("company_preferences", {})["preferred_companies"] = (
+            companies
+        )
         profile.target_companies = companies
         profile.config_overrides = overrides
     elif qid == "excluded_companies":
         overrides = deepcopy(profile.config_overrides or {})
         exclusions = _answer_values(answer)
-        overrides.setdefault("company_preferences", {})[
-            "excluded_companies"
-        ] = exclusions
+        overrides.setdefault("company_preferences", {})["excluded_companies"] = (
+            exclusions
+        )
         profile.config_overrides = overrides
     elif qid == "excluded_titles":
         overrides = deepcopy(profile.config_overrides or {})

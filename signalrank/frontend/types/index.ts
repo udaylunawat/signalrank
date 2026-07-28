@@ -62,7 +62,7 @@ export interface Job {
   site: string | null;
   job_url: string;
   date_posted: string | null;
-  description: string | null;
+  description?: string | null;
   final_score: number | null;
   semantic_score: number | null;
   skills_score: number | null;
@@ -76,6 +76,12 @@ export interface Job {
   explanation?: JobExplanation | null;
   is_contract: boolean;
   feedback?: JobFeedback | null;
+}
+
+export interface JobDetail extends Job {
+  description: string | null;
+  run_id: string;
+  completed_at: string | null;
 }
 
 export type JobFeedbackValue = "relevant" | "not_relevant";

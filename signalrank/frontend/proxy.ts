@@ -2,19 +2,17 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 
 export default auth((request) => {
-  if (request.auth) return NextResponse.next();
-
   const { pathname, search } = request.nextUrl;
   const desktopMode =
     process.env.SIGNALRANK_MODE === "desktop" ||
     process.env.NEXT_PUBLIC_SIGNALRANK_MODE === "desktop";
+  if (desktopMode || request.auth) return NextResponse.next();
+
   const destination = new URL(
-    desktopMode ? "/desktop-setup" : "/login",
+    "/login",
     request.nextUrl.origin,
   );
-  if (!desktopMode) {
-    destination.searchParams.set("callbackUrl", `${pathname}${search}`);
-  }
+  destination.searchParams.set("callbackUrl", `${pathname}${search}`);
   return NextResponse.redirect(destination);
 });
 

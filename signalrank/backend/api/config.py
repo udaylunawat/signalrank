@@ -85,9 +85,11 @@ class Settings(BaseSettings):
     allowed_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
     openrouter_api_key: str = ""
     desktop_busy_timeout_ms: int = 10_000
+    company_enrichment_timeout_seconds: float = 30.0
     desktop_company_enrichment_limit: int = 15
     desktop_company_enrichment_timeout_seconds: float = 45.0
     job_enrichment_limit: int = 24
+    job_enrichment_timeout_seconds: float = 30.0
     desktop_job_enrichment_limit: int = 12
     desktop_job_enrichment_timeout_seconds: float = 35.0
 

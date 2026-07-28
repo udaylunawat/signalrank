@@ -134,6 +134,7 @@ export default function OnboardingPage() {
   const [roleDraft, setRoleDraft] = useState("");
   const [loadingDraft, setLoadingDraft] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [draftWarning, setDraftWarning] = useState("");
   const [error, setError] = useState("");
@@ -181,7 +182,9 @@ export default function OnboardingPage() {
     [extracted?.recent_titles],
   );
   const selectedRoles = Array.isArray(answers.target_roles) ? answers.target_roles : [];
-  const degraded = isDegraded(parseStatus) || (parseStatus !== undefined && !hasExtractionSignal(extracted));
+  const extractionUnavailable = parseStatus !== undefined && !hasExtractionSignal(extracted);
+  const needsExtractionRetry = Boolean(extracted?.parse_error) || extractionUnavailable;
+  const hybridExtraction = isDegraded(parseStatus) && !needsExtractionRetry;
 
   async function handleUpload(event: React.FormEvent) {
     event.preventDefault();
@@ -216,6 +219,27 @@ export default function OnboardingPage() {
       setDraftWarning("");
     } catch {
       setDraftWarning("This answer is saved in this form but could not sync yet. Finish setup to retry.");
+    }
+  }
+
+  async function retryExtraction() {
+    if (!token || retrying) return;
+    setRetrying(true);
+    setError("");
+    try {
+      const response = await api.onboarding.retryResume(token);
+      const responseStatus = response.parse_status ?? response.extracted.parse_status;
+      setExtracted(response.extracted);
+      setParseStatus(responseStatus ?? (hasExtractionSignal(response.extracted) ? "complete" : "degraded"));
+      setQuestions(mergeQuestions(response.questions));
+      setAnswers((current) => ({
+        ...current,
+        ...(response.draft?.answers ?? {}),
+      }));
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : "We couldn’t retry resume extraction.");
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -311,8 +335,8 @@ export default function OnboardingPage() {
                 <ShieldCheck className="size-4" />
               </span>
               {desktopMode
-                ? "Your resume is stored in the local SignalRank database"
-                : "Your resume stays private to your account"}
+                ? "Stored locally; extraction uses your configured OpenRouter account"
+                : "Stored in your account; extraction uses the configured OpenRouter provider"}
             </div>
             <div className="flex items-center gap-3">
               <span className="grid size-8 place-items-center rounded-xl bg-indigo-50 text-indigo-700">
@@ -396,12 +420,24 @@ export default function OnboardingPage() {
                 </p>
               </div>
 
-              {degraded && (
-                <div className="mt-5 flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+              {needsExtractionRetry && (
+                <div className="mt-5 flex flex-col gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex gap-3">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                   <p>
-                    Your resume text is saved, but automatic extraction is limited right now. Add roles yourself or continue with the resume alone; ranking can still use its full text.
+                    Your resume text is saved, but automatic extraction is limited right now. Retry through OpenRouter, add roles yourself, or continue using the resume text.
                   </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-10 shrink-0 rounded-xl border-amber-300 bg-white/70"
+                    disabled={retrying || !token}
+                    onClick={() => void retryExtraction()}
+                  >
+                    {retrying && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
+                    {retrying ? "Retrying…" : "Retry with OpenRouter"}
+                  </Button>
                 </div>
               )}
 
@@ -413,6 +449,11 @@ export default function OnboardingPage() {
                     {extracted?.skills?.length ? <p>Skills: {extracted.skills.slice(0, 10).join(", ")}</p> : null}
                     {extracted?.years_of_experience ? <p>Experience: {extracted.years_of_experience} years</p> : null}
                   </div>
+                  {hybridExtraction && (
+                    <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                      We supplemented some details with local parsing. Review these suggestions before continuing.
+                    </p>
+                  )}
                 </div>
               )}
 

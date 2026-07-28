@@ -76,6 +76,42 @@ def _split_preference_values(values: object) -> list[str]:
     return result
 
 
+def _assess_required_skill_coverage(
+    required_skills: object,
+    resume_skills: set[str],
+    enrichment_status: object,
+    canonicalizer: SkillCanonicalizer,
+) -> dict[str, object]:
+    if str(enrichment_status or "") != "assessed" or not isinstance(
+        required_skills, list
+    ):
+        return {
+            "status": "unassessed",
+            "matched": [],
+            "missing": [],
+            "total": None,
+            "coverage": None,
+        }
+    required = canonicalizer.canonicalize(required_skills)
+    if not required:
+        return {
+            "status": "assessed_no_requirements",
+            "matched": [],
+            "missing": [],
+            "total": 0,
+            "coverage": None,
+        }
+    matched = sorted(required & resume_skills)
+    missing = sorted(required - resume_skills)
+    return {
+        "status": "assessed",
+        "matched": matched,
+        "missing": missing,
+        "total": len(required),
+        "coverage": len(matched) / len(required),
+    }
+
+
 def _preference_location_weight(location: object, cfg: dict) -> float:
     preferred = cfg.get("location_scoring", {}).get("preferred_locations", [])
     if not preferred:
@@ -559,6 +595,24 @@ def _build_explanation(row: pd.Series) -> dict:
             "required": list(row.get("required_skills") or []),
             "preferred": list(row.get("preferred_skills") or []),
             "mentioned": list(row.get("mentioned_skills") or []),
+            "required_coverage": {
+                "status": str(row.get("required_skill_coverage_status", "unassessed")),
+                "matched": list(row.get("assessed_matched_required_skills") or []),
+                "missing": list(row.get("missing_required_skills") or []),
+                "matched_count": int(
+                    row.get("assessed_required_skill_overlap", 0) or 0
+                ),
+                "total_count": (
+                    int(row["assessed_required_skill_count"])
+                    if pd.notna(row.get("assessed_required_skill_count"))
+                    else None
+                ),
+                "ratio": (
+                    round(float(row["required_skill_coverage"]), 3)
+                    if pd.notna(row.get("required_skill_coverage"))
+                    else None
+                ),
+            },
         },
         "scores": {
             "semantic": round(float(row.get("semantic_score", 0)) * 100, 1),
@@ -613,6 +667,33 @@ async def _compute_embeddings(
 
     canon = SkillCanonicalizer(cfg)
     explicit_resume_skills = canon.canonicalize(resume_skills or [])
+    coverage_evidence = df.apply(
+        lambda row: _assess_required_skill_coverage(
+            row.get("enriched_required_skills"),
+            explicit_resume_skills,
+            row.get("enrichment_status"),
+            canon,
+        ),
+        axis=1,
+    )
+    df["required_skill_coverage_status"] = coverage_evidence.apply(
+        lambda value: value["status"]
+    )
+    df["assessed_matched_required_skills"] = coverage_evidence.apply(
+        lambda value: value["matched"]
+    )
+    df["missing_required_skills"] = coverage_evidence.apply(
+        lambda value: value["missing"]
+    )
+    df["assessed_required_skill_overlap"] = coverage_evidence.apply(
+        lambda value: len(value["matched"])
+    )
+    df["assessed_required_skill_count"] = coverage_evidence.apply(
+        lambda value: value["total"]
+    )
+    df["required_skill_coverage"] = coverage_evidence.apply(
+        lambda value: value["coverage"]
+    )
     job_text = (
         df["title"].fillna("").astype(str)
         + "\n"
