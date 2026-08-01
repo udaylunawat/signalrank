@@ -5,7 +5,7 @@
   "identifier": "app.signalrank.desktop",
   "build": {
     "beforeDevCommand": "npm run dev:services",
-    "beforeBuildCommand": "npm run build:web && npm run stage:sidecars",
+    "beforeBuildCommand": "node scripts/build-web.mjs && node scripts/stage-sidecars.mjs",
     "devUrl": "http://127.0.0.1:3000",
     "frontendDist": "../ui"
   },

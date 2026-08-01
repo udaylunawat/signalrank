@@ -87,6 +87,46 @@ async def test_update_application_status(client, auth_token):
     assert r.status_code == 200
 
 
+async def test_update_application_notes_and_applied_at(client, auth_token):
+    created = await client.post(
+        "/api/applications",
+        json={"company": "Acme", "title": "SRE", "status": "interested"},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    app_id = created.json()["id"]
+
+    updated = await client.patch(
+        f"/api/applications/{app_id}",
+        json={
+            "notes": "Follow up after the synthetic interview.",
+            "applied_at": "2026-08-01T12:30:00Z",
+        },
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    assert updated.status_code == 200
+
+    listed = await client.get(
+        "/api/applications", headers={"Authorization": f"Bearer {auth_token}"}
+    )
+    row = next(item for item in listed.json() if item["id"] == app_id)
+    assert row["notes"] == "Follow up after the synthetic interview."
+    assert row["applied_at"].startswith("2026-08-01 12:30:00")
+
+
+async def test_update_application_rejects_invalid_applied_at(client, auth_token):
+    created = await client.post(
+        "/api/applications",
+        json={"company": "Acme", "title": "SRE"},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    response = await client.patch(
+        f"/api/applications/{created.json()['id']}",
+        json={"applied_at": "not-a-date"},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    assert response.status_code == 422
+
+
 async def test_delete_application(client, auth_token):
     r = await client.post(
         "/api/applications",

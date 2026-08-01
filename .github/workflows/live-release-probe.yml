@@ -1,0 +1,37 @@
+name: SignalRank live release probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  openrouter:
+    name: Bounded OpenRouter probe
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install backend dependencies
+        working-directory: signalrank/backend
+        run: uv sync --dev
+      - name: Run opt-in probe
+        if: ${{ secrets.SIGNALRANK_E2E_OPENROUTER_KEY != '' }}
+        working-directory: signalrank/backend
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.SIGNALRANK_E2E_OPENROUTER_KEY }}
+          SIGNALRANK_LIVE_RELEASE: "1"
+        run: uv run python scripts/live_release_probe.py --output live-release-probe.json
+      - name: Record blocked probe
+        if: ${{ secrets.SIGNALRANK_E2E_OPENROUTER_KEY == '' }}
+        working-directory: signalrank/backend
+        run: |
+          printf '%s\n' '{"case_id":"REL-01","status":"blocked","reason":"SIGNALRANK_E2E_OPENROUTER_KEY secret is not configured"}' > live-release-probe.json
+      - name: Upload sanitized probe report
+        uses: actions/upload-artifact@v4
+        with:
+          name: signalrank-live-release-probe
+          if-no-files-found: error
+          path: signalrank/backend/live-release-probe.json

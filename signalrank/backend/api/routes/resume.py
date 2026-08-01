@@ -2,8 +2,6 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from llm.openrouter import OpenRouterClient
-from llm.resume_tailor import compile_pdf, render_typst, tailor_resume
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +10,8 @@ from api.database import get_db
 from api.deps import get_current_user
 from api.deps_llm import get_llm_client
 from api.models import JobRaw, Profile, TailoredResume, User
+from llm.openrouter import OpenRouterClient
+from llm.resume_tailor import compile_pdf, render_typst, tailor_resume
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ async def download_tailored(
     if not tailored:
         raise HTTPException(status_code=404, detail="No tailored resume for this job")
 
-    from llm.resume_tailor import TailoredContent, compile_pdf, render_typst
+    from llm.resume_tailor import TailoredContent
 
     content = TailoredContent(**tailored.content_json)
     typst_src = render_typst(content, tailored.template or "classic")

@@ -1,4 +1,6 @@
 import pytest
+from api.models import JobRaw
+from llm.resume_tailor import TailoredContent
 
 
 @pytest.fixture
@@ -54,3 +56,51 @@ async def test_tailor_invalid_template(client, auth_token, monkeypatch):
         headers={"Authorization": f"Bearer {auth_token}"},
     )
     assert r.status_code == 422
+
+
+async def test_tailor_persists_content_generates_pdf_and_isolates_download(
+    client, auth_token, db, monkeypatch
+):
+    from api.routes import resume as resume_route
+
+    await client.post(
+        "/api/onboarding/resume",
+        files={"file": ("r.txt", b"Synthetic Python developer", "text/plain")},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    job = JobRaw(
+        job_url="https://jobs.example.test/tailor",
+        title="Platform Engineer",
+        description="Build platform services with Python.",
+        company="Synthetic Labs",
+    )
+    db.add(job)
+    await db.commit()
+
+    async def fake_tailor_resume(**_kwargs):
+        return TailoredContent(
+            name="Synthetic Candidate",
+            position="Platform Engineer",
+            summary="A truthful synthetic summary.",
+            skills=["Python"],
+        )
+
+    monkeypatch.setattr(resume_route, "tailor_resume", fake_tailor_resume)
+    monkeypatch.setattr(resume_route, "render_typst", lambda *_args: "synthetic typst")
+    monkeypatch.setattr(resume_route, "compile_pdf", lambda _source: b"%PDF-synthetic")
+    headers = {"Authorization": f"Bearer {auth_token}"}
+
+    tailored = await client.post(
+        "/api/resume/tailor",
+        json={"job_id": str(job.id), "template": "modern"},
+        headers=headers,
+    )
+    assert tailored.status_code == 200
+    assert tailored.json()["pdf_available"] is True
+    assert tailored.json()["content"]["skills"] == ["Python"]
+
+    download = await client.get(f"/api/resume/tailor/{job.id}", headers=headers)
+    assert download.status_code == 200
+    assert download.headers["content-type"].startswith("application/pdf")
+    assert download.content == b"%PDF-synthetic"
+    assert f"resume_{str(job.id)[:8]}.pdf" in download.headers["content-disposition"]

@@ -8,9 +8,14 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.config import settings
-from api.database import _build_engine, get_db, initialize_database
+from api.database import (
+    DESKTOP_SCHEMA_VERSION,
+    _build_engine,
+    get_db,
+    initialize_database,
+)
 from api.main import app
-from api.models import Embedding, Profile, Run, User
+from api.models import Application, Embedding, JobFeedback, JobRaw, Profile, Run, User
 from api.routes import desktop
 from batch.embedding_cache import PgEmbeddingCache
 from batch.worker import _claim_next_run
@@ -262,3 +267,125 @@ async def test_desktop_schema_migration_creates_backup(desktop_runtime):
     backups = list((database_path.parent / "backups").glob("signalrank-v0-*.db"))
     assert len(backups) == 1
     assert backups[0].stat().st_size > 0
+
+
+async def test_desktop_schema_migration_preserves_profile_and_resume_state(
+    desktop_runtime,
+):
+    _, engine, session_factory, database_path = desktop_runtime
+    async with session_factory() as db:
+        user = User(email="migration@desktop.local", provider="desktop")
+        db.add(user)
+        await db.flush()
+        db.add(
+            Profile(
+                user_id=user.id,
+                resume_text="Synthetic migration fixture.",
+                target_roles=["Platform Engineer"],
+                onboarding_complete=True,
+            )
+        )
+        await db.commit()
+
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE desktop_schema_version SET version=0 WHERE id=1")
+        )
+
+    await initialize_database(engine)
+
+    async with session_factory() as db:
+        profile = (
+            await db.execute(
+                select(Profile)
+                .join(User)
+                .where(User.email == "migration@desktop.local")
+            )
+        ).scalar_one()
+    assert profile.resume_text == "Synthetic migration fixture."
+    assert profile.target_roles == ["Platform Engineer"]
+    assert profile.onboarding_complete is True
+    assert database_path.exists()
+
+
+async def test_desktop_schema_migration_preserves_jobs_feedback_and_applications(
+    desktop_runtime,
+):
+    _, engine, session_factory, _ = desktop_runtime
+    async with session_factory() as db:
+        user = User(email="upgrade-state@desktop.local", provider="desktop")
+        db.add(user)
+        await db.flush()
+        job = JobRaw(
+            job_url="https://jobs.example.test/upgrade-state",
+            title="Platform Engineer",
+            company="Synthetic Labs",
+            description="Maintain platform services.",
+            site="fixture",
+        )
+        db.add(job)
+        await db.flush()
+        db.add(
+            Profile(
+                user_id=user.id,
+                resume_text="Synthetic upgrade fixture.",
+                target_roles=["Platform Engineer"],
+                onboarding_complete=True,
+            )
+        )
+        db.add(Run(user_id=user.id, status="succeeded", stage="complete"))
+        db.add(JobFeedback(user_id=user.id, job_id=job.id, value="good"))
+        db.add(
+            Application(
+                user_id=user.id,
+                job_id=job.id,
+                company=job.company,
+                title=job.title,
+                status="interview",
+                notes="Preserve this note.",
+            )
+        )
+        await db.commit()
+
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE desktop_schema_version SET version=0 WHERE id=1")
+        )
+
+    await initialize_database(engine)
+
+    async with session_factory() as db:
+        preserved_job = (
+            await db.execute(
+                select(JobRaw).where(
+                    JobRaw.job_url == "https://jobs.example.test/upgrade-state"
+                )
+            )
+        ).scalar_one()
+        feedback = (
+            await db.execute(
+                select(JobFeedback).where(JobFeedback.job_id == preserved_job.id)
+            )
+        ).scalar_one()
+        application = (
+            await db.execute(
+                select(Application).where(Application.job_id == preserved_job.id)
+            )
+        ).scalar_one()
+
+    assert preserved_job.title == "Platform Engineer"
+    assert feedback.value == "good"
+    assert application.status == "interview"
+    assert application.notes == "Preserve this note."
+
+
+async def test_desktop_schema_newer_than_binary_is_rejected(desktop_runtime):
+    _, engine, _, _ = desktop_runtime
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE desktop_schema_version SET version=:version WHERE id=1"),
+            {"version": DESKTOP_SCHEMA_VERSION + 1},
+        )
+
+    with pytest.raises(RuntimeError, match="newer SignalRank version"):
+        await initialize_database(engine)

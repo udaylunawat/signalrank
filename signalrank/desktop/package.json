@@ -13,7 +13,8 @@
     "stage:sidecars": "node scripts/stage-sidecars.mjs",
     "check": "node scripts/check.mjs",
     "smoke:sidecars": "node scripts/smoke-sidecars.mjs",
-    "smoke:packaged": "node scripts/smoke-packaged.mjs"
+    "smoke:packaged": "node scripts/smoke-packaged.mjs",
+    "smoke:packaged-ui": "node scripts/smoke-packaged-ui.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.1"

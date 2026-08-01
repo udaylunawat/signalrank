@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -167,6 +168,28 @@ fn startup_error(window: &tauri::WebviewWindow, message: &str) {
     ));
 }
 
+fn native_ui_smoke_script() -> &'static str {
+    r#"(() => {
+        const heading = Array.from(document.querySelectorAll('h1')).some((node) =>
+            node.textContent?.includes('Rank jobs on this computer.')
+        );
+        const input = document.querySelector('#openrouter-key');
+        const button = Array.from(document.querySelectorAll('button')).find((node) =>
+            node.textContent?.includes('Validate and save')
+        );
+        if (input instanceof HTMLInputElement) {
+            input.focus();
+            input.value = 'native-ui-smoke';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        return JSON.stringify({
+            pass: heading && input instanceof HTMLInputElement && !!button &&
+                document.activeElement === input && input.value === 'native-ui-smoke',
+            path: window.location.pathname,
+        });
+    })()"#
+}
+
 fn sanitized_filename(filename: &str) -> String {
     let basename = Path::new(filename)
         .file_name()
@@ -195,16 +218,21 @@ fn sanitized_filename(filename: &str) -> String {
 
 #[tauri::command]
 fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    let parsed = Url::parse(&url).map_err(|_| "The link is not a valid URL".to_string())?;
+    let parsed = validate_external_url(&url)?;
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+fn validate_external_url(url: &str) -> Result<Url, String> {
+    let parsed = Url::parse(url).map_err(|_| "The link is not a valid URL".to_string())?;
     if parsed.scheme() != "https" || parsed.host_str().is_none() {
         return Err("Only absolute HTTPS links can be opened".to_string());
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err("Links containing credentials are not allowed".to_string());
     }
-    app.opener()
-        .open_url(parsed.as_str(), None::<&str>)
-        .map_err(|error| error.to_string())
+    Ok(parsed)
 }
 
 #[tauri::command]
@@ -408,6 +436,32 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![open_external, save_download])
         .setup(setup_packaged_sidecars)
+        .on_page_load(|webview, payload| {
+            if env::var_os("SIGNALRANK_NATIVE_UI_SMOKE").is_none()
+                || payload.event() != PageLoadEvent::Finished
+                || payload.url().host_str() != Some("127.0.0.1")
+            {
+                return;
+            }
+
+            let webview = webview.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(1500));
+                let app_handle = webview.app_handle().clone();
+                let callback_handle = app_handle.clone();
+                if let Err(error) =
+                    webview.eval_with_callback(native_ui_smoke_script(), move |result| {
+                        let passed = result.contains("\\\"pass\\\":true")
+                            || result.contains("\"pass\":true");
+                        println!("[native-ui] smoke-result pass={passed} result={result}");
+                        callback_handle.exit(if passed { 0 } else { 1 });
+                    })
+                {
+                    eprintln!("[native-ui] smoke-eval failed: {error}");
+                    app_handle.exit(1);
+                }
+            });
+        })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 stop_sidecars(window.app_handle());
@@ -424,4 +478,34 @@ fn main() {
             stop_sidecars(handle);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sanitized_filename, validate_external_url};
+
+    #[test]
+    fn sanitized_filename_removes_paths_and_unsafe_characters() {
+        assert_eq!(sanitized_filename("../../roles:2026.csv"), "roles_2026.csv");
+        assert_eq!(sanitized_filename("..."), "signalrank-export.csv");
+    }
+
+    #[test]
+    fn external_url_policy_accepts_https_without_credentials() {
+        let parsed = validate_external_url("https://jobs.example.test/role").unwrap();
+        assert_eq!(parsed.scheme(), "https");
+    }
+
+    #[test]
+    fn external_url_policy_rejects_non_https_and_credentials() {
+        for value in [
+            "http://jobs.example.test/role",
+            "file:///tmp/role.csv",
+            "javascript:alert(1)",
+            "/relative/path",
+            "https://user:password@jobs.example.test/role",
+        ] {
+            assert!(validate_external_url(value).is_err(), "accepted {value}");
+        }
+    }
 }

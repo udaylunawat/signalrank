@@ -68,6 +68,13 @@ jobs:
         working-directory: signalrank/desktop
         run: npm ci
 
+      - name: Desktop upgrade and recovery contracts
+        working-directory: signalrank/backend
+        env:
+          SIGNALRANK_MODE: desktop
+          SIGNALRANK_APP_DATA_DIR: ${{ runner.temp }}/signalrank-upgrade-test
+        run: uv run pytest tests/test_desktop_mode.py -q
+
       - name: Build backend sidecar
         working-directory: signalrank/desktop
         run: npm run build:backend
@@ -122,6 +129,16 @@ jobs:
             xvfb-run -a npm run smoke:packaged
           else
             npm run smoke:packaged
+          fi
+
+      - name: Packaged WebView UI smoke test
+        working-directory: signalrank/desktop
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            xvfb-run -a npm run smoke:packaged-ui
+          else
+            npm run smoke:packaged-ui
           fi
 
       - name: Upload workflow artifacts

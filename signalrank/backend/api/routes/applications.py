@@ -117,6 +117,17 @@ async def update_application(
     app = result.scalar_one_or_none()
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
+    parsed_applied_at = None
+    if "applied_at" in body.model_fields_set and body.applied_at is not None:
+        try:
+            parsed_applied_at = datetime.fromisoformat(
+                body.applied_at.replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid applied_at") from exc
+        if parsed_applied_at.tzinfo is None:
+            parsed_applied_at = parsed_applied_at.replace(tzinfo=timezone.utc)
+        parsed_applied_at = parsed_applied_at.astimezone(timezone.utc)
     if body.status:
         if body.status not in VALID_STATUSES:
             raise HTTPException(
@@ -125,6 +136,8 @@ async def update_application(
         app.status = body.status
         if body.status == "applied" and not app.applied_at:
             app.applied_at = datetime.now(timezone.utc)
+    if "applied_at" in body.model_fields_set:
+        app.applied_at = parsed_applied_at
     if body.notes is not None:
         app.notes = body.notes
     await db.commit()
