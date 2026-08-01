@@ -1,0 +1,99 @@
+name: SignalRank deterministic tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-contract:
+    name: Backend contract and ranking lane
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: signalrank_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d signalrank_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install backend dependencies
+        working-directory: signalrank/backend
+        run: uv sync --dev
+      - name: Validate migrations
+        working-directory: signalrank/backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/signalrank_test
+          NEXTAUTH_SECRET: e2e-contract-secret
+        run: |
+          uv run alembic upgrade head
+          uv run alembic current
+      - name: Run backend contract, worker, parser, and ranking tests
+        working-directory: signalrank/backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/signalrank_test
+          NEXTAUTH_SECRET: e2e-contract-secret
+          OPENROUTER_API_KEY: e2e-fixture-key
+        run: uv run pytest -q
+
+  frontend-browser:
+    name: SaaS and desktop-web Chromium
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signalrank/frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: signalrank/frontend
+        run: npm ci
+      - name: Install Chromium
+        working-directory: signalrank/frontend
+        run: npx playwright install --with-deps chromium
+      - name: Lint frontend
+        working-directory: signalrank/frontend
+        run: npm run lint
+      - name: Build frontend
+        working-directory: signalrank/frontend
+        run: npm run build
+      - name: Run SaaS Chromium journey
+        working-directory: signalrank/frontend
+        run: npm run test:e2e:saas
+      - name: Run desktop-configured browser journey
+        working-directory: signalrank/frontend
+        run: npm run test:e2e:desktop-web
+      - name: Run responsive browser journey
+        working-directory: signalrank/frontend
+        run: npm run test:e2e:responsive
+      - name: Scan E2E artifacts for sensitive content
+        working-directory: signalrank/frontend
+        run: npm run test:e2e:scan
+      - name: Upload E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signalrank-e2e-evidence
+          if-no-files-found: ignore
+          path: |
+            signalrank/frontend/test-results
+            signalrank/frontend/playwright-report
+            signalrank/artifacts/e2e

@@ -13,8 +13,8 @@ async function tauriInvoke<T>(command: string, args: Record<string, unknown>) {
 
 export async function openExternal(url: string) {
   const parsed = new URL(url);
-  if (parsed.protocol !== "https:") {
-    throw new Error("Only secure job links can be opened");
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+    throw new Error("Only absolute HTTPS job links without credentials can be opened");
   }
   if (isDesktopMode()) {
     const result = await tauriInvoke<void>("open_external", { url: parsed.href });

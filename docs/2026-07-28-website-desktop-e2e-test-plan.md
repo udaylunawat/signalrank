@@ -2,7 +2,9 @@
 
 ## Status
 
-Validated planning document based on the active checkout on 2026-07-28.
+Validated planning document with the deterministic harness implemented in the
+active checkout on 2026-08-01. Packaged WebView, upgrade, cross-OS, and live
+provider cases remain release-lane work.
 
 This document defines how to test the SignalRank website and packaged desktop
 application end to end and how to record observations. Creating this plan does
@@ -41,17 +43,22 @@ builds, and service health checks support E2E testing but do not replace it.
 ### Website
 
 - The frontend has lint, development, and production-build commands.
-- There is no Playwright or Cypress configuration, browser test suite,
-  component test harness, accessibility runner, or visual snapshot workflow.
-- There is no website CI workflow.
+- Playwright projects now cover SaaS Chromium, desktop-configured Chromium,
+  mobile, and tablet viewports. The suite records stable case IDs and writes a
+  sanitized observation log under `artifacts/e2e/<timestamp>-<commit>/`.
+- The deterministic fixture backend covers auth, onboarding, runs, jobs,
+  feedback, applications, desktop setup, and API-only resume tailoring without
+  adding a production test endpoint.
+- `.github/workflows/e2e.yml` runs migrations, the PostgreSQL backend contract
+  lane, frontend lint/build, SaaS and desktop-web journeys, responsive checks,
+  and the artifact scanner.
 - The backend has broad pytest coverage for authentication, onboarding, jobs,
   runs, feedback, applications, discovery, ranking, and workers.
 - Backend tests use real PostgreSQL and ASGI HTTP boundaries.
-- The active local PostgreSQL database must be migrated before testing. It was
-  observed to be missing the newer `job_feedback` table.
-- Effective provider configuration must be checked before live testing. An
-  exported `OPENROUTER_API_KEY` was observed overriding the valid key in
-  `backend/.env`.
+- The backend contract lane requires an isolated PostgreSQL instance and runs
+  migrations before pytest; the local checkout currently has no reachable
+  PostgreSQL service, so that lane must be run with the CI service or a local
+  database.
 
 ### Desktop
 
@@ -62,8 +69,15 @@ builds, and service health checks support E2E testing but do not replace it.
   healthy and then stop.
 - `npm run smoke:packaged` proves that the packaged app launches its services,
   avoids Auth.js startup errors, exits, and leaves no sidecar processes.
-- Release CI runs the packaged lifecycle smoke on macOS, Windows, and Linux.
+- `.github/workflows/desktop-release.yml` builds release artifacts and runs
+  packaged lifecycle smoke on macOS, Windows, and Linux.
 - Neither smoke script interacts with the actual UI.
+- `frontend/tests/e2e/desktop-web.spec.ts` now exercises the local session,
+  provider setup, invalid-key recovery, resume upload, onboarding, and first
+  ranked dashboard in a browser against a deterministic local backend.
+- `desktop/src-tauri` now has unit coverage for secure external-link policy and
+  sanitized CSV filenames. Packaged native UI, dialogs, OS keyring behavior,
+  and upgrade recovery remain release-blocking gaps.
 - The packaged smoke does not currently verify resume upload, extraction,
   ranking, Matches, Tracker, credential persistence, native links, native CSV
   save, or data preservation across upgrades.
@@ -175,17 +189,41 @@ desktop: npm run check
 desktop: npm run smoke:sidecars
 ```
 
-Add the following missing harness:
+Implemented harness:
 
-- Playwright configuration under `signalrank/frontend`;
-- separate SaaS and desktop-configured projects;
-- deterministic seed/reset utilities;
-- authenticated storage-state fixtures only for tests that do not exercise
-  login;
-- axe accessibility checks;
-- deterministic screenshot fixtures;
-- trace, screenshot, video, and network-failure capture on test failure;
-- CI commands such as `test:e2e:saas` and `test:e2e:desktop-web`.
+- `frontend/playwright.config.ts` defines SaaS, desktop-web, mobile, and tablet
+  projects with retain-on-failure traces, screenshots, and videos.
+- `frontend/tests/e2e/support/fixture-backend.mjs` provides deterministic
+  provider/job responses and a reset hook for test isolation.
+- `frontend/tests/e2e/support/observation-reporter.mjs` records every stable
+  case ID with surface, viewport, fixture, result, evidence, severity, owner,
+  and retest status; it also emits the complete requested stable-ID catalog so
+  unregistered release cases are explicitly marked `Blocked`.
+- `frontend/tests/e2e/support/case-catalog.mjs` defines the stable AUTH through
+  SEC ranges from this plan.
+- `frontend/tests/e2e/support/scan-artifacts.mjs` rejects credentials,
+  authorization headers, fixture account data, and resume hashes in evidence.
+- `frontend/tests/e2e/` covers the critical SaaS, desktop-web, accessibility,
+  account-isolation, file-validation, discovery, matches, tracker, and settings
+  journeys. Resume tailoring is API-only and covered by backend contract tests.
+
+Run from `signalrank/frontend`:
+
+```text
+npm run lint
+npm run build
+npm run test:e2e:saas
+npm run test:e2e:desktop-web
+npm run test:e2e:responsive
+npm run test:e2e:scan
+```
+
+The live lane is opt-in and must run separately from CI. From
+`signalrank/backend`, provide a dedicated test key through the environment and
+run `uv run python scripts/live_release_probe.py`; the probe emits only case
+status, model, finish reason, HTTP status, and latency. Real-source discovery
+probes should use the same isolated app-data/account boundary and bounded query
+budgets before a release is approved.
 
 ## Phase 2: website E2E journey
 

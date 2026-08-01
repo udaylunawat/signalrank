@@ -50,20 +50,18 @@ async function proxy(
     const incomingUrl = new URL(request.url);
     const target = `${backendOrigin()}/${targetPath}${incomingUrl.search}`;
     const method = request.method.toUpperCase();
-    const body =
-      method === "GET" || method === "HEAD"
-        ? undefined
-        : await request.arrayBuffer();
+    const body = method === "GET" || method === "HEAD" ? undefined : request.body;
     const upstream = await fetch(target, {
       method,
       headers: forwardHeaders(request),
       body,
+      duplex: body ? "half" : undefined,
       redirect: "manual",
       cache: "no-store",
     });
     const headers = new Headers(upstream.headers);
     for (const header of HOP_BY_HOP_HEADERS) headers.delete(header);
-    return new Response(await upstream.arrayBuffer(), {
+    return new Response([204, 304].includes(upstream.status) ? undefined : upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers,

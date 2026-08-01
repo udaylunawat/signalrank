@@ -7,8 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:e2e:saas": "playwright test --project=saas-chromium",
-    "test:e2e:desktop-web": "playwright test --project=desktop-web-chromium"
+    "test:e2e:saas": "node tests/e2e/support/run-playwright.mjs saas --project=saas-chromium",
+    "test:e2e:responsive": "node tests/e2e/support/run-playwright.mjs saas --project=saas-mobile --project=saas-tablet",
+    "test:e2e:cross-browser": "node tests/e2e/support/run-playwright.mjs cross-browser --project=saas-firefox --project=saas-webkit",
+    "test:e2e:firefox": "node tests/e2e/support/run-playwright.mjs cross-browser --project=saas-firefox",
+    "test:e2e:webkit": "node tests/e2e/support/run-playwright.mjs cross-browser --project=saas-webkit",
+    "test:e2e:desktop-web": "node tests/e2e/support/run-playwright.mjs desktop --project=desktop-web-chromium",
+    "test:e2e": "node tests/e2e/support/run-playwright.mjs saas --project=saas-chromium",
+    "test:e2e:scan": "node tests/e2e/support/scan-artifacts.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

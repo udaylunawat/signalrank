@@ -1,0 +1,6 @@
+Synthetic Candidate
+
+Product Engineer with five years of experience building local-first software.
+Skills: TypeScript, React, Python, FastAPI, PostgreSQL, SQL, testing.
+Experience: shipped product workflows, APIs, background jobs, and accessible interfaces.
+Location: Remote.
