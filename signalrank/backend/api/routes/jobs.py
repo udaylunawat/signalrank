@@ -4,9 +4,11 @@ from io import StringIO
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from api.database import get_db
 from api.deps import get_current_user
@@ -92,6 +94,12 @@ def _safe_csv_value(value: Any) -> Any:
     return value
 
 
+def _csv_line(values: Any, *, bom: bool = False) -> str:
+    output = StringIO(newline="")
+    csv.writer(output).writerow(_safe_csv_value(value) for value in values)
+    return ("\ufeff" if bom else "") + output.getvalue()
+
+
 @router.get("")
 async def list_jobs(
     page: int = Query(1, ge=1),
@@ -172,6 +180,31 @@ async def list_jobs(
     results = await db.execute(
         select(JobResult, JobRaw)
         .join(JobRaw, JobResult.job_id == JobRaw.id)
+        .options(
+            load_only(
+                JobResult.final_score,
+                JobResult.semantic_score,
+                JobResult.skills_score,
+                JobResult.company_score,
+                JobResult.seniority_score,
+                JobResult.location_score,
+                JobResult.recency_score,
+                JobResult.company_tier,
+                JobResult.company_reputation_confidence,
+                JobResult.company_reputation_rationale,
+                JobResult.explanation,
+                JobResult.is_contract,
+            ),
+            load_only(
+                JobRaw.id,
+                JobRaw.job_url,
+                JobRaw.title,
+                JobRaw.company,
+                JobRaw.location,
+                JobRaw.site,
+                JobRaw.date_posted,
+            ),
+        )
         .where(*filters)
         .order_by(*ordering)
         .offset((page - 1) * limit)
@@ -190,8 +223,7 @@ async def list_jobs(
     }
 
     jobs = [
-        _job_payload(result, job, feedback_by_job.get(job.id))
-        for result, job in rows
+        _job_payload(result, job, feedback_by_job.get(job.id)) for result, job in rows
     ]
 
     return {
@@ -212,12 +244,13 @@ async def export_jobs_csv(
     db: AsyncSession = Depends(get_db),
 ):
     run = await _latest_completed_run(db, current_user.id)
-    output = StringIO(newline="")
-    writer = csv.writer(output)
-    writer.writerow(CSV_COLUMNS)
 
-    if run:
-        results = await db.execute(
+    async def rows():
+        yield _csv_line(CSV_COLUMNS, bom=True)
+        if not run:
+            return
+
+        results = await db.stream(
             select(JobResult, JobRaw)
             .join(JobRaw, JobResult.job_id == JobRaw.id)
             .where(
@@ -228,12 +261,12 @@ async def export_jobs_csv(
                 JobResult.final_score.desc().nullslast(),
                 JobRaw.date_posted.desc().nullslast(),
             )
+            .execution_options(yield_per=100)
         )
         completed_at = run.finished_at.isoformat() if run.finished_at else ""
-        for result, job in results.all():
-            writer.writerow(
-                _safe_csv_value(value)
-                for value in (
+        async for result, job in results:
+            yield _csv_line(
+                (
                     run.id,
                     completed_at,
                     job.id,
@@ -270,8 +303,8 @@ async def export_jobs_csv(
         if run and run.finished_at
         else "no-completed-run"
     )
-    return Response(
-        content=f"\ufeff{output.getvalue()}",
+    return StreamingResponse(
+        rows(),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": (

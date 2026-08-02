@@ -13,7 +13,7 @@ from sqlalchemy.orm import DeclarativeBase
 from api.config import is_desktop_mode, settings
 
 logger = logging.getLogger(__name__)
-DESKTOP_SCHEMA_VERSION = 3
+DESKTOP_SCHEMA_VERSION = 4
 desktop_writer_lock = asyncio.Lock()
 
 
@@ -105,22 +105,45 @@ async def initialize_database(bind=None) -> None:
         if backup:
             logger.info("Created desktop database migration backup at %s", backup)
 
-    async with desktop_writer_lock:
-        async with target.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
-            await connection.execute(
-                text(
-                    "CREATE TABLE IF NOT EXISTS desktop_schema_version "
-                    "(id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)"
-                )
+    async with desktop_writer_lock, target.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+        await connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_jobs_raw_active_last_seen "
+                "ON jobs_raw (active, last_seen)"
             )
-            await connection.execute(
-                text(
-                    "INSERT INTO desktop_schema_version (id, version) VALUES (1, :version) "
-                    "ON CONFLICT(id) DO UPDATE SET version=excluded.version"
-                ),
-                {"version": DESKTOP_SCHEMA_VERSION},
+        )
+        await connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_runs_user_status_finished_at "
+                "ON runs (user_id, status, finished_at)"
             )
+        )
+        await connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_job_results_run_user_score "
+                "ON job_results (run_id, user_id, final_score)"
+            )
+        )
+        await connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_job_results_run_user_job "
+                "ON job_results (run_id, user_id, job_id)"
+            )
+        )
+        await connection.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS desktop_schema_version "
+                "(id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)"
+            )
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO desktop_schema_version (id, version) VALUES (1, :version) "
+                "ON CONFLICT(id) DO UPDATE SET version=excluded.version"
+            ),
+            {"version": DESKTOP_SCHEMA_VERSION},
+        )
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

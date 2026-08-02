@@ -5,17 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.models import (
-    CompanyReputation as CompanyReputationModel,
-    JobEnrichment,
-    JobFeedback,
-    JobRaw,
-)
-from batch.context import build_context
-from batch.embedding_cache import PgEmbeddingCache
+from api.models import CompanyReputation as CompanyReputationModel
+from api.models import JobEnrichment, JobFeedback, JobRaw
 from domain.additive_scoring import (
     apply_company_semantic_floor,
     apply_hidden_gem_bonus,
@@ -43,6 +34,11 @@ from domain.scoring import (
 from domain.skill_boost import bounded_skill_boost
 from domain.skills import SkillCanonicalizer
 from llm.company_reputation import canonicalize_company_name
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from batch.context import build_context
+from batch.embedding_cache import PgEmbeddingCache
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +65,10 @@ def _split_preference_values(values: object) -> list[str]:
             continue
         for item in re.split(r"[,;\n]+", value):
             cleaned = re.sub(
-                r"\s+(?:roles?|jobs?|companies|firms)$", "", item.strip(), flags=re.I
+                r"\s+(?:roles?|jobs?|companies|firms)$",
+                "",
+                item.strip(),
+                flags=re.IGNORECASE,
             )
             if cleaned:
                 result.append(cleaned)
@@ -153,14 +152,41 @@ def _preference_location_weight(location: object, cfg: dict) -> float:
     return 1.0
 
 
-async def load_jobs_dataframe(db: AsyncSession) -> pd.DataFrame:
+async def load_jobs_dataframe(
+    db: AsyncSession,
+    *,
+    max_age_days: int | None = None,
+    description_max_chars: int | None = None,
+) -> pd.DataFrame:
+    filters = [JobRaw.active.is_(True)]
+    if max_age_days:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        filters.append(
+            or_(
+                JobRaw.date_posted >= cutoff,
+                and_(
+                    JobRaw.date_posted.is_(None),
+                    or_(
+                        JobRaw.last_seen.is_(None),
+                        JobRaw.last_seen >= cutoff,
+                    ),
+                ),
+            )
+        )
+
+    description = JobRaw.description
+    if description_max_chars:
+        description = func.substr(JobRaw.description, 1, description_max_chars).label(
+            "description"
+        )
+
     result = await db.execute(
         select(
             JobRaw.id,
             JobRaw.job_url,
             JobRaw.title,
             JobRaw.company,
-            JobRaw.description,
+            description,
             JobRaw.location,
             JobRaw.site,
             JobRaw.date_posted,
@@ -175,7 +201,7 @@ async def load_jobs_dataframe(db: AsyncSession) -> pd.DataFrame:
             JobEnrichment.assessment_status.label("enrichment_status"),
         )
         .outerjoin(JobEnrichment, JobEnrichment.job_id == JobRaw.id)
-        .where(JobRaw.active.is_(True))
+        .where(*filters)
     )
     rows = result.all()
     if not rows:
@@ -245,7 +271,7 @@ async def load_jobs_dataframe(db: AsyncSession) -> pd.DataFrame:
 
 
 def _apply_pre_filters(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    out = df.copy()
+    out = df
     max_age_days = cfg.get("ranking", {}).get("max_job_age_days", 30)
     if max_age_days and "date_posted" in out and "last_seen" in out:
         posted = pd.to_datetime(out["date_posted"], utc=True, errors="coerce")
@@ -293,7 +319,9 @@ def _apply_pre_filters(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         out = out.loc[tier_match | preferred_match].copy()
     blocklist = _split_preference_values(cfg.get("title_blocklist", []))
     if blocklist:
-        rx = re.compile(r"\b(?:%s)\b" % "|".join(map(re.escape, blocklist)), re.I)
+        rx = re.compile(
+            r"\b(?:%s)\b" % "|".join(map(re.escape, blocklist)), re.IGNORECASE
+        )
         out = out.loc[~out["title"].fillna("").astype(str).str.contains(rx)].copy()
     excluded_companies = _split_preference_values(
         company_preferences.get("excluded_companies", [])
@@ -309,7 +337,7 @@ def _apply_pre_filters(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
 def _apply_target_role_filter(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     """Annotate role fit without dropping adjacent or semantically strong jobs."""
-    out = df.copy()
+    out = df
     roles = cfg.get("profile_intent", {}).get("roles", [])
     if not roles:
         out["target_role_score"] = 1.0
@@ -407,7 +435,7 @@ def _apply_target_role_filter(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
 
 def _apply_semantic_gates(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    out = df.copy()
+    out = df
     ranking = cfg.get("ranking", {})
     min_sem = ranking.get("min_semantic_score", 0.20)
     rescue_sem = ranking.get("broader_match_semantic_score", 0.18)
@@ -422,7 +450,6 @@ def _apply_semantic_gates(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
 
 def _apply_additive_scoring(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    df = df.copy()
     df["skills_score"] = df.apply(
         lambda r: skills_score_0_100(
             r["semantic_score"],
@@ -497,7 +524,7 @@ def _apply_additive_scoring(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 def _apply_role_lane_cap(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     if "match_lane" not in df or "final_score" not in df:
         return df
-    out = df.copy()
+    out = df
     cap = float(cfg.get("ranking", {}).get("broader_match_score_cap", 64))
     broader = out["match_lane"] == "broader"
     out.loc[broader, "final_score"] = out.loc[broader, "final_score"].clip(upper=cap)
@@ -507,7 +534,7 @@ def _apply_role_lane_cap(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 def _apply_listing_quality(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     """Use a high-confidence job-content contradiction as a conservative gate."""
 
-    out = df.copy()
+    out = df
     quality = cfg.get("ranking", {}).get("listing_quality", {})
     contradictory_threshold = float(
         quality.get("contradictory_confidence_threshold", 0.75)
@@ -544,7 +571,7 @@ def _apply_listing_quality(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 def _order_match_lanes(df: pd.DataFrame) -> pd.DataFrame:
     if "match_lane" not in df or "final_score" not in df:
         return df
-    out = df.copy()
+    out = df
     out["_match_lane_priority"] = np.where(out["match_lane"] == "primary", 0, 1)
     return out.sort_values(
         ["_match_lane_priority", "final_score"],
@@ -650,7 +677,7 @@ _SENIORITY_SUFFIXES = re.compile(
     r"\s*[-\u2013\u2014]\s*(?:vice president|assistant vice president|"
     r"senior vice president|vp|avp|svp|associate|"
     r"senior associate|principal associate)\s*$",
-    re.I,
+    re.IGNORECASE,
 )
 
 
@@ -724,36 +751,7 @@ async def _compute_embeddings(
     df["required_skill_overlap"] = df["required_skills"].apply(len)
     df["preferred_skill_overlap"] = df["preferred_skills"].apply(len)
 
-    job_texts = [
-        build_job_embedding_text(
-            title=r["title"],
-            description=r["description"],
-            canonical_skills=r["canonical_skills"],
-            cfg=cfg,
-        )
-        for _, r in df.iterrows()
-    ]
-    job_fps = [fingerprint_text(t) for t in job_texts]
-    cached = await cache.fetch(job_fps)
-
     dim = cfg["embeddings"]["embedding_dim"]
-    vectors = np.zeros((len(job_fps), dim), dtype="float32")
-    misses = []
-    for i, fp in enumerate(job_fps):
-        if fp in cached:
-            vectors[i] = np.array(cached[fp], dtype="float32")
-        else:
-            misses.append(i)
-
-    if misses:
-        engine = EmbeddingEngine(cfg)
-        new_vecs = engine.embed([job_texts[i] for i in misses])
-        await cache.store_vectors(
-            [(job_fps[i], v.tolist()) for i, v in zip(misses, new_vecs)]
-        )
-        for i, v in zip(misses, new_vecs):
-            vectors[i] = v
-
     resume_emb_text = build_resume_embedding_text(
         resume_text=resume_text,
         distilled=distilled_text,
@@ -761,14 +759,58 @@ async def _compute_embeddings(
     resume_fp = fingerprint_text(resume_emb_text)
     resume_cached = await cache.fetch([resume_fp])
 
+    engine = None
+
+    def get_engine() -> EmbeddingEngine:
+        nonlocal engine
+        if engine is None:
+            engine = EmbeddingEngine(cfg)
+        return engine
+
     if resume_fp in resume_cached:
         r_emb = np.array(resume_cached[resume_fp], dtype="float32")
     else:
-        engine = EmbeddingEngine(cfg)
-        r_emb = engine.embed([resume_emb_text])[0]
+        r_emb = get_engine().embed([resume_emb_text])[0]
         await cache.store_vectors([(resume_fp, r_emb.tolist())])
 
-    df["semantic_score"] = cosine_similarity(r_emb, vectors)
+    batch_size = max(1, int(cfg["embeddings"].get("batch_size", 128)))
+    semantic_scores = np.empty(len(df), dtype="float32")
+    for start in range(0, len(df), batch_size):
+        batch = list(df.iloc[start : start + batch_size].itertuples(index=False))
+        job_texts = [
+            build_job_embedding_text(
+                title=row.title,
+                description=row.description,
+                canonical_skills=row.canonical_skills,
+                cfg=cfg,
+            )
+            for row in batch
+        ]
+        job_fps = [fingerprint_text(text) for text in job_texts]
+        cached = await cache.fetch(job_fps)
+        vectors = np.empty((len(batch), dim), dtype="float32")
+        misses: list[int] = []
+        for index, fp in enumerate(job_fps):
+            vector = cached.get(fp)
+            if vector is None:
+                misses.append(index)
+            else:
+                vectors[index] = np.asarray(vector, dtype="float32")
+
+        if misses:
+            new_vecs = get_engine().embed([job_texts[index] for index in misses])
+            await cache.store_vectors(
+                [
+                    (job_fps[index], vector.tolist())
+                    for index, vector in zip(misses, new_vecs)
+                ]
+            )
+            for index, vector in zip(misses, new_vecs):
+                vectors[index] = vector
+
+        semantic_scores[start : start + len(batch)] = cosine_similarity(r_emb, vectors)
+
+    df["semantic_score"] = semantic_scores
     return df
 
 
@@ -849,7 +891,7 @@ async def _apply_feedback_adjustments(
     if not feedback:
         df["feedback_value"] = None
         return df
-    out = df.copy()
+    out = df
     out["feedback_value"] = out["id"].map(feedback)
     ranking = cfg.get("ranking", {})
     positive_bonus = float(ranking.get("relevant_feedback_bonus", 5))
@@ -872,7 +914,16 @@ async def score_jobs_for_user(
     ctx = build_context(user_id, resume_text, config_overrides)
     cfg = ctx.config
 
-    df = await load_jobs_dataframe(db)
+    ranking_cfg = cfg.get("ranking", {})
+    embedding_cfg = cfg.get("embeddings", {}).get("text", {})
+    df = await load_jobs_dataframe(
+        db,
+        max_age_days=ranking_cfg.get("max_job_age_days"),
+        description_max_chars=ranking_cfg.get(
+            "description_max_chars",
+            embedding_cfg.get("max_chars", 12_000),
+        ),
+    )
     if df.empty:
         return pd.DataFrame(columns=["final_score"])
 

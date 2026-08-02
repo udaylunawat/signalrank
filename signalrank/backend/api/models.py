@@ -97,6 +97,8 @@ class JobRaw(Base):
         back_populates="job", uselist=False, cascade="all, delete-orphan"
     )
 
+    __table_args__ = (Index("ix_jobs_raw_active_last_seen", "active", "last_seen"),)
+
 
 class JobEnrichment(Base):
     """Candidate-independent, cached interpretation of a single job posting."""
@@ -174,6 +176,7 @@ class Run(Base):
             postgresql_where=text("status IN ('pending', 'running')"),
             sqlite_where=text("status IN ('pending', 'running')"),
         ),
+        Index("ix_runs_user_status_finished_at", "user_id", "status", "finished_at"),
     )
 
 
@@ -226,6 +229,11 @@ class JobResult(Base):
 
     run: Mapped["Run"] = relationship(back_populates="results")
     job: Mapped["JobRaw"] = relationship(back_populates="results")
+
+    __table_args__ = (
+        Index("ix_job_results_run_user_score", "run_id", "user_id", "final_score"),
+        Index("ix_job_results_run_user_job", "run_id", "user_id", "job_id"),
+    )
 
 
 class JobFeedback(Base):

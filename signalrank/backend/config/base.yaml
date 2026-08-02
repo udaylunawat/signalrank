@@ -4,15 +4,17 @@ embeddings:
   model_name: sentence-transformers/all-MiniLM-L6-v2
   embedding_dim: 384
   device: cpu
+  batch_size: 128
   text:
     normalize_embeddings: true
-    max_chars: 50000
+    max_chars: 12000
 
 ranking:
   min_semantic_score: 0.20
   broader_match_semantic_score: 0.18
   broader_match_score_cap: 64
   max_job_age_days: 30
+  description_max_chars: 12000
   company_semantic_floor: 0.65
   hidden_gem_semantic_threshold: 0.70
   hidden_gem_company_bonus: 60
