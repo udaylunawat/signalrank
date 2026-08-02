@@ -11,7 +11,7 @@ import {
   ThumbsDown,
   ThumbsUp,
 } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import type {
   Job,
   JobDetail,
@@ -67,7 +67,7 @@ function scoreRows(job: Job) {
   ].filter(([, score]) => score != null) as Array<[string, number]>;
 }
 
-export default function JobCard({
+function JobCard({
   job,
   compact = false,
   dense = false,
@@ -356,3 +356,5 @@ export default function JobCard({
     </article>
   );
 }
+
+export default memo(JobCard);

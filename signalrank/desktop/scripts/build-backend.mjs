@@ -15,6 +15,51 @@ const modelDir = resolve(
 );
 mkdirSync(resolve(desktopDir, "dist", "pyinstaller"), { recursive: true });
 
+function runUvPython(args) {
+  const result = spawnSync("uv", ["run", "python", ...args], {
+    cwd: backendDir,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  if (result.error) {
+    console.error(`Unable to run Python probe: ${result.error.message}`);
+    process.exit(1);
+  }
+  if (result.status !== 0) {
+    console.error(`Python probe exited with status ${result.status}`);
+    process.exit(result.status ?? 1);
+  }
+  return result.stdout.trim();
+}
+
+const tlsClientLibraryName = runUvPython([
+  "-c",
+  [
+    "import ctypes",
+    "from platform import machine",
+    "from sys import platform",
+    "machine_name = machine()",
+    "name = ('-arm64.dylib' if platform == 'darwin' and machine_name == 'arm64' else '-x86.dylib' if platform == 'darwin' else '-64.dll' if platform in ('win32', 'cygwin') and ctypes.sizeof(ctypes.c_voidp) == 8 else '-32.dll' if platform in ('win32', 'cygwin') else '-arm64.so' if machine_name == 'aarch64' else '-x86.so' if 'x86' in machine_name else '-amd64.so')",
+    "print('tls-client' + name)",
+  ].join("; "),
+]);
+
+if (!tlsClientLibraryName) {
+  console.error("Unable to determine the platform TLS client library");
+  process.exit(1);
+}
+
+const tlsClientLibrary = runUvPython([
+  "-c",
+  "import pathlib, tls_client; import sys; print(pathlib.Path(tls_client.__file__).parent / 'dependencies' / sys.argv[1])",
+  tlsClientLibraryName,
+]);
+
+if (!existsSync(tlsClientLibrary)) {
+  console.error(`Missing platform TLS client library: ${tlsClientLibrary}`);
+  process.exit(1);
+}
+
 if (!existsSync(resolve(modelDir, "config.json"))) {
   mkdirSync(modelDir, { recursive: true });
   const prepareModel = spawnSync(
@@ -60,24 +105,32 @@ const args = [
   resolve(desktopDir, "dist", "pyinstaller", "build"),
   "--distpath",
   resolve(desktopDir, "dist", "backend"),
-  "--collect-submodules",
-  "api",
-  "--collect-submodules",
-  "batch",
-  "--collect-submodules",
-  "domain",
-  "--collect-submodules",
-  "llm",
+  "--hidden-import",
+  "api.main",
   "--hidden-import",
   "aiosqlite",
   "--hidden-import",
   "keyring",
-  "--collect-submodules",
-  "passlib",
+  "--hidden-import",
+  "keyring.backends.macOS",
+  "--hidden-import",
+  "passlib.handlers.bcrypt",
+  "--hidden-import",
+  "tls_client",
+  "--hidden-import",
+  "uvicorn.logging",
+  "--hidden-import",
+  "uvicorn.loops.auto",
+  "--hidden-import",
+  "uvicorn.protocols.http.auto",
+  "--hidden-import",
+  "uvicorn.protocols.websockets.auto",
+  "--hidden-import",
+  "uvicorn.lifespan.on",
   "--collect-submodules",
   "keyring.backends",
-  "--collect-data",
-  "tls_client",
+  "--add-binary",
+  `${tlsClientLibrary}${delimiter}tls_client/dependencies`,
   "--add-data",
   `${resolve(backendDir, "config")}${delimiter}config`,
   "--add-data",

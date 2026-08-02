@@ -51,14 +51,15 @@ async function proxy(
     const target = `${backendOrigin()}/${targetPath}${incomingUrl.search}`;
     const method = request.method.toUpperCase();
     const body = method === "GET" || method === "HEAD" ? undefined : request.body;
-    const upstream = await fetch(target, {
+    const requestInit: RequestInit & { duplex?: "half" } = {
       method,
       headers: forwardHeaders(request),
       body,
       duplex: body ? "half" : undefined,
       redirect: "manual",
       cache: "no-store",
-    });
+    };
+    const upstream = await fetch(target, requestInit);
     const headers = new Headers(upstream.headers);
     for (const header of HOP_BY_HOP_HEADERS) headers.delete(header);
     return new Response([204, 304].includes(upstream.status) ? undefined : upstream.body, {

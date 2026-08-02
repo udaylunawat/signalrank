@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Download, Search, SlidersHorizontal, Sparkles } from "lucide-react";
@@ -65,9 +65,9 @@ function JobsPageContent() {
   const [detailErrors, setDetailErrors] = useState<Record<string, string>>({});
   const [hiddenJobIds, setHiddenJobIds] = useState<Set<string>>(new Set());
   const [hiddenJob, setHiddenJob] = useState<Job | null>(null);
-  const limit = 50;
+  const limit = 25;
 
-  function updateParams(updates: Record<string, string | number | undefined>, resetPage = true) {
+  const updateParams = useCallback((updates: Record<string, string | number | undefined>, resetPage = true) => {
     const next = new URLSearchParams(searchParams.toString());
     Object.entries(updates).forEach(([key, value]) => {
       if (value === undefined || value === "") next.delete(key);
@@ -76,7 +76,7 @@ function JobsPageContent() {
     if (resetPage && !("page" in updates)) next.delete("page");
     const nextQuery = next.toString();
     router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
-  }
+  }, [pathname, router, searchParams]);
 
   useEffect(() => {
     if (urlQuery !== query) setQuery(urlQuery);
@@ -118,6 +118,11 @@ function JobsPageContent() {
     let active = true;
     setLoading(true);
     setError("");
+    setExpandedJobId(null);
+    setDetails({});
+    setDetailErrors({});
+    setHiddenJobIds(new Set());
+    setHiddenJob(null);
     api.jobs
       .list(token, {
         page,
@@ -144,7 +149,7 @@ function JobsPageContent() {
 
   const sourceOptions = useMemo(() => Object.entries(sourceCounts).sort(([a], [b]) => a.localeCompare(b)), [sourceCounts]);
 
-  async function trackJob(job: Job) {
+  const trackJob = useCallback(async (job: Job) => {
     if (trackingId) return;
     setTrackingId(job.id);
     setError("");
@@ -161,9 +166,9 @@ function JobsPageContent() {
     } finally {
       setTrackingId(null);
     }
-  }
+  }, [token, trackingId]);
 
-  async function exportJobs() {
+  const exportJobs = useCallback(async () => {
     if (!token || exporting) return;
     setExporting(true);
     setError("");
@@ -175,13 +180,13 @@ function JobsPageContent() {
     } finally {
       setExporting(false);
     }
-  }
+  }, [exporting, token]);
 
-  async function submitFeedback(
+  const submitFeedback = useCallback(async (
     job: Job,
     value: JobFeedbackValue,
     reason?: JobFeedbackReason,
-  ) {
+  ) => {
     if (!token || feedbackId) return;
     setFeedbackId(job.id);
     setError("");
@@ -199,9 +204,9 @@ function JobsPageContent() {
     } finally {
       setFeedbackId(null);
     }
-  }
+  }, [feedbackId, token]);
 
-  async function undoHiddenJob() {
+  const undoHiddenJob = useCallback(async () => {
     if (!token || !hiddenJob || feedbackId) return;
     const job = hiddenJob;
     setFeedbackId(job.id);
@@ -222,9 +227,9 @@ function JobsPageContent() {
     } finally {
       setFeedbackId(null);
     }
-  }
+  }, [feedbackId, hiddenJob, token]);
 
-  async function toggleDetails(job: Job) {
+  const toggleDetails = useCallback(async (job: Job) => {
     if (expandedJobId === job.id) {
       setExpandedJobId(null);
       return;
@@ -235,16 +240,20 @@ function JobsPageContent() {
     setDetailErrors((current) => ({ ...current, [job.id]: "" }));
     try {
       const detail = await api.jobs.get(token, job.id);
-      setDetails((current) => ({ ...current, [job.id]: detail }));
+      setDetails((current) => {
+        const next = { ...current, [job.id]: detail };
+        const ids = Object.keys(next);
+        ids.slice(0, -3).forEach((id) => delete next[id]);
+        return next;
+      });
     } catch {
-      setDetailErrors((current) => ({
-        ...current,
+      setDetailErrors({
         [job.id]: "We couldn’t load this match explanation. Try again.",
-      }));
+      });
     } finally {
       setDetailLoadingId(null);
     }
-  }
+  }, [detailLoadingId, details, expandedJobId, token]);
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const visibleJobs = jobs.filter((job) => !hiddenJobIds.has(job.id));

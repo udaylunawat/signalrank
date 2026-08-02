@@ -46,6 +46,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: signalrank/desktop/src-tauri -> target
+          cache-on-failure: true
+
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true

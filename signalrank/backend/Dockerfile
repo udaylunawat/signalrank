@@ -10,7 +10,7 @@ RUN curl -fsSL https://github.com/typst/typst/releases/latest/download/typst-x86
 
 WORKDIR /app
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e ".[dev]" || pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e .
 
 COPY . .
 
