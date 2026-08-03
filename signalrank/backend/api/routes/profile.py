@@ -41,6 +41,22 @@ class ProfileUpdate(BaseModel):
         allowed_modes = {"all", "top_reputed", "selected_tiers"}
         if filter_mode not in allowed_modes:
             raise ValueError(f"Unknown company filter mode: {filter_mode}")
+        intent = value.get("profile_intent", {})
+        if not isinstance(intent, dict):
+            raise ValueError("profile_intent must be an object")
+        roles = intent.get("roles", [])
+        if not isinstance(roles, list) or any(
+            not isinstance(role, str) or not role.strip() for role in roles
+        ):
+            raise ValueError("profile_intent.roles must be a list of non-empty text")
+        aliases = intent.get("role_aliases", {})
+        if not isinstance(aliases, dict) or any(
+            not isinstance(role, str)
+            or not isinstance(values, list)
+            or any(not isinstance(alias, str) or not alias.strip() for alias in values)
+            for role, values in aliases.items()
+        ):
+            raise ValueError("profile_intent.role_aliases must map text to text lists")
         return value
 
 

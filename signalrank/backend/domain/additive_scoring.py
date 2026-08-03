@@ -18,10 +18,19 @@ def _clamp(value: float, lo: float = 0.0, hi: float = 100.0) -> float:
 def skills_score_0_100(
     semantic_score: float,
     skill_overlap: int,
+    required_skill_overlap: int = 0,
+    preferred_skill_overlap: int = 0,
 ) -> float:
     base = semantic_score * 100
-
-    base += min(skill_overlap * 2, 8)
+    mentioned_overlap = max(
+        0, skill_overlap - required_skill_overlap - preferred_skill_overlap
+    )
+    base += min(
+        mentioned_overlap * 2
+        + required_skill_overlap * 3
+        + preferred_skill_overlap * 1.5,
+        12,
+    )
     return _clamp(base)
 
 

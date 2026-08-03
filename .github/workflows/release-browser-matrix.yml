@@ -1,0 +1,43 @@
+name: SignalRank release browser matrix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-matrix:
+    name: SaaS ${{ matrix.browser }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signalrank/frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: signalrank/frontend
+        run: npm ci
+      - name: Install browser
+        working-directory: signalrank/frontend
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Run release browser lane
+        working-directory: signalrank/frontend
+        run: npm run test:e2e:${{ matrix.browser }}
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signalrank-${{ matrix.browser }}-e2e-evidence
+          if-no-files-found: ignore
+          path: |
+            signalrank/frontend/test-results
+            signalrank/frontend/playwright-report
+            signalrank/artifacts/e2e

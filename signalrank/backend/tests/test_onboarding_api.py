@@ -45,6 +45,8 @@ async def test_upload_resume_txt(client, auth_token, monkeypatch):
     data = r.json()
     assert "questions" in data
     assert len(data["questions"]) >= 3
+    assert data["extracted"]["experiences"] == []
+    assert data["extracted"]["field_confidence"] == {}
 
 
 async def test_refine_saves_answer(client, auth_token):
@@ -112,6 +114,66 @@ async def test_onboarding_status_restores_durable_draft(
     assert uploaded.status_code == 200
     assert status["draft"]["answers"]["target_roles"] == ["SDET"]
     assert status["parse_status"] == "degraded"
+
+
+async def test_retry_resume_parse_recovers_saved_resume_and_preserves_answers(
+    client, auth_token, monkeypatch
+):
+    import api.routes.onboarding as onboarding_route
+    from llm.resume_parser import ResumeParseResult
+
+    async def degraded_parse(text, llm_client):
+        return ResumeParseResult(
+            status="degraded",
+            confidence=0.0,
+            source="none",
+            error="Provider unavailable",
+        )
+
+    monkeypatch.setattr(onboarding_route, "parse_resume", degraded_parse)
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    uploaded = await client.post(
+        "/api/onboarding/resume",
+        files={
+            "file": (
+                "resume.txt",
+                b"Platform Engineer with Python experience",
+                "text/plain",
+            )
+        },
+        headers=headers,
+    )
+    await client.post(
+        "/api/onboarding/refine",
+        json={"question_id": "preferred_locations", "answer": ["Remote"]},
+        headers=headers,
+    )
+
+    async def successful_parse(text, llm_client):
+        return ResumeParseResult(
+            skills=["Python"],
+            recent_titles=["Platform Engineer"],
+            years_of_experience=4,
+            status="complete",
+            confidence=1.0,
+            source="llm",
+            model="test-model",
+        )
+
+    monkeypatch.setattr(onboarding_route, "parse_resume", successful_parse)
+    retried = await client.post(
+        "/api/onboarding/resume/retry",
+        headers=headers,
+    )
+    status = (await client.get("/api/onboarding/status", headers=headers)).json()
+
+    assert uploaded.status_code == 200
+    assert retried.status_code == 200
+    assert retried.json()["extracted"]["skills"] == ["Python"]
+    assert retried.json()["answers"]["preferred_locations"] == ["Remote"]
+    assert status["parse_status"] == "complete"
+    assert status["parse_error"] is None
+    assert status["draft"]["extracted"]["recent_titles"] == ["Platform Engineer"]
 
 
 async def test_resume_upload_rejects_files_over_10_mb(client, auth_token):

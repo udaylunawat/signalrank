@@ -130,6 +130,28 @@ async def test_client_returns_error_dict_on_500():
 
 
 @pytest.mark.asyncio
+async def test_client_retries_transient_network_errors():
+    client = OpenRouterClient(api_key="test-key")
+    with (
+        patch.object(
+            client._http,
+            "post",
+            AsyncMock(
+                side_effect=[
+                    httpx.ConnectError("temporary DNS failure"),
+                    _mock_success_response('{"result": "ok"}'),
+                ]
+            ),
+        ) as post,
+        patch("llm.openrouter.asyncio.sleep", AsyncMock()),
+    ):
+        result = await client.llm_json("test prompt")
+
+    assert result == {"result": "ok"}
+    assert post.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_client_text_returns_string():
     client = OpenRouterClient(api_key="test-key")
     mock_resp = _mock_success_response("Hello world")

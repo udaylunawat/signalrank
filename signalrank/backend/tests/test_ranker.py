@@ -9,10 +9,17 @@ from batch.ranker import (
     _apply_pre_filters,
     _apply_role_lane_cap,
     _apply_target_role_filter,
+    _assess_required_skill_coverage,
+    _build_explanation,
+    _classify_explicit_skill_matches,
     _match_explicit_skills,
+    _order_match_lanes,
+    _order_ranked_jobs,
     _preference_location_weight,
     score_jobs_for_user,
 )
+from domain.scoring import calculate_seniority_score, extract_required_yoe_range
+from domain.skills import SkillCanonicalizer
 
 
 def test_target_role_fit_keeps_broader_matches():
@@ -57,6 +64,125 @@ def test_explicit_resume_skills_match_without_profession_taxonomy():
     assert matched == ["selenium webdriver"]
 
 
+def test_skill_evidence_distinguishes_required_preferred_and_mentioned():
+    evidence = _classify_explicit_skill_matches(
+        "Python is required. AWS is preferred. Build services with PostgreSQL.",
+        {"python", "aws", "postgresql"},
+    )
+
+    assert evidence == {
+        "required": ["python"],
+        "preferred": ["aws"],
+        "mentioned": ["postgresql"],
+        "all": ["aws", "postgresql", "python"],
+    }
+
+
+def test_required_skill_coverage_is_generic_and_unassessed_is_neutral():
+    canonicalizer = SkillCanonicalizer(
+        {
+            "skills": {
+                "equivalence_groups": {
+                    "postgres": {
+                        "canonical": "postgresql",
+                        "variants": ["postgres"],
+                    }
+                }
+            }
+        }
+    )
+    assessed = _assess_required_skill_coverage(
+        ["Python", "Postgres", "Kubernetes"],
+        {"python", "postgresql"},
+        "assessed",
+        canonicalizer,
+    )
+    unavailable = _assess_required_skill_coverage(
+        ["Python"], {"python"}, "unavailable", canonicalizer
+    )
+
+    assert assessed == {
+        "status": "assessed",
+        "matched": ["postgresql", "python"],
+        "missing": ["kubernetes"],
+        "total": 3,
+        "coverage": 2 / 3,
+    }
+    assert unavailable["status"] == "unassessed"
+    assert unavailable["coverage"] is None
+
+
+def test_required_skill_coverage_is_explainable_without_changing_scores():
+    explanation = _build_explanation(
+        pd.Series(
+            {
+                "required_skill_coverage_status": "assessed",
+                "assessed_matched_required_skills": ["python"],
+                "missing_required_skills": ["kubernetes"],
+                "assessed_required_skill_overlap": 1,
+                "assessed_required_skill_count": 2,
+                "required_skill_coverage": 0.5,
+            }
+        )
+    )
+
+    assert explanation["skill_evidence"]["required_coverage"] == {
+        "status": "assessed",
+        "matched": ["python"],
+        "missing": ["kubernetes"],
+        "matched_count": 1,
+        "total_count": 2,
+        "ratio": 0.5,
+    }
+    assert "required_skill_coverage" not in explanation["scores"]
+
+
+def test_role_alias_and_description_phrase_produce_explainable_primary_match():
+    scored = _apply_target_role_filter(
+        pd.DataFrame(
+            {
+                "title": ["Platform specialist", "Office specialist"],
+                "description": [
+                    "Build systems as a machine learning engineer.",
+                    "Support meeting rooms and office operations.",
+                ],
+            }
+        ),
+        {
+            "profile_intent": {
+                "roles": ["ML Engineer"],
+                "role_aliases": {"ML Engineer": ["machine learning engineer"]},
+            }
+        },
+    )
+
+    assert scored.loc[0, "match_lane"] == "primary"
+    assert scored.loc[0, "matched_target_role"] == "ML Engineer"
+    assert scored.loc[0, "role_match_method"] == "description_phrase"
+    assert scored.loc[1, "match_lane"] == "broader"
+
+
+def test_experience_requirement_is_contextual_and_seniority_remains_soft():
+    requirement = extract_required_yoe_range(
+        "Minimum 5 years of relevant experience with distributed systems."
+    )
+    company_history = extract_required_yoe_range(
+        "Our company has over 25 years of experience serving customers."
+    )
+    score = calculate_seniority_score(
+        {},
+        title="Software Engineer",
+        description="Minimum 5 years of relevant experience with distributed systems.",
+        user_yoe=2,
+    )
+
+    assert requirement is not None
+    assert requirement.minimum_years == 5
+    assert requirement.maximum_years is None
+    assert company_history is None
+    assert score <= 0.65
+
+
 def test_broader_matches_cannot_outrank_primary_role_matches():
     frame = pd.DataFrame(
         {
@@ -69,6 +195,39 @@ def test_broader_matches_cannot_outrank_primary_role_matches():
     scored = _apply_role_lane_cap(frame, {"ranking": {"broader_match_score_cap": 64}})
 
     assert scored["final_score"].tolist() == [71.0, 64.0]
+
+
+def test_primary_lane_precedes_higher_scoring_broader_match():
+    ordered = _order_match_lanes(
+        pd.DataFrame(
+            {
+                "title": ["Forward Deployed Engineer", "Data Platform Engineer"],
+                "match_lane": ["primary", "broader"],
+                "final_score": [40.11, 54.88],
+            }
+        )
+    )
+
+    assert ordered["title"].tolist() == [
+        "Forward Deployed Engineer",
+        "Data Platform Engineer",
+    ]
+
+
+def test_benchmark_can_replay_pre_fix_score_ordering():
+    frame = pd.DataFrame(
+        {
+            "title": ["Forward Deployed Engineer", "Data Platform Engineer"],
+            "match_lane": ["primary", "broader"],
+            "final_score": [40.11, 54.88],
+        }
+    )
+
+    pre_fix = _order_ranked_jobs(frame, prioritize_primary_lane=False)
+    post_fix = _order_ranked_jobs(frame, prioritize_primary_lane=True)
+
+    assert pre_fix["title"].tolist()[0] == "Data Platform Engineer"
+    assert post_fix["title"].tolist()[0] == "Forward Deployed Engineer"
 
 
 def test_company_and_title_exclusions_are_effective():

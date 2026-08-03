@@ -1,7 +1,14 @@
 # domain/scoring.py
 import re
+from dataclasses import dataclass
 
 # domain/scoring.py
+
+
+@dataclass(frozen=True)
+class ExperienceRequirement:
+    minimum_years: int
+    maximum_years: int | None
 
 
 def calculate_seniority_score(
@@ -59,12 +66,13 @@ def calculate_seniority_score(
     # YOE alignment (soft)
     # --------------------
     if user_yoe is not None:
-        req = extract_required_yoe(d)
+        req = extract_required_yoe_range(d)
         if req is not None:
-            diff = abs(req - user_yoe)
-            if diff <= 1:
+            if user_yoe + 1 < req.minimum_years:
+                return min(boost * 0.55, 0.65)
+            if req.maximum_years is None or user_yoe <= req.maximum_years + 1:
                 boost *= 1.05
-            elif diff >= 5:
+            elif user_yoe >= req.maximum_years + 5:
                 boost *= 0.9
 
     return min(boost, 1.15)
@@ -86,39 +94,52 @@ def location_weight(location: str, cfg: dict) -> float:
     return 1.0
 
 
-def extract_required_yoe(text: str) -> int | None:
-    """
-    Extract maximum years-of-experience required by a job.
-
-    Returns:
-      - highest YOE mentioned (int)
-      - None if no requirement detected
-
-    Conservative by design.
-    """
+def extract_required_yoe_range(text: str) -> ExperienceRequirement | None:
     if not isinstance(text, str):
         return None
 
     t = text.lower()
-
-    patterns = [
-        r"(\d+)\s*\+?\s*years",
-        r"(\d+)\s*-\s*(\d+)\s*years",
-        r"minimum\s+(\d+)\s*years",
-        r"at\s+least\s+(\d+)\s*years",
-    ]
-
-    found = []
-
-    for p in patterns:
-        for m in re.findall(p, t):
-            if isinstance(m, tuple):
-                nums = [int(x) for x in m if x.isdigit()]
-                found.extend(nums)
-            elif str(m).isdigit():
-                found.append(int(m))
-
-    if not found:
+    matches: list[ExperienceRequirement] = []
+    patterns = (
+        re.compile(
+            r"\b(?P<minimum>\d{1,2})\s*(?:-|–|to)\s*(?P<maximum>\d{1,2})"
+            r"\s*(?:years?|yrs?)\s+(?:of\s+)?(?:relevant\s+|professional\s+)?experience\b"
+        ),
+        re.compile(
+            r"\b(?:minimum(?:\s+of)?|at\s+least)\s+(?P<minimum>\d{1,2})"
+            r"\s*(?:years?|yrs?)\s+(?:of\s+)?(?:relevant\s+|professional\s+)?experience\b"
+        ),
+        re.compile(
+            r"\b(?P<minimum>\d{1,2})\s*\+\s*(?:years?|yrs?)\s+"
+            r"(?:of\s+)?(?:relevant\s+|professional\s+)?experience\b"
+        ),
+        re.compile(
+            r"\b(?P<minimum>\d{1,2})\s*(?:years?|yrs?)\s+"
+            r"(?:of\s+)?(?:relevant\s+|professional\s+)?experience\b"
+        ),
+    )
+    for pattern in patterns:
+        for match in pattern.finditer(t):
+            context = t[max(0, match.start() - 80) : match.end() + 40]
+            if re.search(r"\b(?:company|organization|business)\s+(?:has|with|over)\b", context):
+                continue
+            minimum = int(match.group("minimum"))
+            maximum_value = match.groupdict().get("maximum")
+            maximum = int(maximum_value) if maximum_value else None
+            matches.append(ExperienceRequirement(minimum, maximum))
+    if not matches:
         return None
+    return max(
+        matches,
+        key=lambda item: (
+            item.minimum_years,
+            item.maximum_years or item.minimum_years,
+        ),
+    )
 
-    return max(found)
+
+def extract_required_yoe(text: str) -> int | None:
+    requirement = extract_required_yoe_range(text)
+    if requirement is None:
+        return None
+    return requirement.maximum_years or requirement.minimum_years

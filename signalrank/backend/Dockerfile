@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e ".[dev]" || pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e .
 
 COPY . .
 

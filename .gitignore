@@ -26,7 +26,11 @@ node_modules/
 .next/
 out/
 coverage/
+artifacts/e2e/
 .vercel/
+
+# E2E evidence is generated locally and uploaded by CI.
+signalrank/artifacts/e2e/
 *.tsbuildinfo
 next-env.d.ts
 

@@ -64,7 +64,10 @@ async function proxy(
     });
     const headers = new Headers(upstream.headers);
     for (const header of HOP_BY_HOP_HEADERS) headers.delete(header);
-    return new Response(await upstream.arrayBuffer(), {
+    const responseBody = [204, 304].includes(upstream.status)
+      ? undefined
+      : await upstream.arrayBuffer();
+    return new Response(responseBody, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers,

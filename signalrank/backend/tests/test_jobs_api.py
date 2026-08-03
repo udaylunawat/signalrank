@@ -1,8 +1,9 @@
 import csv
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 
 import pytest
-from api.models import JobRaw, JobResult, Run
+from api.models import JobFeedback, JobRaw, JobResult, Run
 
 
 @pytest.fixture
@@ -80,6 +81,161 @@ async def test_get_job_not_found(client, auth_token):
         headers={"Authorization": f"Bearer {auth_token}"},
     )
     assert r.status_code == 404
+
+
+async def test_get_job_rejects_malformed_id(client, auth_token):
+    response = await client.get(
+        "/api/jobs/not-a-uuid", headers={"Authorization": f"Bearer {auth_token}"}
+    )
+
+    assert response.status_code == 422
+
+
+async def test_get_job_returns_only_the_current_users_latest_result(
+    client, auth_token, db
+):
+    profile = await client.get(
+        "/api/profile", headers={"Authorization": f"Bearer {auth_token}"}
+    )
+    user_id = profile.json()["user_id"]
+    completed_at = datetime.now(UTC)
+    run = Run(
+        user_id=user_id,
+        status="success",
+        finished_at=completed_at,
+        job_count=1,
+    )
+    job = JobRaw(
+        job_url="https://example.com/platform-engineer",
+        title="Platform Engineer",
+        company="Alpha",
+        description="Build platform systems.",
+        site="indeed",
+    )
+    db.add_all([run, job])
+    await db.flush()
+    db.add(
+        JobResult(
+            run_id=run.id,
+            user_id=user_id,
+            job_id=job.id,
+            final_score=91,
+            semantic_score=88,
+            skills_score=85,
+            company_score=80,
+            seniority_score=75,
+            location_score=90,
+            recency_score=70,
+            explanation={"matched_skills": ["Python"], "concerns": []},
+        )
+    )
+    db.add(
+        JobFeedback(
+            user_id=user_id,
+            job_id=job.id,
+            value="not_relevant",
+            reason="wrong_location",
+        )
+    )
+    await db.commit()
+
+    response = await client.get(
+        f"/api/jobs/{job.id}", headers={"Authorization": f"Bearer {auth_token}"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["description"] == "Build platform systems."
+    assert payload["final_score"] == 91
+    assert payload["semantic_score"] == 88
+    assert payload["run_id"] == str(run.id)
+    assert payload["completed_at"].startswith(completed_at.date().isoformat())
+    assert payload["feedback"] == {
+        "value": "not_relevant",
+        "reason": "wrong_location",
+    }
+    assert payload["explanation"] == {
+        "matched_skills": ["Python"],
+        "concerns": [],
+    }
+
+    other_register = await client.post(
+        "/api/auth/register", json={"email": "other-job@test.com", "password": "pass"}
+    )
+    assert other_register.status_code == 201
+    other_login = await client.post(
+        "/api/auth/login", json={"email": "other-job@test.com", "password": "pass"}
+    )
+    other_token = other_login.json()["access_token"]
+    forbidden = await client.get(
+        f"/api/jobs/{job.id}", headers={"Authorization": f"Bearer {other_token}"}
+    )
+
+    assert forbidden.status_code == 404
+
+
+async def test_get_job_exposes_only_the_latest_completed_run(client, auth_token, db):
+    profile = await client.get(
+        "/api/profile", headers={"Authorization": f"Bearer {auth_token}"}
+    )
+    user_id = profile.json()["user_id"]
+    now = datetime.now(UTC)
+    older_run = Run(
+        user_id=user_id,
+        status="success",
+        finished_at=now - timedelta(days=1),
+        job_count=1,
+    )
+    latest_run = Run(
+        user_id=user_id,
+        status="partial",
+        finished_at=now,
+        job_count=1,
+    )
+    older_job = JobRaw(
+        job_url="https://example.com/older-result",
+        title="Older role",
+        company="Alpha",
+        site="indeed",
+    )
+    latest_job = JobRaw(
+        job_url="https://example.com/latest-result",
+        title="Latest role",
+        company="Alpha",
+        site="indeed",
+    )
+    db.add_all([older_run, latest_run, older_job, latest_job])
+    await db.flush()
+    db.add_all(
+        [
+            JobResult(
+                run_id=older_run.id,
+                user_id=user_id,
+                job_id=older_job.id,
+                final_score=95,
+            ),
+            JobResult(
+                run_id=latest_run.id,
+                user_id=user_id,
+                job_id=latest_job.id,
+                final_score=80,
+            ),
+        ]
+    )
+    await db.commit()
+
+    old_result = await client.get(
+        f"/api/jobs/{older_job.id}",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    latest_result = await client.get(
+        f"/api/jobs/{latest_job.id}",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert old_result.status_code == 404
+    assert latest_result.status_code == 200
+    assert latest_result.json()["run_id"] == str(latest_run.id)
 
 
 async def test_jobs_search_and_sort_apply_to_the_full_result_set(

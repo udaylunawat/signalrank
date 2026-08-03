@@ -13,6 +13,7 @@ from api.routes import (
     applications,
     auth,
     desktop,
+    feedback,
     jobs,
     onboarding,
     profile,
@@ -87,6 +88,7 @@ app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(runs.router)
 app.include_router(jobs.router)
+app.include_router(feedback.router)
 app.include_router(applications.router)
 app.include_router(onboarding.router)
 app.include_router(resume.router)

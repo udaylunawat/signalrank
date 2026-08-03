@@ -1,3 +1,4 @@
+import time
 from datetime import date
 
 import pandas as pd
@@ -190,3 +191,25 @@ def test_jobspy_retries_and_spaces_indeed_queries(monkeypatch):
     assert all(report.status == "success" for report in reports)
     assert ingest.JOBSPY_RETRY_BACKOFF in delays
     assert ingest.JOBSPY_INTER_QUERY_DELAY in delays
+
+
+def test_jobspy_timeout_is_reported_without_blocking_refresh(monkeypatch):
+    def fake_scrape_jobs(**kwargs):
+        time.sleep(0.05)
+        return pd.DataFrame()
+
+    monkeypatch.setattr(ingest, "scrape_jobs", fake_scrape_jobs)
+    rows, reports = scrape_jobspy_jobs(
+        [SearchRequest("AI Engineer", "India")],
+        sleep_fn=lambda _: None,
+        max_attempts=1,
+        request_timeout_seconds=0.001,
+        refresh_timeout_seconds=1,
+    )
+
+    assert rows == []
+    assert [(report.source, report.status) for report in reports] == [
+        ("indeed", "error"),
+        ("linkedin", "error"),
+    ]
+    assert all("exceeded" in (report.error_summary or "") for report in reports)

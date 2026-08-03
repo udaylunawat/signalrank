@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   AlertTriangle,
@@ -19,7 +20,13 @@ import JobCard from "@/components/job-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import type { Job, JobsResponse, Run, SourceRunStat } from "@/types";
+import type {
+  Job,
+  JobsResponse,
+  OnboardingStatus,
+  Run,
+  SourceRunStat,
+} from "@/types";
 
 const ACTIVE_STATUSES = new Set<Run["status"]>(["pending", "running"]);
 
@@ -53,11 +60,13 @@ function sourceName(stat: SourceRunStat) {
 
 export default function DashboardPage() {
   const { data: session } = useSession();
+  const router = useRouter();
   const token = (session as { accessToken?: string })?.accessToken ?? "";
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobsMeta, setJobsMeta] = useState<JobsResponse | null>(null);
   const [run, setRun] = useState<Run | null>(null);
+  const [onboarding, setOnboarding] = useState<OnboardingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
   const [error, setError] = useState("");
@@ -77,12 +86,14 @@ export default function DashboardPage() {
     Promise.all([
       api.jobs.list(token, { page: 1, limit: 10, sort: "match" }),
       api.runs.latest(token).catch(() => null),
+      api.onboarding.status(token).catch(() => null),
     ])
-      .then(([jobsResponse, latestRun]) => {
+      .then(([jobsResponse, latestRun, onboardingStatus]) => {
         if (!active) return;
         setJobs(jobsResponse.jobs);
         setJobsMeta(jobsResponse);
         setRun(latestRun);
+        setOnboarding(onboardingStatus);
       })
       .catch(() => active && setError("We couldn’t load your latest matches."))
       .finally(() => active && setLoading(false));
@@ -123,6 +134,7 @@ export default function DashboardPage() {
   }, [loadJobs, runId, runStatus, token]);
 
   const strongMatches = jobsMeta?.strong_count ?? jobs.filter((job) => (job.final_score ?? 0) >= 70).length;
+  const needsResume = onboarding?.has_resume === false;
   const runActive = Boolean(run && ACTIVE_STATUSES.has(run.status));
   const progress = run?.progress == null
     ? run?.status === "pending" ? 8 : 45
@@ -175,6 +187,10 @@ export default function DashboardPage() {
     }
   }
 
+  function openOnboarding() {
+    router.push("/onboarding");
+  }
+
   return (
     <AppShell>
       <section className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
@@ -192,11 +208,17 @@ export default function DashboardPage() {
           type="button"
           size="lg"
           className="h-10 rounded-xl px-4 shadow-[0_8px_22px_rgba(83,65,195,0.2)]"
-          onClick={triggerRun}
-          disabled={triggering || runActive || !token}
+          onClick={needsResume ? openOnboarding : triggerRun}
+          disabled={loading || triggering || runActive || !token}
         >
-          <RefreshCw className={triggering || runActive ? "animate-spin" : ""} data-icon="inline-start" />
-          {triggering ? "Starting search…" : runActive ? "Refreshing matches…" : "Refresh matches"}
+          {needsResume ? <Target data-icon="inline-start" /> : <RefreshCw className={triggering || runActive ? "animate-spin" : ""} data-icon="inline-start" />}
+          {needsResume
+            ? "Finish profile"
+            : triggering
+              ? "Starting search…"
+              : runActive
+                ? "Refreshing matches…"
+                : "Refresh matches"}
         </Button>
       </section>
 
@@ -338,10 +360,16 @@ export default function DashboardPage() {
               </span>
               <h3 className="mt-4 font-semibold">Your first shortlist starts here</h3>
               <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-muted-foreground">
-                Run a search and we’ll surface the roles most aligned with your profile.
+                {needsResume
+                  ? "Add your resume and preferences before starting your first search."
+                  : "Run a search and we’ll surface the roles most aligned with your profile."}
               </p>
-              <Button className="mt-5 rounded-xl" onClick={triggerRun} disabled={triggering || runActive || !token}>
-                Refresh matches
+              <Button
+                className="mt-5 rounded-xl"
+                onClick={needsResume ? openOnboarding : triggerRun}
+                disabled={loading || triggering || runActive || !token}
+              >
+                {needsResume ? "Add your resume" : "Refresh matches"}
               </Button>
             </div>
           )}

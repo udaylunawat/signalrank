@@ -156,7 +156,7 @@ export default function SettingsPage() {
       </section>
 
       {loading ? (
-        <div className="mt-8 space-y-3" aria-label="Loading preferences">
+        <div className="mt-8 space-y-3" role="status" aria-label="Loading preferences">
           {Array.from({ length: 3 }).map((_, index) => (
             <div key={index} className="h-36 animate-pulse rounded-2xl border border-border/70 bg-white/60" />
           ))}

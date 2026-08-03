@@ -423,6 +423,15 @@ class OpenRouterClient:
                 TypeError,
                 ValueError,
             ) as exc:
+                if attempt < MAX_REQUEST_ATTEMPTS - 1:
+                    sleep_time = min(2**attempt, 8) + random.uniform(0.1, 0.5)
+                    logger.warning(
+                        "OpenRouter request failed; retrying request in %.1fs: %s",
+                        sleep_time,
+                        exc,
+                    )
+                    await asyncio.sleep(sleep_time)
+                    continue
                 self._set_error("request_failed", str(exc), retryable=True)
                 logger.warning("OpenRouter request failed: %s", exc)
                 return None

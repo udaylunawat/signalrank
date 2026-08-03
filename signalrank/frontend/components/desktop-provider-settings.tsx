@@ -15,6 +15,7 @@ export default function DesktopProviderSettings({ token }: { token: string }) {
   const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(desktopMode);
   const [saving, setSaving] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -86,6 +87,27 @@ export default function DesktopProviderSettings({ token }: { token: string }) {
     }
   }
 
+  async function restoreKey() {
+    setRestoring(true);
+    setError("");
+    setNotice("");
+    try {
+      await api.desktop.restoreProviderKey(token);
+      setStatus((current) =>
+        current ? { ...current, provider_configured: true } : current,
+      );
+      setNotice("Saved OpenRouter key unlocked for this session.");
+    } catch (restoreError) {
+      setError(
+        restoreError instanceof Error
+          ? restoreError.message
+          : "The saved OpenRouter key could not be unlocked.",
+      );
+    } finally {
+      setRestoring(false);
+    }
+  }
+
   return (
     <section className="surface-panel p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -137,6 +159,24 @@ export default function DesktopProviderSettings({ token }: { token: string }) {
           </Button>
         </div>
       </div>
+
+      {!status?.provider_configured && !loading && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mt-3 rounded-xl text-muted-foreground"
+          onClick={() => void restoreKey()}
+          disabled={restoring}
+        >
+          {restoring ? (
+            <LoaderCircle className="animate-spin" data-icon="inline-start" />
+          ) : (
+            <KeyRound data-icon="inline-start" />
+          )}
+          {restoring ? "Unlocking saved key…" : "Use saved key"}
+        </Button>
+      )}
 
       {status?.provider_configured && (
         <Button

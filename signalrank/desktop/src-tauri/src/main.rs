@@ -4,10 +4,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -219,6 +220,28 @@ fn startup_error(handle: &tauri::AppHandle, log_path: &Path, message: &str) {
             true,
         );
     }
+}
+
+fn native_ui_smoke_script() -> &'static str {
+    r#"(() => {
+        const heading = Array.from(document.querySelectorAll('h1')).some((node) =>
+            node.textContent?.includes('Rank jobs on this computer.')
+        );
+        const input = document.querySelector('#openrouter-key');
+        const button = Array.from(document.querySelectorAll('button')).find((node) =>
+            node.textContent?.includes('Validate and save')
+        );
+        if (input instanceof HTMLInputElement) {
+            input.focus();
+            input.value = 'native-ui-smoke';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        return JSON.stringify({
+            pass: heading && input instanceof HTMLInputElement && !!button &&
+                document.activeElement === input && input.value === 'native-ui-smoke',
+            path: window.location.pathname,
+        });
+    })()"#
 }
 
 fn sanitized_filename(filename: &str) -> String {
@@ -573,6 +596,46 @@ fn main() {
             reveal_startup_log
         ])
         .setup(setup_packaged_sidecars)
+        .on_page_load(|webview, payload| {
+            if env::var_os("SIGNALRANK_NATIVE_UI_SMOKE").is_none()
+                || payload.event() != PageLoadEvent::Finished
+                || payload.url().host_str() != Some("127.0.0.1")
+            {
+                return;
+            }
+
+            let webview = webview.clone();
+            thread::spawn(move || {
+                let app_handle = webview.app_handle().clone();
+                let mut last_result = String::from("{\"pass\":false,\"reason\":\"no callback\"}");
+                for _ in 0..30 {
+                    let (sender, receiver) = mpsc::channel();
+                    if let Err(error) = webview.eval_with_callback(
+                        native_ui_smoke_script(),
+                        move |result| {
+                            let _ = sender.send(result);
+                        },
+                    ) {
+                        eprintln!("[native-ui] smoke-eval failed: {error}");
+                        app_handle.exit(1);
+                        return;
+                    }
+                    if let Ok(result) = receiver.recv_timeout(Duration::from_secs(2)) {
+                        let passed = result.contains("\\\"pass\\\":true")
+                            || result.contains("\"pass\":true");
+                        last_result = result;
+                        if passed {
+                            println!("[native-ui] smoke-result pass=true result={last_result}");
+                            app_handle.exit(0);
+                            return;
+                        }
+                    }
+                    thread::sleep(Duration::from_secs(1));
+                }
+                println!("[native-ui] smoke-result pass=false result={last_result}");
+                app_handle.exit(1);
+            });
+        })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 stop_sidecars(window.app_handle());

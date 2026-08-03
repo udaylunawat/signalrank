@@ -1,25 +1,26 @@
 import asyncio
 import html
 import logging
+import multiprocessing
 import re
 import time as time_module
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from queue import Empty, Queue
 from threading import Thread
 from time import perf_counter
-from typing import Any, Awaitable, Callable
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 import pandas as pd
+from api.models import JobRaw
 from jobspy import scrape_jobs
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.models import JobRaw
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ _TRACKING_QUERY_KEYS = {
     "trk",
 }
 _SENIORITY_PREFIX = re.compile(
-    r"^(?:junior|jr\.?|senior|sr\.?|staff|principal|lead|head)\s+", re.I
+    r"^(?:junior|jr\.?|senior|sr\.?|staff|principal|lead|head)\s+", re.IGNORECASE
 )
 JOBSPY_INTER_QUERY_DELAY = 3.0
 JOBSPY_RETRY_BACKOFF = 2.0
@@ -66,6 +67,7 @@ class SourceReport:
     jobs_found: int
     duration_ms: int
     error_summary: str | None = None
+    job_urls: tuple[str, ...] = ()
 
     @property
     def jobs_persisted(self) -> int:
@@ -284,7 +286,14 @@ def build_query_plan(
     ]
 
 
-def _scrape_jobspy_with_timeout(
+def _scrape_jobspy_in_process(result_queue, kwargs: dict[str, Any]) -> None:
+    try:
+        result_queue.put(("ok", scrape_jobs(**kwargs)))
+    except Exception as exc:  # noqa: BLE001
+        result_queue.put(("error", f"{type(exc).__name__}: {exc}"))
+
+
+def _scrape_jobspy_with_thread_timeout(
     *, timeout_seconds: float, **kwargs: Any
 ) -> pd.DataFrame:
     result: Queue[tuple[pd.DataFrame | None, Exception | None]] = Queue(maxsize=1)
@@ -311,6 +320,50 @@ def _scrape_jobspy_with_timeout(
     if frame is None:
         raise RuntimeError("JobSpy request returned no dataframe")
     return frame
+
+
+def _scrape_jobspy_with_timeout(
+    *, timeout_seconds: float, **kwargs: Any
+) -> pd.DataFrame:
+    if getattr(scrape_jobs, "__module__", "") != "jobspy":
+        return _scrape_jobspy_with_thread_timeout(
+            timeout_seconds=timeout_seconds, **kwargs
+        )
+
+    context = multiprocessing.get_context("spawn")
+    result_queue = context.Queue(maxsize=1)
+    process = context.Process(
+        target=_scrape_jobspy_in_process,
+        args=(result_queue, kwargs),
+        daemon=True,
+    )
+    try:
+        process.start()
+        process.join(timeout=max(0.0, timeout_seconds))
+        if process.is_alive():
+            raise TimeoutError(
+                f"JobSpy request exceeded {max(0.0, timeout_seconds):.1f} seconds"
+            )
+
+        try:
+            status, payload = result_queue.get(timeout=1)
+        except Exception as exc:
+            raise RuntimeError("JobSpy request ended without a result") from exc
+    finally:
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=1)
+            if process.is_alive() and hasattr(process, "kill"):
+                process.kill()
+                process.join(timeout=1)
+        result_queue.close()
+        result_queue.join_thread()
+
+    if status == "error":
+        raise RuntimeError(str(payload))
+    if not isinstance(payload, pd.DataFrame):
+        raise TypeError("JobSpy request returned no dataframe")
+    return payload
 
 
 def scrape_jobspy_jobs(
@@ -386,6 +439,7 @@ def scrape_jobspy_jobs(
                     jobs_found=len(found),
                     duration_ms=round((perf_counter() - started) * 1000),
                     error_summary=error,
+                    job_urls=tuple(job["job_url"] for job in found),
                 )
             )
     return rows, reports
@@ -422,6 +476,7 @@ async def _fetch_api(
         jobs_found=len(found),
         duration_ms=round((perf_counter() - started) * 1000),
         error_summary=error,
+        job_urls=tuple(job["job_url"] for job in found),
     )
 
 
@@ -472,8 +527,9 @@ async def refresh_job_catalog(
     locations: list[str] | None = None,
     location: str = "India",
     max_queries: int = 6,
+    query_plan: list[SearchRequest] | None = None,
 ) -> IngestResult:
-    plan = build_query_plan(
+    plan = query_plan or build_query_plan(
         roles,
         locations=locations,
         default_location=location,

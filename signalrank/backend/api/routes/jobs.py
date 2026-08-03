@@ -2,14 +2,17 @@ import csv
 import json
 from io import StringIO
 from typing import Any, Literal
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from api.database import get_db
 from api.deps import get_current_user
-from api.models import JobRaw, JobResult, Run, User
+from api.models import JobFeedback, JobRaw, JobResult, Run, User
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -49,12 +52,52 @@ async def _latest_completed_run(db: AsyncSession, user_id: str) -> Run | None:
     return result.scalar_one_or_none()
 
 
+def _job_payload(
+    result: JobResult,
+    job: JobRaw,
+    feedback: dict[str, str | None] | None,
+    *,
+    include_description: bool = False,
+) -> dict[str, Any]:
+    payload = {
+        "id": job.id,
+        "job_url": job.job_url,
+        "title": job.title,
+        "company": job.company,
+        "location": job.location,
+        "site": job.site,
+        "date_posted": str(job.date_posted) if job.date_posted else None,
+        "final_score": result.final_score,
+        "semantic_score": result.semantic_score,
+        "skills_score": result.skills_score,
+        "company_score": result.company_score,
+        "seniority_score": result.seniority_score,
+        "location_score": result.location_score,
+        "recency_score": result.recency_score,
+        "company_tier": result.company_tier,
+        "company_reputation_confidence": result.company_reputation_confidence,
+        "company_reputation_rationale": result.company_reputation_rationale,
+        "explanation": result.explanation,
+        "is_contract": result.is_contract,
+        "feedback": feedback,
+    }
+    if include_description:
+        payload["description"] = job.description
+    return payload
+
+
 def _safe_csv_value(value: Any) -> Any:
     if value is None:
         return ""
     if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
         return f"'{value}"
     return value
+
+
+def _csv_line(values: Any, *, bom: bool = False) -> str:
+    output = StringIO(newline="")
+    csv.writer(output).writerow(_safe_csv_value(value) for value in values)
+    return ("\ufeff" if bom else "") + output.getvalue()
 
 
 @router.get("")
@@ -137,38 +180,51 @@ async def list_jobs(
     results = await db.execute(
         select(JobResult, JobRaw)
         .join(JobRaw, JobResult.job_id == JobRaw.id)
+        .options(
+            load_only(
+                JobResult.final_score,
+                JobResult.semantic_score,
+                JobResult.skills_score,
+                JobResult.company_score,
+                JobResult.seniority_score,
+                JobResult.location_score,
+                JobResult.recency_score,
+                JobResult.company_tier,
+                JobResult.company_reputation_confidence,
+                JobResult.company_reputation_rationale,
+                JobResult.explanation,
+                JobResult.is_contract,
+            ),
+            load_only(
+                JobRaw.id,
+                JobRaw.job_url,
+                JobRaw.title,
+                JobRaw.company,
+                JobRaw.location,
+                JobRaw.site,
+                JobRaw.date_posted,
+            ),
+        )
         .where(*filters)
         .order_by(*ordering)
         .offset((page - 1) * limit)
         .limit(limit)
     )
     rows = results.all()
-
-    jobs = []
-    for result, job in rows:
-        jobs.append(
-            {
-                "id": job.id,
-                "job_url": job.job_url,
-                "title": job.title,
-                "company": job.company,
-                "location": job.location,
-                "site": job.site,
-                "date_posted": str(job.date_posted) if job.date_posted else None,
-                "final_score": result.final_score,
-                "semantic_score": result.semantic_score,
-                "skills_score": result.skills_score,
-                "company_score": result.company_score,
-                "seniority_score": result.seniority_score,
-                "location_score": result.location_score,
-                "recency_score": result.recency_score,
-                "company_tier": result.company_tier,
-                "company_reputation_confidence": (result.company_reputation_confidence),
-                "company_reputation_rationale": (result.company_reputation_rationale),
-                "explanation": result.explanation,
-                "is_contract": result.is_contract,
-            }
+    feedback_result = await db.execute(
+        select(JobFeedback.job_id, JobFeedback.value, JobFeedback.reason).where(
+            JobFeedback.user_id == current_user.id,
+            JobFeedback.job_id.in_([job.id for _, job in rows]),
         )
+    )
+    feedback_by_job = {
+        job_id: {"value": value, "reason": reason}
+        for job_id, value, reason in feedback_result.all()
+    }
+
+    jobs = [
+        _job_payload(result, job, feedback_by_job.get(job.id)) for result, job in rows
+    ]
 
     return {
         "jobs": jobs,
@@ -188,12 +244,13 @@ async def export_jobs_csv(
     db: AsyncSession = Depends(get_db),
 ):
     run = await _latest_completed_run(db, current_user.id)
-    output = StringIO(newline="")
-    writer = csv.writer(output)
-    writer.writerow(CSV_COLUMNS)
 
-    if run:
-        results = await db.execute(
+    async def rows():
+        yield _csv_line(CSV_COLUMNS, bom=True)
+        if not run:
+            return
+
+        results = await db.stream(
             select(JobResult, JobRaw)
             .join(JobRaw, JobResult.job_id == JobRaw.id)
             .where(
@@ -204,12 +261,12 @@ async def export_jobs_csv(
                 JobResult.final_score.desc().nullslast(),
                 JobRaw.date_posted.desc().nullslast(),
             )
+            .execution_options(yield_per=100)
         )
         completed_at = run.finished_at.isoformat() if run.finished_at else ""
-        for result, job in results.all():
-            writer.writerow(
-                _safe_csv_value(value)
-                for value in (
+        async for result, job in results:
+            yield _csv_line(
+                (
                     run.id,
                     completed_at,
                     job.id,
@@ -246,8 +303,8 @@ async def export_jobs_csv(
         if run and run.finished_at
         else "no-completed-run"
     )
-    return Response(
-        content=f"\ufeff{output.getvalue()}",
+    return StreamingResponse(
+        rows(),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": (
@@ -259,21 +316,42 @@ async def export_jobs_csv(
 
 @router.get("/{job_id}")
 async def get_job(
-    job_id: str,
+    job_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(JobRaw).where(JobRaw.id == job_id))
-    job = result.scalar_one_or_none()
-    if not job:
+    run = await _latest_completed_run(db, current_user.id)
+    if not run:
         raise HTTPException(status_code=404, detail="Job not found")
-    return {
-        "id": job.id,
-        "job_url": job.job_url,
-        "title": job.title,
-        "company": job.company,
-        "description": job.description,
-        "location": job.location,
-        "site": job.site,
-        "date_posted": str(job.date_posted) if job.date_posted else None,
+    row_result = await db.execute(
+        select(JobResult, JobRaw)
+        .join(JobRaw, JobResult.job_id == JobRaw.id)
+        .where(
+            JobResult.run_id == run.id,
+            JobResult.user_id == current_user.id,
+            JobResult.job_id == job_id,
+        )
+    )
+    row = row_result.one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job_result, job = row
+    feedback_result = await db.execute(
+        select(JobFeedback.value, JobFeedback.reason).where(
+            JobFeedback.user_id == current_user.id,
+            JobFeedback.job_id == job.id,
+        )
+    )
+    feedback = feedback_result.one_or_none()
+    feedback_payload = (
+        {"value": feedback.value, "reason": feedback.reason} if feedback else None
+    )
+    return _job_payload(
+        job_result,
+        job,
+        feedback_payload,
+        include_description=True,
+    ) | {
+        "run_id": run.id,
+        "completed_at": str(run.finished_at) if run.finished_at else None,
     }

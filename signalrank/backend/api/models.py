@@ -93,6 +93,54 @@ class JobRaw(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
     results: Mapped[list["JobResult"]] = relationship(back_populates="job")
+    enrichment: Mapped["JobEnrichment | None"] = relationship(
+        back_populates="job", uselist=False, cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (Index("ix_jobs_raw_active_last_seen", "active", "last_seen"),)
+
+
+class JobEnrichment(Base):
+    """Candidate-independent, cached interpretation of a single job posting."""
+
+    __tablename__ = "job_enrichments"
+
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("jobs_raw.id", ondelete="CASCADE"), primary_key=True
+    )
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    role_summary: Mapped[str | None] = mapped_column(Text)
+    role_aliases: Mapped[list[str] | None] = mapped_column(JSONField())
+    seniority_band: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="unknown", server_default="unknown"
+    )
+    required_skills: Mapped[list[str] | None] = mapped_column(JSONField())
+    preferred_skills: Mapped[list[str] | None] = mapped_column(JSONField())
+    workplace: Mapped[dict | None] = mapped_column(JSONField())
+    coherence_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="unassessed", server_default="unassessed"
+    )
+    coherence_confidence: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default="0"
+    )
+    coherence_reason: Mapped[str | None] = mapped_column(String(64))
+    assessment_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="pending", server_default="pending"
+    )
+    model_id: Mapped[str | None] = mapped_column(String(255))
+    prompt_hash: Mapped[str | None] = mapped_column(String(64))
+    rubric_version: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="v1", server_default="v1"
+    )
+    assessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    job: Mapped["JobRaw"] = relationship(back_populates="enrichment")
+
+    __table_args__ = (
+        Index("ix_job_enrichments_status", "assessment_status"),
+        Index("ix_job_enrichments_expires_at", "expires_at"),
+    )
 
 
 class Run(Base):
@@ -128,6 +176,7 @@ class Run(Base):
             postgresql_where=text("status IN ('pending', 'running')"),
             sqlite_where=text("status IN ('pending', 'running')"),
         ),
+        Index("ix_runs_user_status_finished_at", "user_id", "status", "finished_at"),
     )
 
 
@@ -180,6 +229,39 @@ class JobResult(Base):
 
     run: Mapped["Run"] = relationship(back_populates="results")
     job: Mapped["JobRaw"] = relationship(back_populates="results")
+
+    __table_args__ = (
+        Index("ix_job_results_run_user_score", "run_id", "user_id", "final_score"),
+        Index("ix_job_results_run_user_job", "run_id", "user_id", "job_id"),
+    )
+
+
+class JobFeedback(Base):
+    __tablename__ = "job_feedback"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("jobs_raw.id", ondelete="CASCADE"), nullable=False
+    )
+    value: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "job_id", name="uq_job_feedback_user_job"),
+        Index("ix_job_feedback_user_value", "user_id", "value"),
+    )
 
 
 class Application(Base):

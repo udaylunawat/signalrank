@@ -1,7 +1,10 @@
 import type {
   Application,
   ApplicationStatus,
-  Job,
+  JobDetail,
+  JobFeedback,
+  JobFeedbackReason,
+  JobFeedbackValue,
   JobListParams,
   JobsResponse,
   OnboardingResumeResponse,
@@ -146,6 +149,11 @@ export const api = {
         token,
         body: JSON.stringify({ provider: "openrouter", api_key: apiKey }),
       }),
+    restoreProviderKey: (token?: string) =>
+      request<{ status: "ok"; provider: "openrouter" }>(
+        "/api/desktop/provider-key/restore",
+        { method: "POST", token },
+      ),
     deleteProviderKey: (token?: string) =>
       request<void>("/api/desktop/provider-key", {
         method: "DELETE",
@@ -187,9 +195,22 @@ export const api = {
       return request<JobsResponse>(`/api/jobs${suffix}`, { token });
     },
     get: (token: string, id: string) =>
-      request<Job>(`/api/jobs/${id}`, { token }),
+      request<JobDetail>(`/api/jobs/${id}`, { token }),
     exportCsv: (token: string) =>
       download("/api/jobs/export.csv", token, "signalrank-jobs.csv"),
+    feedback: (
+      token: string,
+      id: string,
+      value: JobFeedbackValue,
+      reason?: JobFeedbackReason,
+    ) =>
+      request<JobFeedback>(`/api/jobs/${id}/feedback`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ value, reason }),
+      }),
+    clearFeedback: (token: string, id: string) =>
+      request<void>(`/api/jobs/${id}/feedback`, { method: "DELETE", token }),
   },
 
   runs: {
@@ -273,6 +294,12 @@ export const api = {
         },
       );
     },
+    retryResume: (token: string) =>
+      request<OnboardingResumeResponse>("/api/onboarding/resume/retry", {
+        method: "POST",
+        token,
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+      }),
     refine: (token: string, question_id: string, answer: string | string[]) =>
       request<{ status: string }>("/api/onboarding/refine", {
         method: "POST",

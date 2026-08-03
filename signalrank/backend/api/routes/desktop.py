@@ -175,6 +175,21 @@ async def desktop_status(db: AsyncSession = Depends(get_db)):
     }
 
 
+@router.post("/provider-key/restore", dependencies=[Depends(require_desktop_bootstrap)])
+async def restore_provider_key():
+    global _session_openrouter_key
+    key = await asyncio.to_thread(load_openrouter_key)
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No saved OpenRouter key could be unlocked",
+        )
+    _session_openrouter_key = key
+    settings.openrouter_api_key = key
+    _reset_llm_client()
+    return {"status": "ok", "provider": "openrouter"}
+
+
 @router.post("/session", dependencies=[Depends(require_desktop_bootstrap)])
 async def desktop_session(db: AsyncSession = Depends(get_db)):
     user = await ensure_desktop_user(db)
