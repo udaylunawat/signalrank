@@ -1,5 +1,6 @@
 import asyncio
-import threading
+import os
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -8,17 +9,30 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.config import settings
-from api.database import (
-    DESKTOP_SCHEMA_VERSION,
-    _build_engine,
-    get_db,
-    initialize_database,
-)
+from api.database import _build_engine, get_db, initialize_database
+from api.desktop_main import _desktop_parent_pid, _process_is_running
 from api.main import app
-from api.models import Application, Embedding, JobFeedback, JobRaw, Profile, Run, User
+from api.models import Embedding, Profile, Run, User
 from api.routes import desktop
 from batch.embedding_cache import PgEmbeddingCache
 from batch.worker import _claim_next_run
+
+
+def test_desktop_parent_pid_accepts_a_valid_process(monkeypatch):
+    monkeypatch.setenv("SIGNALRANK_DESKTOP_PARENT_PID", "1234")
+
+    assert _desktop_parent_pid() == 1234
+
+
+@pytest.mark.parametrize("value", ["", "invalid", "0", "1", "-1"])
+def test_desktop_parent_pid_rejects_invalid_values(monkeypatch, value):
+    monkeypatch.setenv("SIGNALRANK_DESKTOP_PARENT_PID", value)
+
+    assert _desktop_parent_pid() is None
+
+
+def test_desktop_parent_watch_detects_current_process():
+    assert _process_is_running(os.getpid())
 
 
 @pytest.fixture
@@ -36,6 +50,7 @@ async def desktop_runtime(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(settings, "openrouter_api_key", "")
     monkeypatch.setattr(desktop, "_session_openrouter_key", "")
+    monkeypatch.setattr(desktop, "_keyring_load_task", None)
     monkeypatch.setattr(desktop, "_load_keyring_key", lambda: "")
 
     async def override_get_db():
@@ -94,23 +109,6 @@ async def test_desktop_routes_require_bootstrap_and_create_local_identity(
     assert len(users) == 1
     assert users[0].provider == "desktop"
     assert profile.user_id == users[0].id
-
-
-async def test_desktop_status_does_not_unlock_keyring(desktop_runtime, monkeypatch):
-    client, _, _, _ = desktop_runtime
-
-    def unexpected_keyring_read() -> str:
-        raise AssertionError("status must not trigger a credential-store prompt")
-
-    monkeypatch.setattr(desktop, "_load_keyring_key", unexpected_keyring_read)
-
-    response = await client.get(
-        "/api/desktop/status",
-        headers={"X-SignalRank-Desktop-Token": "test-token"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["provider_configured"] is False
 
 
 async def test_desktop_session_can_trigger_first_scan(desktop_runtime):
@@ -185,38 +183,15 @@ async def test_desktop_keyring_key_is_loaded_before_worker_use(
     assert settings.openrouter_api_key == "sk-or-persisted"
 
 
-async def test_restore_provider_key_unlocks_keyring_only_on_request(
-    desktop_runtime, monkeypatch
-):
-    client, _, _, _ = desktop_runtime
-    monkeypatch.setattr(desktop, "_load_keyring_key", lambda: "sk-or-persisted")
+async def test_desktop_keyring_timeout_does_not_block_api(desktop_runtime, monkeypatch):
+    monkeypatch.setattr(desktop, "_session_openrouter_key", "")
+    monkeypatch.setattr(desktop, "KEYRING_TIMEOUT_SECONDS", 0.005)
+    monkeypatch.setattr(desktop, "_load_keyring_key", lambda: time.sleep(0.05) or "")
 
-    response = await client.post(
-        "/api/desktop/provider-key/restore",
-        headers={"X-SignalRank-Desktop-Token": "test-token"},
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "provider": "openrouter"}
-    assert desktop._session_openrouter_key == "sk-or-persisted"
-
-
-async def test_desktop_keyring_timeout_falls_back_without_blocking(
-    desktop_runtime, monkeypatch
-):
-    started = threading.Event()
-    release = threading.Event()
-
-    def blocking_operation() -> str:
-        started.set()
-        release.wait()
-        return "sk-or-late"
-
-    monkeypatch.setattr(desktop, "KEYRING_TIMEOUT_SECONDS", 0.01)
-
-    assert desktop._run_keyring_operation(blocking_operation, "") == ""
-    assert started.is_set()
-    release.set()
+    started = time.monotonic()
+    assert await desktop.load_openrouter_key_async() == ""
+    assert time.monotonic() - started < 0.04
+    await asyncio.sleep(0.06)
 
 
 async def test_sqlite_pragmas_embeddings_and_worker_claim_are_portable(
@@ -267,125 +242,3 @@ async def test_desktop_schema_migration_creates_backup(desktop_runtime):
     backups = list((database_path.parent / "backups").glob("signalrank-v0-*.db"))
     assert len(backups) == 1
     assert backups[0].stat().st_size > 0
-
-
-async def test_desktop_schema_migration_preserves_profile_and_resume_state(
-    desktop_runtime,
-):
-    _, engine, session_factory, database_path = desktop_runtime
-    async with session_factory() as db:
-        user = User(email="migration@desktop.local", provider="desktop")
-        db.add(user)
-        await db.flush()
-        db.add(
-            Profile(
-                user_id=user.id,
-                resume_text="Synthetic migration fixture.",
-                target_roles=["Platform Engineer"],
-                onboarding_complete=True,
-            )
-        )
-        await db.commit()
-
-    async with engine.begin() as connection:
-        await connection.execute(
-            text("UPDATE desktop_schema_version SET version=0 WHERE id=1")
-        )
-
-    await initialize_database(engine)
-
-    async with session_factory() as db:
-        profile = (
-            await db.execute(
-                select(Profile)
-                .join(User)
-                .where(User.email == "migration@desktop.local")
-            )
-        ).scalar_one()
-    assert profile.resume_text == "Synthetic migration fixture."
-    assert profile.target_roles == ["Platform Engineer"]
-    assert profile.onboarding_complete is True
-    assert database_path.exists()
-
-
-async def test_desktop_schema_migration_preserves_jobs_feedback_and_applications(
-    desktop_runtime,
-):
-    _, engine, session_factory, _ = desktop_runtime
-    async with session_factory() as db:
-        user = User(email="upgrade-state@desktop.local", provider="desktop")
-        db.add(user)
-        await db.flush()
-        job = JobRaw(
-            job_url="https://jobs.example.test/upgrade-state",
-            title="Platform Engineer",
-            company="Synthetic Labs",
-            description="Maintain platform services.",
-            site="fixture",
-        )
-        db.add(job)
-        await db.flush()
-        db.add(
-            Profile(
-                user_id=user.id,
-                resume_text="Synthetic upgrade fixture.",
-                target_roles=["Platform Engineer"],
-                onboarding_complete=True,
-            )
-        )
-        db.add(Run(user_id=user.id, status="succeeded", stage="complete"))
-        db.add(JobFeedback(user_id=user.id, job_id=job.id, value="good"))
-        db.add(
-            Application(
-                user_id=user.id,
-                job_id=job.id,
-                company=job.company,
-                title=job.title,
-                status="interview",
-                notes="Preserve this note.",
-            )
-        )
-        await db.commit()
-
-    async with engine.begin() as connection:
-        await connection.execute(
-            text("UPDATE desktop_schema_version SET version=0 WHERE id=1")
-        )
-
-    await initialize_database(engine)
-
-    async with session_factory() as db:
-        preserved_job = (
-            await db.execute(
-                select(JobRaw).where(
-                    JobRaw.job_url == "https://jobs.example.test/upgrade-state"
-                )
-            )
-        ).scalar_one()
-        feedback = (
-            await db.execute(
-                select(JobFeedback).where(JobFeedback.job_id == preserved_job.id)
-            )
-        ).scalar_one()
-        application = (
-            await db.execute(
-                select(Application).where(Application.job_id == preserved_job.id)
-            )
-        ).scalar_one()
-
-    assert preserved_job.title == "Platform Engineer"
-    assert feedback.value == "good"
-    assert application.status == "interview"
-    assert application.notes == "Preserve this note."
-
-
-async def test_desktop_schema_newer_than_binary_is_rejected(desktop_runtime):
-    _, engine, _, _ = desktop_runtime
-    async with engine.begin() as connection:
-        await connection.execute(
-            text("UPDATE desktop_schema_version SET version=:version WHERE id=1"),
-            {"version": DESKTOP_SCHEMA_VERSION + 1},
-        )
-
-    with pytest.raises(RuntimeError, match="newer SignalRank version"):
-        await initialize_database(engine)

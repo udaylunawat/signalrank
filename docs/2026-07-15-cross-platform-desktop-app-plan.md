@@ -404,6 +404,52 @@ they depend on credentials, quotas, and current provider availability.
 | App exits during a scrape or migration | Graceful cancellation, WAL, bounded worker shutdown, migration backups, and startup recovery |
 | Old desktop code conflicts with the promoted SaaS tree | Restore component-by-component and validate against current API, schema, ranking, and UI contracts |
 
+## Performance, memory, and size plan
+
+The measured macOS 0.2.2 baseline is a 576 MB installed app: 406 MB Python
+backend, 107 MB Node runtime, 50 MB Next.js resources, and 12 MB Tauri shell.
+The idle Next.js process uses about 92 MB RSS. Importing the backend peaks near
+150 MB, while loading MiniLM through SentenceTransformers reaches about 461 MB.
+
+### Phase 0: startup reliability and measurement
+
+- Fail immediately on child-process exit and persist stage-specific diagnostics.
+- Measure backend health, web readiness, first interactive page, idle RSS, peak
+  ranking RSS, and five-minute post-run RSS for every release.
+- Reject artifact size or process-memory regressions above 10% until explicit
+  budgets replace the baseline.
+
+### Phase 1: safe packaging and idle-runtime reductions
+
+- Keep MiniLM as a Tauri resource instead of extracting it from PyInstaller on
+  every launch.
+- Replace broad PyInstaller collection flags with verified module allowlists;
+  remove tests, non-target TLS libraries, and unused server dependencies.
+- Defer heavy scraper, pandas, Torch, and ranking imports until a refresh starts.
+- Increase durable fallback polling on desktop while retaining immediate queue
+  wakeups for newly requested runs.
+
+### Phase 2: remove the desktop web server
+
+Build a static desktop renderer served directly by Tauri and replace desktop
+NextAuth with the existing native bootstrap session. This removes the bundled
+Node runtime and Next.js server from the desktop artifact and eliminates their
+steady-state memory process. The hosted web product can continue using Next.js
+server features independently.
+
+### Phase 3: smaller on-demand ranking runtime
+
+- Validate a quantized ONNX MiniLM implementation against the role-agnostic
+  resume corpus before replacing PyTorch SentenceTransformers.
+- Split the lightweight local API from the heavy scraper/ranker worker. Launch
+  the worker for refreshes, then terminate it after a bounded idle period so
+  pandas, scraper, and embedding memory is reclaimed.
+- Remove pandas from remaining request and persistence paths only after output
+  parity tests cover discovery, scoring, explanations, and exports.
+
+Each phase ships only after the same resume- and role-agnostic ranking fixtures
+pass, so runtime optimization cannot introduce profession-specific shortcuts.
+
 ## Definition of done for desktop v1
 
 - Signed installers are available for macOS arm64/x64, Windows x64, and Linux

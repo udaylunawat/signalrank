@@ -5,11 +5,12 @@
   "identifier": "app.signalrank.desktop",
   "build": {
     "beforeDevCommand": "npm run dev:services",
-    "beforeBuildCommand": "node scripts/build-web.mjs && node scripts/stage-sidecars.mjs",
+    "beforeBuildCommand": "npm run build:backend && npm run build:web && npm run stage:sidecars",
     "devUrl": "http://127.0.0.1:3000",
     "frontendDist": "../ui"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
@@ -31,11 +32,12 @@
     "createUpdaterArtifacts": false,
     "resources": {
       "../dist/web": "web",
-      "node-libs": "node-libs",
-      "resources/node": "node"
+      "../dist/models/all-MiniLM-L6-v2": "models/all-MiniLM-L6-v2",
+      "node-libs": "node-libs"
     },
     "externalBin": [
-      "binaries/signalrank-backend"
+      "binaries/signalrank-backend",
+      "binaries/signalrank-web"
     ],
     "icon": [
       "icons/32x32.png",

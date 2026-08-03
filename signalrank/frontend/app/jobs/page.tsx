@@ -405,6 +405,7 @@ function JobsPageContent() {
             tracked={tracked.has(job.id)}
             tracking={trackingId === job.id}
             onTrack={trackJob}
+            token={token}
             feedback={job.feedback?.value}
             feedbacking={feedbackId === job.id}
             onFeedback={submitFeedback}

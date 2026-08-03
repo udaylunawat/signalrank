@@ -46,6 +46,7 @@ export default function DesktopSetupPage() {
     const response = await fetch("/api/desktop-session", {
       method: "POST",
       cache: "no-store",
+      signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) {
       throw new Error("The protected local session could not be started.");
@@ -78,7 +79,7 @@ export default function DesktopSetupPage() {
         if (active) {
           const nextStatus = await refreshStatus(activeToken);
           if (nextStatus.onboarding_complete) {
-            router.replace("/dashboard");
+            window.location.replace("/dashboard");
           }
         }
       } catch (bootError) {
@@ -132,26 +133,6 @@ export default function DesktopSetupPage() {
     }
   }
 
-  async function restoreProvider() {
-    setRestoringKey(true);
-    setError("");
-    setNotice("");
-    try {
-      const activeToken = await ensureSession();
-      await api.desktop.restoreProviderKey(activeToken);
-      await refreshStatus(activeToken);
-      setNotice("Saved OpenRouter key unlocked for this session.");
-    } catch (restoreError) {
-      setError(
-        restoreError instanceof Error
-          ? restoreError.message
-          : "The saved OpenRouter key could not be unlocked.",
-      );
-    } finally {
-      setRestoringKey(false);
-    }
-  }
-
   async function uploadResume(event: React.FormEvent) {
     event.preventDefault();
     if (!resume) return;
@@ -174,6 +155,26 @@ export default function DesktopSetupPage() {
       );
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function restoreProvider() {
+    setRestoringKey(true);
+    setError("");
+    setNotice("");
+    try {
+      const activeToken = await ensureSession();
+      await api.desktop.restoreProviderKey(activeToken);
+      await refreshStatus(activeToken);
+      setNotice("Saved OpenRouter key unlocked for this session.");
+    } catch (restoreError) {
+      setError(
+        restoreError instanceof Error
+          ? restoreError.message
+          : "The saved OpenRouter key could not be unlocked.",
+      );
+    } finally {
+      setRestoringKey(false);
     }
   }
 
@@ -388,7 +389,7 @@ export default function DesktopSetupPage() {
               <Button
                 size="lg"
                 className="mt-6 h-11 w-full rounded-xl"
-                onClick={() => router.replace("/dashboard")}
+                onClick={() => window.location.replace("/dashboard")}
               >
                 Open dashboard
                 <ArrowRight data-icon="inline-end" />

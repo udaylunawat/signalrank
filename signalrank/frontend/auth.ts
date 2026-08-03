@@ -38,7 +38,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
       async authorize(credentials) {
         if (desktopMode) {
-          if (credentials?.desktop !== "true") return null;
           try {
             const data = await api.desktop.session();
             if (!data.access_token) return null;
@@ -47,7 +46,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               email: "local@signalrank.desktop",
               accessToken: data.access_token,
             };
-          } catch {
+          } catch (error) {
+            console.error(
+              "[auth] desktop backend session failed:",
+              error instanceof Error ? `${error.name}: ${error.message}` : "unknown error",
+            );
             return null;
           }
         }

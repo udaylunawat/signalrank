@@ -72,6 +72,39 @@
         font-size: 0.875rem;
         letter-spacing: -0.01em;
       }
+      .spinner.hidden {
+        visibility: hidden;
+      }
+      .status.failed {
+        max-width: 19rem;
+        color: #b42318;
+        text-align: center;
+        line-height: 1.45;
+      }
+      .actions {
+        display: none;
+        gap: 0.65rem;
+        margin-top: 1rem;
+      }
+      .actions.visible {
+        display: flex;
+      }
+      button {
+        padding: 0.62rem 0.85rem;
+        border: 1px solid #d8d4e5;
+        border-radius: 0.7rem;
+        background: white;
+        color: #3c3850;
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+      button.primary {
+        border-color: #6557c8;
+        background: #6557c8;
+        color: white;
+      }
       @keyframes spin {
         to {
           transform: rotate(360deg);
@@ -87,6 +120,11 @@
       </div>
       <div class="spinner" aria-label="Starting"></div>
       <div class="status">Opening your local workspace…</div>
+      <div class="actions">
+        <button id="open-log" type="button">Open startup log</button>
+        <button id="retry" class="primary" type="button">Retry</button>
+      </div>
     </main>
+    <script src="splash.js"></script>
   </body>
 </html>

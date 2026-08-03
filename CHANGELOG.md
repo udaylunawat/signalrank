@@ -14,13 +14,29 @@ All notable changes to SignalRank are documented here. The format follows [Keep 
 - Made onboarding and ranking role-agnostic with editable preferences,
   deterministic resume fallbacks, explainable match signals, and company
   reputation context.
-- Added packaged lifecycle, recovery, deterministic E2E, release, and artifact
-  scanning coverage for the desktop and SaaS paths.
+- Added feedback, packaged lifecycle and recovery coverage, deterministic E2E
+  lanes, release checks, and artifact scanning for the desktop and SaaS paths.
 - Reduced desktop startup, ranking memory, frontend, and packaging overhead for
   more reliable repeat builds and local operation.
 
+## [0.2.4] - 2026-07-19
+
+### Desktop reliability and performance
+
+- Fixed macOS startup failures caused by hardened signing of an ad-hoc PyInstaller sidecar whose extracted Python runtime had a different signing identity.
+- Real Apple-signed builds now sign PyInstaller contents with the same identity; ad-hoc builds no longer enable hardened Library Validation.
+- Sidecar exits now fail immediately, persist startup diagnostics, and show Retry and Open Log actions instead of leaving a permanent loading screen.
+- Added startup phases, bounded frontend and proxy requests, missing-session recovery, post-start service failure notices, and stricter packaged smoke tests.
+- Desktop restarts now discard only SignalRank session cookies before creating a fresh local session, preventing stale JWT errors without clearing cached application assets.
+- Desktop dashboard navigation no longer passes through the hosted Auth.js middleware gate, preventing a silent redirect back to local setup when middleware and server session state differ.
+- Local Auth.js sessions now start reliably, and a locked or prompting macOS Keychain can no longer block the backend event loop or leave setup stuck on **Open dashboard**.
+- Backend and web sidecars now exit if the native shell crashes or is force-terminated, preventing orphaned services and idle memory leaks.
+- Moved the local embedding model out of the one-file backend archive, deferred Keychain and heavy ranking imports, and reduced idle desktop worker polling.
+
 ### Added
 
+- Added a shared application kit to Matches and Tracker for generating, editing, copying, and opening recruiter outreach plus generating and saving tailored PDF resumes.
+- Added a lightweight cross-platform PDF renderer with classic, modern, and minimal layouts; desktop resume generation no longer depends on an unbundled Typst executable.
 - Resume- and role-agnostic onboarding for PDF, DOCX, and TXT resumes.
 - Structured resume parse status, confidence, source model, parser version, and recoverable error metadata.
 - Deterministic resume extraction fallback for skills, experience, and recent titles.
@@ -34,6 +50,8 @@ All notable changes to SignalRank are documented here. The format follows [Keep 
 
 ### Changed
 
+- Deferred the PDF renderer until first use, capped the desktop Next.js heap, enabled its persistent compile cache, and disabled telemetry to reduce idle memory and improve repeat startup.
+- OpenRouter clients now adopt a replaced desktop key without requiring an app restart.
 - Removed fixed role presets and profession-specific role synonym assumptions from onboarding and ranking.
 - Target-role scoring now uses free-text role signatures and preserves adjacent roles in a broader-match lane.
 - Skill overlap now compares explicitly parsed resume skills with job content instead of inferring the candidate's skills from job descriptions.
@@ -45,6 +63,9 @@ All notable changes to SignalRank are documented here. The format follows [Keep 
 
 ### Fixed
 
+- Allowed the packaged loopback renderer to invoke only the validated native link-opening and save-dialog commands, fixing dead job links and desktop downloads without exposing a generic shell or opener permission.
+- Repeated tailored-resume requests now atomically update the existing job draft instead of failing on a duplicate database record.
+- Tailored-resume and outreach failures now return actionable errors instead of blank content, false success, or an uncaught missing-renderer response.
 - Prevented stale degraded resume results from remaining cached after credentials or provider availability improve.
 - Prevented reasoning tokens from consuming the output budget for strict structured extraction.
 - Added recovery for free-router `404` responses, empty completions, and HTTP `200` responses without choices.
@@ -60,7 +81,7 @@ All notable changes to SignalRank are documented here. The format follows [Keep 
 
 ### Validation
 
-- Backend test suite: 121 passing tests.
+- Backend test suite: 141 passing tests.
 - Frontend lint and production build pass.
 - End-to-end resume onboarding verified with a non-platform-engineering QA resume.
 - Live OpenRouter structured extraction verified with currently available free models.

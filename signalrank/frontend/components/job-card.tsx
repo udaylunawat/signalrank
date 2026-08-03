@@ -1,3 +1,5 @@
+"use client";
+
 import {
   ArrowUpRight,
   BookmarkPlus,
@@ -18,6 +20,7 @@ import type {
   JobFeedbackReason,
   JobFeedbackValue,
 } from "@/types";
+import ApplicationKit from "@/components/application-kit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -74,6 +77,7 @@ function JobCard({
   tracked = false,
   tracking = false,
   onTrack,
+  token = "",
   feedback,
   feedbacking = false,
   onFeedback,
@@ -89,6 +93,7 @@ function JobCard({
   tracked?: boolean;
   tracking?: boolean;
   onTrack?: (job: Job) => void;
+  token?: string;
   feedback?: JobFeedbackValue | null;
   feedbacking?: boolean;
   onFeedback?: (
@@ -210,6 +215,16 @@ function JobCard({
               View role
               <ArrowUpRight data-icon="inline-end" />
             </Button>
+            {token && (
+              <ApplicationKit
+                token={token}
+                target={{
+                  jobId: job.id,
+                  title: job.title,
+                  company: job.company,
+                }}
+              />
+            )}
             {onTrack && (
               <Button
                 type="button"

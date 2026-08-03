@@ -2,13 +2,18 @@
 
 The Tauri 2 shell runs the SignalRank Next.js UI and FastAPI API entirely on
 the user's machine. Both services bind to random `127.0.0.1` ports. The shell
-generates fresh bootstrap and session secrets for each launch and passes them
-to the bundled sidecars through their environment.
+generates a fresh bootstrap token for each launch and shares a persistent,
+installation-local session secret with the bundled sidecars.
 
 No SignalRank cloud service, PostgreSQL server, system Node.js, or system
 Python installation is used by a packaged build. Job-source scraping and
 OpenRouter are the only application network paths, apart from signed update
 checks and HTTPS job links opened by the user.
+
+Matches and Tracker include an application kit. It can generate an editable
+outreach draft, open that draft in Gmail, and create a tailored PDF through the
+native save dialog. Resume rendering is bundled and does not require Typst or
+another system application.
 
 ## OpenRouter key
 
@@ -55,7 +60,8 @@ standard Apple and Windows signing secrets referenced by the workflow.
 
 ## Native boundary
 
-The renderer can invoke only two application commands:
+The renderer can invoke only two application commands from the packaged random
+`127.0.0.1` origin:
 
 - `open_external` accepts an absolute HTTPS URL.
 - `save_download` opens a native save dialog and sanitizes the proposed name.

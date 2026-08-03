@@ -15,49 +15,31 @@ const modelDir = resolve(
 );
 mkdirSync(resolve(desktopDir, "dist", "pyinstaller"), { recursive: true });
 
-function runUvPython(args) {
-  const result = spawnSync("uv", ["run", "python", ...args], {
-    cwd: backendDir,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  if (result.error) {
-    console.error(`Unable to run Python probe: ${result.error.message}`);
-    process.exit(1);
-  }
-  if (result.status !== 0) {
-    console.error(`Python probe exited with status ${result.status}`);
-    process.exit(result.status ?? 1);
-  }
-  return result.stdout.trim();
-}
-
-const tlsClientLibraryName = runUvPython([
-  "-c",
+const tlsBinaryName =
+  process.platform === "darwin"
+    ? process.arch === "arm64"
+      ? "tls-client-arm64.dylib"
+      : "tls-client-x86.dylib"
+    : process.platform === "win32"
+      ? "tls-client-64.dll"
+      : process.arch === "arm64"
+        ? "tls-client-arm64.so"
+        : "tls-client-amd64.so";
+const locateTlsBinary = spawnSync(
+  "uv",
   [
-    "import ctypes",
-    "from platform import machine",
-    "from sys import platform",
-    "machine_name = machine()",
-    "name = ('-arm64.dylib' if platform == 'darwin' and machine_name == 'arm64' else '-x86.dylib' if platform == 'darwin' else '-64.dll' if platform in ('win32', 'cygwin') and ctypes.sizeof(ctypes.c_voidp) == 8 else '-32.dll' if platform in ('win32', 'cygwin') else '-arm64.so' if machine_name == 'aarch64' else '-x86.so' if 'x86' in machine_name else '-amd64.so')",
-    "print('tls-client' + name)",
-  ].join("; "),
-]);
-
-if (!tlsClientLibraryName) {
-  console.error("Unable to determine the platform TLS client library");
-  process.exit(1);
-}
-
-const tlsClientLibrary = runUvPython([
-  "-c",
-  "import pathlib, tls_client; import sys; print(pathlib.Path(tls_client.__file__).parent / 'dependencies' / sys.argv[1])",
-  tlsClientLibraryName,
-]);
-
-if (!existsSync(tlsClientLibrary)) {
-  console.error(`Missing platform TLS client library: ${tlsClientLibrary}`);
-  process.exit(1);
+    "run",
+    "python",
+    "-c",
+    "import pathlib, sys, tls_client; print(pathlib.Path(tls_client.__file__).parent / 'dependencies' / sys.argv[1])",
+    tlsBinaryName,
+  ],
+  { cwd: backendDir, encoding: "utf8" },
+);
+const tlsBinary = locateTlsBinary.stdout?.trim();
+if (locateTlsBinary.status || !tlsBinary || !existsSync(tlsBinary)) {
+  console.error(`Unable to locate the native tls-client library: ${tlsBinaryName}`);
+  process.exit(locateTlsBinary.status ?? 1);
 }
 
 if (!existsSync(resolve(modelDir, "config.json"))) {
@@ -106,38 +88,59 @@ const args = [
   "--distpath",
   resolve(desktopDir, "dist", "backend"),
   "--hidden-import",
-  "api.main",
-  "--hidden-import",
   "aiosqlite",
+  "--hidden-import",
+  "api.main",
   "--hidden-import",
   "keyring",
   "--hidden-import",
-  "keyring.backends.macOS",
-  "--hidden-import",
   "passlib.handlers.bcrypt",
-  "--hidden-import",
-  "tls_client",
-  "--hidden-import",
-  "uvicorn.logging",
-  "--hidden-import",
-  "uvicorn.loops.auto",
-  "--hidden-import",
-  "uvicorn.protocols.http.auto",
-  "--hidden-import",
-  "uvicorn.protocols.websockets.auto",
-  "--hidden-import",
-  "uvicorn.lifespan.on",
-  "--collect-submodules",
-  "keyring.backends",
   "--add-binary",
-  `${tlsClientLibrary}${delimiter}tls_client/dependencies`,
+  `${tlsBinary}${delimiter}tls_client/dependencies`,
+  "--exclude-module",
+  "PIL",
+  "--exclude-module",
+  "pytest",
+  "--exclude-module",
+  "_pytest",
   "--add-data",
   `${resolve(backendDir, "config")}${delimiter}config`,
-  "--add-data",
-  `${resolve(backendDir, "templates")}${delimiter}templates`,
-  "--add-data",
-  `${modelDir}${delimiter}models/all-MiniLM-L6-v2`,
 ];
+
+if (process.platform === "darwin") {
+  args.push("--hidden-import", "keyring.backends.macOS");
+  args.push(
+    "--exclude-module",
+    "keyring.backends.Windows",
+    "--exclude-module",
+    "keyring.backends.SecretService",
+  );
+} else if (process.platform === "win32") {
+  args.push("--hidden-import", "keyring.backends.Windows");
+  args.push(
+    "--exclude-module",
+    "keyring.backends.macOS",
+    "--exclude-module",
+    "keyring.backends.SecretService",
+  );
+} else {
+  args.push("--hidden-import", "keyring.backends.SecretService");
+  args.push(
+    "--exclude-module",
+    "keyring.backends.macOS",
+    "--exclude-module",
+    "keyring.backends.Windows",
+  );
+}
+
+const signingIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim();
+if (
+  process.platform === "darwin" &&
+  signingIdentity &&
+  signingIdentity !== "-"
+) {
+  args.push("--codesign-identity", signingIdentity);
+}
 
 if (process.platform !== "win32") args.push("--strip");
 args.push(entrypoint);

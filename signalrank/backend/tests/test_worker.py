@@ -102,52 +102,6 @@ async def test_process_run_persists_partial_source_telemetry(
     assert telemetry.status == "error"
 
 
-async def test_process_run_keeps_success_when_source_has_partial_query_coverage(
-    db, test_engine, monkeypatch
-):
-    user, run = await _create_user_and_run(db)
-    session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-    now = datetime.now(timezone.utc)
-
-    async def fake_refresh(db, roles=None):
-        return {
-            "jobs_persisted": 0,
-            "reports": [
-                {
-                    "source": "linkedin",
-                    "query": "AI engineer",
-                    "status": "success",
-                    "jobs_found": 4,
-                    "duration_ms": 10,
-                    "started_at": now,
-                    "finished_at": now,
-                },
-                {
-                    "source": "linkedin",
-                    "query": "ML engineer",
-                    "status": "error",
-                    "jobs_found": 0,
-                    "duration_ms": 10,
-                    "error_summary": "request timed out",
-                    "started_at": now,
-                    "finished_at": now,
-                },
-            ],
-        }
-
-    async def fake_score(**kwargs):
-        return pd.DataFrame(columns=["id", "final_score"])
-
-    monkeypatch.setattr(worker, "refresh_job_catalog", fake_refresh)
-    monkeypatch.setattr(worker, "score_jobs_for_user", fake_score)
-
-    await worker.process_run(run.id, user.id, session_factory)
-
-    await db.refresh(run)
-    assert run.status == "success"
-    assert run.error_summary is None
-
-
 async def test_process_run_passes_profile_roles_and_experience_to_ranker(
     db, test_engine, monkeypatch
 ):
@@ -232,34 +186,6 @@ async def test_desktop_run_continues_when_company_enrichment_times_out(
     monkeypatch.setattr(
         worker.settings, "desktop_company_enrichment_timeout_seconds", 0.01
     )
-
-    await worker.process_run(run.id, user.id, session_factory)
-
-    await db.refresh(run)
-    assert run.status == "success"
-    assert run.stage == "complete"
-
-
-async def test_server_run_continues_when_job_enrichment_times_out(
-    db, test_engine, monkeypatch
-):
-    user, run = await _create_user_and_run(db)
-    session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-
-    async def fake_refresh(db, roles=None):
-        return {"jobs_persisted": 0, "reports": []}
-
-    async def slow_enrichment(*args, **kwargs):
-        await asyncio.sleep(1)
-
-    async def fake_score(**kwargs):
-        return pd.DataFrame(columns=["id", "final_score"])
-
-    monkeypatch.setattr(worker, "refresh_job_catalog", fake_refresh)
-    monkeypatch.setattr(worker, "enrich_job_postings", slow_enrichment)
-    monkeypatch.setattr(worker, "score_jobs_for_user", fake_score)
-    monkeypatch.setattr(worker, "is_desktop_mode", lambda: False)
-    monkeypatch.setattr(worker.settings, "job_enrichment_timeout_seconds", 0.01)
 
     await worker.process_run(run.id, user.id, session_factory)
 

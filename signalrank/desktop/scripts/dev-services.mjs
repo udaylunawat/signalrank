@@ -63,10 +63,16 @@ function start(name, command, args, cwd, env) {
     env,
     stdio: ["ignore", "inherit", "inherit"],
   });
+  child.on("error", (error) => {
+    if (!shuttingDown) {
+      console.error(`${name} failed to start: ${error.message}`);
+      shutdown(1);
+    }
+  });
   child.on("exit", (code) => {
-    if (!shuttingDown && code) {
-      console.error(`${name} exited with code ${code}`);
-      shutdown(code);
+    if (!shuttingDown) {
+      console.error(`${name} exited unexpectedly with code ${code ?? "unknown"}`);
+      shutdown(code || 1);
     }
   });
   children.push(child);

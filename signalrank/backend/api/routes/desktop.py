@@ -1,8 +1,6 @@
+import asyncio
 import logging
 import secrets
-import threading
-from collections.abc import Callable
-from typing import TypeVar
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
@@ -27,8 +25,8 @@ DESKTOP_USER_EMAIL = "local@signalrank.desktop"
 KEYRING_SERVICE = "SignalRank Desktop"
 KEYRING_USERNAME = "openrouter_api_key"
 _session_openrouter_key = ""
-KEYRING_TIMEOUT_SECONDS = 2.0
-KeyringValue = TypeVar("KeyringValue")
+_keyring_load_task: asyncio.Task[str] | None = None
+KEYRING_TIMEOUT_SECONDS = 8.0
 
 
 class ProviderKeyRequest(BaseModel):
@@ -57,41 +55,11 @@ def require_desktop_bootstrap(
         )
 
 
-def _run_keyring_operation(
-    operation: Callable[[], KeyringValue], fallback: KeyringValue
-) -> KeyringValue:
-    result: dict[str, KeyringValue] = {"value": fallback}
-
-    def run() -> None:
-        try:
-            result["value"] = operation()
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(
-                "Desktop credential-store operation unavailable: %s",
-                type(exc).__name__,
-            )
-
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-    thread.join(KEYRING_TIMEOUT_SECONDS)
-    if thread.is_alive():
-        logger.warning(
-            "Desktop credential-store operation timed out; using session-only key storage"
-        )
-        return fallback
-    return result["value"]
-
-
 def _load_keyring_key() -> str:
     try:
         import keyring
 
-        return _run_keyring_operation(
-            lambda: (
-                keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME) or ""
-            ).strip(),
-            "",
-        )
+        return (keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME) or "").strip()
     except Exception as exc:
         logger.debug(
             "Desktop credential-store read unavailable: %s", type(exc).__name__
@@ -103,12 +71,8 @@ def _save_keyring_key(api_key: str) -> bool:
     try:
         import keyring
 
-        return _run_keyring_operation(
-            lambda: (
-                keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, api_key) is None
-            ),
-            False,
-        )
+        keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, api_key)
+        return True
     except Exception as exc:
         logger.debug(
             "Desktop credential-store write unavailable: %s", type(exc).__name__
@@ -120,14 +84,11 @@ def _delete_keyring_key() -> bool:
     try:
         import keyring
 
-        def delete() -> bool:
-            try:
-                keyring.delete_password(KEYRING_SERVICE, KEYRING_USERNAME)
-            except keyring.errors.PasswordDeleteError:
-                pass
-            return True
-
-        return _run_keyring_operation(delete, False)
+        try:
+            keyring.delete_password(KEYRING_SERVICE, KEYRING_USERNAME)
+        except keyring.errors.PasswordDeleteError:
+            pass
+        return True
     except Exception as exc:
         logger.debug(
             "Desktop credential-store delete unavailable: %s", type(exc).__name__
@@ -144,6 +105,25 @@ def load_openrouter_key() -> str:
         _session_openrouter_key = key
         settings.openrouter_api_key = key
     return key
+
+
+async def load_openrouter_key_async() -> str:
+    global _keyring_load_task
+    if _session_openrouter_key:
+        return _session_openrouter_key
+    if _keyring_load_task is None:
+        _keyring_load_task = asyncio.create_task(asyncio.to_thread(load_openrouter_key))
+    try:
+        return await asyncio.wait_for(
+            asyncio.shield(_keyring_load_task),
+            timeout=KEYRING_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Desktop credential-store read timed out")
+        return ""
+    finally:
+        if _keyring_load_task is not None and _keyring_load_task.done():
+            _keyring_load_task = None
 
 
 def _reset_llm_client() -> None:
@@ -182,12 +162,13 @@ async def ensure_desktop_user(db: AsyncSession) -> User:
 @router.get("/status", dependencies=[Depends(require_desktop_bootstrap)])
 async def desktop_status(db: AsyncSession = Depends(get_db)):
     user = await ensure_desktop_user(db)
+    provider_key = await load_openrouter_key_async()
     profile = (
         await db.execute(select(Profile).where(Profile.user_id == user.id))
     ).scalar_one()
     return {
         "mode": "desktop",
-        "provider_configured": bool(_session_openrouter_key),
+        "provider_configured": bool(provider_key),
         "resume_uploaded": bool(profile.resume_text),
         "onboarding_complete": bool(profile.onboarding_complete),
         "user_id": user.id,
@@ -197,7 +178,7 @@ async def desktop_status(db: AsyncSession = Depends(get_db)):
 @router.post("/provider-key/restore", dependencies=[Depends(require_desktop_bootstrap)])
 async def restore_provider_key():
     global _session_openrouter_key
-    key = _load_keyring_key()
+    key = await asyncio.to_thread(load_openrouter_key)
     if not key:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -248,10 +229,17 @@ async def save_provider_key(body: ProviderKeyRequest):
             or "No compatible free structured-output model is available",
         )
 
-    persisted = _save_keyring_key(api_key)
     _session_openrouter_key = api_key
     settings.openrouter_api_key = api_key
     _reset_llm_client()
+    try:
+        persisted = await asyncio.wait_for(
+            asyncio.to_thread(_save_keyring_key, api_key),
+            timeout=KEYRING_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Desktop credential-store write timed out")
+        persisted = False
     return {
         "status": "ok",
         "provider": "openrouter",
@@ -264,7 +252,19 @@ async def save_provider_key(body: ProviderKeyRequest):
 @router.delete("/provider-key", dependencies=[Depends(require_desktop_bootstrap)])
 async def delete_provider_key():
     global _session_openrouter_key
-    if _load_keyring_key() and not _delete_keyring_key():
+    try:
+        stored_key = await asyncio.wait_for(
+            asyncio.to_thread(_load_keyring_key),
+            timeout=KEYRING_TIMEOUT_SECONDS,
+        )
+        deleted = not stored_key or await asyncio.wait_for(
+            asyncio.to_thread(_delete_keyring_key),
+            timeout=KEYRING_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Desktop credential-store delete timed out")
+        deleted = False
+    if not deleted:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not remove the key from the operating system credential store",

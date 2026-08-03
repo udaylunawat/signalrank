@@ -40,6 +40,34 @@ export class ApiError extends Error {
   }
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const LONG_REQUEST_TIMEOUT_MS = 120_000;
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+) {
+  const timeoutController = new AbortController();
+  const timeout = setTimeout(() => timeoutController.abort(), timeoutMs);
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutController.signal])
+    : timeoutController.signal;
+  try {
+    return await fetch(input, { ...init, signal });
+  } catch (error) {
+    if (timeoutController.signal.aborted) {
+      throw new ApiError(
+        504,
+        "The local service took too long to respond. Try again.",
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function errorDetail(res: Response) {
   const fallback = `Request failed with status ${res.status}`;
   try {
@@ -53,9 +81,9 @@ async function errorDetail(res: Response) {
 
 async function request<T>(
   path: string,
-  options: RequestInit & { token?: string } = {}
+  options: RequestInit & { token?: string; timeoutMs?: number } = {}
 ): Promise<T> {
-  const { token, ...init } = options;
+  const { token, timeoutMs, ...init } = options;
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string>),
   };
@@ -72,11 +100,11 @@ async function request<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${baseUrl()}${path}`, {
-    ...init,
-    headers,
-    cache: "no-store",
-  });
+  const res = await fetchWithTimeout(
+    `${baseUrl()}${path}`,
+    { ...init, headers, cache: "no-store" },
+    timeoutMs,
+  );
   if (!res.ok) {
     throw new ApiError(res.status, await errorDetail(res));
   }
@@ -84,17 +112,21 @@ async function request<T>(
   return res.json();
 }
 
-async function download(path: string, token: string) {
-  const res = await fetch(`${baseUrl()}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
+async function download(path: string, token: string, fallbackFilename: string) {
+  const res = await fetchWithTimeout(
+    `${baseUrl()}${path}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    },
+    LONG_REQUEST_TIMEOUT_MS,
+  );
   if (!res.ok) {
     throw new ApiError(res.status, await errorDetail(res));
   }
   const disposition = res.headers.get("Content-Disposition") ?? "";
   const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]
-    ?? "signalrank-jobs.csv";
+    ?? fallbackFilename;
   return { blob: await res.blob(), filename };
 }
 
@@ -164,7 +196,8 @@ export const api = {
     },
     get: (token: string, id: string) =>
       request<JobDetail>(`/api/jobs/${id}`, { token }),
-    exportCsv: (token: string) => download("/api/jobs/export.csv", token),
+    exportCsv: (token: string) =>
+      download("/api/jobs/export.csv", token, "signalrank-jobs.csv"),
     feedback: (
       token: string,
       id: string,
@@ -214,6 +247,37 @@ export const api = {
       }),
   },
 
+  resume: {
+    tailor: (token: string, data: { job_id: string; template: string }) =>
+      request<{
+        status: "ok";
+        job_id: string;
+        template: string;
+        pdf_available: boolean;
+      }>("/api/resume/tailor", {
+        method: "POST",
+        token,
+        body: JSON.stringify(data),
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+      }),
+    download: (token: string, jobId: string) =>
+      download(
+        `/api/resume/tailor/${jobId}`,
+        token,
+        `tailored-resume-${jobId.slice(0, 8)}.pdf`,
+      ),
+    email: (
+      token: string,
+      data: { job_id: string; recipient_name: string },
+    ) =>
+      request<{ subject: string; body: string }>("/api/resume/email", {
+        method: "POST",
+        token,
+        body: JSON.stringify(data),
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+      }),
+  },
+
   onboarding: {
     status: (token: string) =>
       request<OnboardingStatus>("/api/onboarding/status", { token }),
@@ -222,19 +286,26 @@ export const api = {
       form.append("file", file);
       return request<OnboardingResumeResponse>(
         "/api/onboarding/resume",
-        { method: "POST", token, body: form }
+        {
+          method: "POST",
+          token,
+          body: form,
+          timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+        },
       );
     },
     retryResume: (token: string) =>
       request<OnboardingResumeResponse>("/api/onboarding/resume/retry", {
         method: "POST",
         token,
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
       }),
     refine: (token: string, question_id: string, answer: string | string[]) =>
       request<{ status: string }>("/api/onboarding/refine", {
         method: "POST",
         token,
         body: JSON.stringify({ question_id, answer }),
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
       }),
   },
 };

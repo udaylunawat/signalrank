@@ -1,8 +1,10 @@
 use std::env;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -19,6 +21,16 @@ struct DesktopChildren {
     backend: Mutex<Option<CommandChild>>,
     web: Mutex<Option<CommandChild>>,
     shutting_down: Arc<AtomicBool>,
+}
+
+struct StartupDiagnostics {
+    log_path: PathBuf,
+}
+
+enum ServiceWait {
+    Ready,
+    Exited,
+    TimedOut,
 }
 
 impl DesktopChildren {
@@ -108,15 +120,18 @@ fn allocate_ports() -> std::io::Result<(u16, u16)> {
     Ok((backend.local_addr()?.port(), web.local_addr()?.port()))
 }
 
-fn wait_for_port(port: u16, timeout: Duration) -> bool {
+fn wait_for_port(port: u16, timeout: Duration, exited: &AtomicBool) -> ServiceWait {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
+        if exited.load(Ordering::SeqCst) {
+            return ServiceWait::Exited;
+        }
         if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return true;
+            return ServiceWait::Ready;
         }
         thread::sleep(Duration::from_millis(150));
     }
-    false
+    ServiceWait::TimedOut
 }
 
 fn random_secret() -> String {
@@ -135,6 +150,19 @@ fn load_install_secret(data_dir: &Path) -> std::io::Result<String> {
     Ok(secret)
 }
 
+fn is_desktop_session_cookie(name: &str) -> bool {
+    name.starts_with("signalrank.desktop.")
+}
+
+fn clear_desktop_session_cookies(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    for cookie in window.cookies()? {
+        if is_desktop_session_cookie(cookie.name()) {
+            window.delete_cookie(cookie)?;
+        }
+    }
+    Ok(())
+}
+
 fn find_server_js(directory: &Path) -> std::io::Result<Option<PathBuf>> {
     let direct = directory.join("server.js");
     if direct.is_file() {
@@ -151,21 +179,47 @@ fn find_server_js(directory: &Path) -> std::io::Result<Option<PathBuf>> {
     Ok(None)
 }
 
-fn bundled_node_runtime(resource_dir: &Path) -> PathBuf {
-    let mut runtime = resource_dir.join("node").join("signalrank-web");
-    if cfg!(windows) {
-        runtime.set_extension("exe");
+fn append_startup_log(path: &Path, message: &str) {
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{message}");
     }
-    runtime
 }
 
-fn startup_error(window: &tauri::WebviewWindow, message: &str) {
-    let message = format!("Startup failed: {message}");
-    let _ = window.eval(format!(
-        "document.querySelector('.spinner')?.remove();\
-         const status=document.querySelector('.status');\
-         if(status){{status.textContent={message:?};status.style.color='#b42318';}}"
-    ));
+fn splash_status(window: &tauri::WebviewWindow, message: &str, failed: bool) {
+    let script = format!(
+        "const status=document.querySelector('.status');\
+         if(status){{status.textContent={message:?};status.classList.toggle('failed',{failed});}}\
+         document.querySelector('.spinner')?.classList.toggle('hidden',{failed});\
+         document.querySelector('.actions')?.classList.toggle('visible',{failed});"
+    );
+    let _ = window.eval(&script);
+    if failed {
+        let retry_window = window.clone();
+        tauri::async_runtime::spawn(async move {
+            for delay in [250, 750, 1500] {
+                thread::sleep(Duration::from_millis(delay));
+                let _ = retry_window.eval(&script);
+            }
+        });
+    }
+}
+
+fn startup_status(handle: &tauri::AppHandle, log_path: &Path, message: &str) {
+    append_startup_log(log_path, message);
+    if let Some(window) = handle.get_webview_window("main") {
+        splash_status(&window, message, false);
+    }
+}
+
+fn startup_error(handle: &tauri::AppHandle, log_path: &Path, message: &str) {
+    append_startup_log(log_path, &format!("Startup failed: {message}"));
+    if let Some(window) = handle.get_webview_window("main") {
+        splash_status(
+            &window,
+            "SignalRank could not start its local services. Retry, or open the startup log for details.",
+            true,
+        );
+    }
 }
 
 fn native_ui_smoke_script() -> &'static str {
@@ -218,13 +272,13 @@ fn sanitized_filename(filename: &str) -> String {
 
 #[tauri::command]
 fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    let parsed = validate_external_url(&url)?;
+    let parsed = validated_external_url(&url)?;
     app.opener()
         .open_url(parsed.as_str(), None::<&str>)
         .map_err(|error| error.to_string())
 }
 
-fn validate_external_url(url: &str) -> Result<Url, String> {
+fn validated_external_url(url: &str) -> Result<Url, String> {
     let parsed = Url::parse(url).map_err(|_| "The link is not a valid URL".to_string())?;
     if parsed.scheme() != "https" || parsed.host_str().is_none() {
         return Err("Only absolute HTTPS links can be opened".to_string());
@@ -255,6 +309,21 @@ fn save_download(app: tauri::AppHandle, filename: String, data: Vec<u8>) -> Resu
     Ok(true)
 }
 
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
+#[tauri::command]
+fn reveal_startup_log(
+    app: tauri::AppHandle,
+    diagnostics: tauri::State<StartupDiagnostics>,
+) -> Result<(), String> {
+    app.opener()
+        .reveal_item_in_dir(&diagnostics.log_path)
+        .map_err(|error| error.to_string())
+}
+
 fn setup_packaged_sidecars(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     if cfg!(debug_assertions) {
         return Ok(());
@@ -267,12 +336,11 @@ fn setup_packaged_sidecars(app: &mut tauri::App) -> Result<(), Box<dyn std::erro
         .map(PathBuf::from)
         .unwrap_or(handle.path().app_data_dir()?);
     std::fs::create_dir_all(&data_dir)?;
-
-    if env::var_os("SIGNALRANK_SMOKE_EXIT_AFTER_READY").is_some() {
-        if let Some(window) = app.get_webview_window("main") {
-            window.clear_all_browsing_data()?;
-        }
-    }
+    let startup_log = data_dir.join("startup.log");
+    std::fs::write(&startup_log, "SignalRank desktop startup\n")?;
+    app.manage(StartupDiagnostics {
+        log_path: startup_log.clone(),
+    });
 
     let (backend_port, web_port) = allocate_ports()?;
     let bootstrap_token = random_secret();
@@ -291,13 +359,12 @@ fn setup_packaged_sidecars(app: &mut tauri::App) -> Result<(), Box<dyn std::erro
             web_port,
             bootstrap_token,
             shutting_down,
+            startup_log.clone(),
         )
         .await;
         if let Err(error) = result {
             eprintln!("[desktop] startup failed: {error}");
-            if let Some(window) = handle.get_webview_window("main") {
-                startup_error(&window, &error.to_string());
-            }
+            startup_error(&handle, &startup_log, &error.to_string());
             let _ = handle.emit("signalrank-sidecar-exit", "startup");
             stop_sidecars(&handle);
         }
@@ -312,24 +379,43 @@ async fn start_sidecars(
     web_port: u16,
     bootstrap_token: String,
     shutting_down: Arc<AtomicBool>,
+    startup_log: PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let desktop_parent_pid = std::process::id().to_string();
     let backend_url = format!("http://127.0.0.1:{backend_port}");
     let web_url = format!("http://127.0.0.1:{web_port}");
     let resource_dir = handle.path().resource_dir()?;
     let server_js = find_server_js(&resource_dir.join("web"))?
         .ok_or("Bundled Next.js server.js was not found")?;
-    let node_runtime = bundled_node_runtime(&resource_dir);
-    if !node_runtime.is_file() {
-        return Err("Bundled Node.js runtime was not found".into());
-    }
+    let web_server = format!(
+        "./{}",
+        server_js
+            .strip_prefix(&resource_dir)?
+            .to_string_lossy()
+            .replace('\\', "/")
+    );
+    let embedding_model = resource_dir.join("models").join("all-MiniLM-L6-v2");
 
-    let (mut backend_events, backend_child) = handle
-        .shell()
-        .sidecar("signalrank-backend")?
+    startup_status(
+        &handle,
+        &startup_log,
+        "Starting the local database and ranking service…",
+    );
+    let backend_exited = Arc::new(AtomicBool::new(false));
+
+    let mut backend_command = handle.shell().sidecar("signalrank-backend")?;
+    #[cfg(target_os = "macos")]
+    {
+        backend_command =
+            backend_command.env("PYTHON_KEYRING_BACKEND", "keyring.backends.macOS.Keyring");
+    }
+    let (mut backend_events, backend_child) = backend_command
         .env("HOST", "127.0.0.1")
         .env("PORT", backend_port.to_string())
         .env("SIGNALRANK_MODE", "desktop")
+        .env("SIGNALRANK_DESKTOP_PARENT_PID", &desktop_parent_pid)
         .env("SIGNALRANK_APP_DATA_DIR", &data_dir)
+        .env("SIGNALRANK_EMBEDDING_MODEL_PATH", embedding_model)
         .env(
             "SIGNALRANK_DESKTOP_BOOTSTRAP_TOKEN",
             bootstrap_token.clone(),
@@ -343,6 +429,8 @@ async fn start_sidecars(
 
     let backend_handle = handle.clone();
     let backend_shutdown = shutting_down.clone();
+    let backend_exit_state = backend_exited.clone();
+    let backend_log = startup_log.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = backend_events.recv().await {
             match event {
@@ -350,10 +438,24 @@ async fn start_sidecars(
                     println!("[backend] {}", String::from_utf8_lossy(&line));
                 }
                 CommandEvent::Stderr(line) => {
-                    eprintln!("[backend] {}", String::from_utf8_lossy(&line));
+                    let line = String::from_utf8_lossy(&line);
+                    eprintln!("[backend] {line}");
+                    append_startup_log(&backend_log, &format!("[backend] {line}"));
                 }
                 CommandEvent::Terminated(status) if !backend_shutdown.load(Ordering::SeqCst) => {
+                    backend_exit_state.store(true, Ordering::SeqCst);
                     eprintln!("[backend] unexpectedly terminated: {status:?}");
+                    append_startup_log(
+                        &backend_log,
+                        &format!("[backend] unexpectedly terminated: {status:?}"),
+                    );
+                    if let Some(window) = backend_handle.get_webview_window("main") {
+                        splash_status(
+                            &window,
+                            "The local ranking service stopped. Retry to restart SignalRank.",
+                            true,
+                        );
+                    }
                     let _ = backend_handle.emit("signalrank-sidecar-exit", "backend");
                     break;
                 }
@@ -362,15 +464,36 @@ async fn start_sidecars(
         }
     });
 
-    if !wait_for_port(backend_port, Duration::from_secs(90)) {
-        return Err("The local backend did not become ready".into());
+    match wait_for_port(backend_port, Duration::from_secs(90), &backend_exited) {
+        ServiceWait::Ready => {}
+        ServiceWait::Exited => {
+            return Err("The local ranking service exited before it became ready".into())
+        }
+        ServiceWait::TimedOut => {
+            return Err("The local ranking service did not become ready within 90 seconds".into())
+        }
     }
     let auth_secret = load_install_secret(&data_dir)?;
 
+    startup_status(
+        &handle,
+        &startup_log,
+        "Starting the local workspace interface…",
+    );
+    let web_exited = Arc::new(AtomicBool::new(false));
+
     let (mut web_events, web_child) = handle
         .shell()
-        .command(node_runtime)
-        .args([server_js.to_string_lossy().to_string()])
+        .sidecar("signalrank-web")?
+        .current_dir(&resource_dir)
+        .args([
+            "--eval",
+            "const parent=Number(process.env.SIGNALRANK_DESKTOP_PARENT_PID);\
+             const timer=setInterval(()=>{try{process.kill(parent,0)}catch{process.exit(0)}},1000);\
+             timer.unref();require(process.env.SIGNALRANK_WEB_SERVER)",
+        ])
+        .env("SIGNALRANK_WEB_SERVER", web_server)
+        .env("SIGNALRANK_DESKTOP_PARENT_PID", &desktop_parent_pid)
         .env("HOSTNAME", "127.0.0.1")
         .env("PORT", web_port.to_string())
         .env("BACKEND_URL", &backend_url)
@@ -378,6 +501,12 @@ async fn start_sidecars(
         .env("NEXTAUTH_URL", &web_url)
         .env("AUTH_SECRET", &auth_secret)
         .env("NEXTAUTH_SECRET", &auth_secret)
+        .env(
+            "NODE_OPTIONS",
+            "--max-old-space-size=128 --max-semi-space-size=4",
+        )
+        .env("NODE_COMPILE_CACHE", data_dir.join("node-compile-cache"))
+        .env("NEXT_TELEMETRY_DISABLED", "1")
         .env("SIGNALRANK_MODE", "desktop")
         .env("NEXT_PUBLIC_SIGNALRANK_MODE", "desktop")
         .env("SIGNALRANK_DESKTOP_BOOTSTRAP_TOKEN", bootstrap_token)
@@ -389,6 +518,8 @@ async fn start_sidecars(
     }
 
     let web_handle = handle.clone();
+    let web_exit_state = web_exited.clone();
+    let web_log = startup_log.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = web_events.recv().await {
             match event {
@@ -396,10 +527,24 @@ async fn start_sidecars(
                     println!("[web] {}", String::from_utf8_lossy(&line));
                 }
                 CommandEvent::Stderr(line) => {
-                    eprintln!("[web] {}", String::from_utf8_lossy(&line));
+                    let line = String::from_utf8_lossy(&line);
+                    eprintln!("[web] {line}");
+                    append_startup_log(&web_log, &format!("[web] {line}"));
                 }
                 CommandEvent::Terminated(status) if !shutting_down.load(Ordering::SeqCst) => {
+                    web_exit_state.store(true, Ordering::SeqCst);
                     eprintln!("[web] unexpectedly terminated: {status:?}");
+                    append_startup_log(
+                        &web_log,
+                        &format!("[web] unexpectedly terminated: {status:?}"),
+                    );
+                    if let Some(window) = web_handle.get_webview_window("main") {
+                        splash_status(
+                            &window,
+                            "The local workspace interface stopped. Retry to restart SignalRank.",
+                            true,
+                        );
+                    }
                     let _ = web_handle.emit("signalrank-sidecar-exit", "web");
                     break;
                 }
@@ -408,12 +553,22 @@ async fn start_sidecars(
         }
     });
 
-    if !wait_for_port(web_port, Duration::from_secs(60)) {
-        return Err("The local web server did not become ready".into());
+    match wait_for_port(web_port, Duration::from_secs(60), &web_exited) {
+        ServiceWait::Ready => {}
+        ServiceWait::Exited => {
+            return Err("The local workspace interface exited before it became ready".into())
+        }
+        ServiceWait::TimedOut => {
+            return Err(
+                "The local workspace interface did not become ready within 60 seconds".into(),
+            )
+        }
     }
 
+    startup_status(&handle, &startup_log, "Opening your local workspace…");
     println!("[desktop] services ready backend={backend_url} web={web_url}");
     if let Some(window) = handle.get_webview_window("main") {
+        clear_desktop_session_cookies(&window)?;
         window.eval(format!("window.location.replace({web_url:?})"))?;
     }
 
@@ -434,7 +589,12 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![open_external, save_download])
+        .invoke_handler(tauri::generate_handler![
+            open_external,
+            save_download,
+            restart_app,
+            reveal_startup_log
+        ])
         .setup(setup_packaged_sidecars)
         .on_page_load(|webview, payload| {
             if env::var_os("SIGNALRANK_NATIVE_UI_SMOKE").is_none()
@@ -446,20 +606,34 @@ fn main() {
 
             let webview = webview.clone();
             thread::spawn(move || {
-                thread::sleep(Duration::from_millis(1500));
                 let app_handle = webview.app_handle().clone();
-                let callback_handle = app_handle.clone();
-                if let Err(error) =
-                    webview.eval_with_callback(native_ui_smoke_script(), move |result| {
+                let mut last_result = String::from("{\"pass\":false,\"reason\":\"no callback\"}");
+                for _ in 0..30 {
+                    let (sender, receiver) = mpsc::channel();
+                    if let Err(error) = webview.eval_with_callback(
+                        native_ui_smoke_script(),
+                        move |result| {
+                            let _ = sender.send(result);
+                        },
+                    ) {
+                        eprintln!("[native-ui] smoke-eval failed: {error}");
+                        app_handle.exit(1);
+                        return;
+                    }
+                    if let Ok(result) = receiver.recv_timeout(Duration::from_secs(2)) {
                         let passed = result.contains("\\\"pass\\\":true")
                             || result.contains("\"pass\":true");
-                        println!("[native-ui] smoke-result pass={passed} result={result}");
-                        callback_handle.exit(if passed { 0 } else { 1 });
-                    })
-                {
-                    eprintln!("[native-ui] smoke-eval failed: {error}");
-                    app_handle.exit(1);
+                        last_result = result;
+                        if passed {
+                            println!("[native-ui] smoke-result pass=true result={last_result}");
+                            app_handle.exit(0);
+                            return;
+                        }
+                    }
+                    thread::sleep(Duration::from_secs(1));
                 }
+                println!("[native-ui] smoke-result pass=false result={last_result}");
+                app_handle.exit(1);
             });
         })
         .on_window_event(|window, event| {
@@ -482,30 +656,55 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{sanitized_filename, validate_external_url};
+    use super::*;
 
     #[test]
-    fn sanitized_filename_removes_paths_and_unsafe_characters() {
-        assert_eq!(sanitized_filename("../../roles:2026.csv"), "roles_2026.csv");
-        assert_eq!(sanitized_filename("..."), "signalrank-export.csv");
+    fn service_wait_stops_immediately_after_child_exit() {
+        let exited = AtomicBool::new(true);
+        let started = Instant::now();
+
+        let result = wait_for_port(9, Duration::from_secs(2), &exited);
+
+        assert!(matches!(result, ServiceWait::Exited));
+        assert!(started.elapsed() < Duration::from_millis(100));
     }
 
     #[test]
-    fn external_url_policy_accepts_https_without_credentials() {
-        let parsed = validate_external_url("https://jobs.example.test/role").unwrap();
-        assert_eq!(parsed.scheme(), "https");
+    fn service_wait_accepts_a_bound_loopback_port() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let exited = AtomicBool::new(false);
+
+        let result = wait_for_port(port, Duration::from_secs(1), &exited);
+
+        assert!(matches!(result, ServiceWait::Ready));
     }
 
     #[test]
-    fn external_url_policy_rejects_non_https_and_credentials() {
-        for value in [
-            "http://jobs.example.test/role",
-            "file:///tmp/role.csv",
+    fn desktop_cookie_filter_is_scoped_to_signalrank() {
+        assert!(is_desktop_session_cookie(
+            "signalrank.desktop.session-token"
+        ));
+        assert!(is_desktop_session_cookie("signalrank.desktop.callback-url"));
+        assert!(!is_desktop_session_cookie("next-auth.session-token"));
+        assert!(!is_desktop_session_cookie("another-app.session-token"));
+    }
+
+    #[test]
+    fn external_url_validation_accepts_only_safe_https_links() {
+        assert!(validated_external_url("https://jobs.example.com/role?id=1").is_ok());
+        for invalid in [
+            "http://jobs.example.com/role",
             "javascript:alert(1)",
-            "/relative/path",
-            "https://user:password@jobs.example.test/role",
+            "file:///tmp/role",
+            "/relative-role",
+            "https://user@jobs.example.com/role",
+            "https://user:secret@jobs.example.com/role",
         ] {
-            assert!(validate_external_url(value).is_err(), "accepted {value}");
+            assert!(
+                validated_external_url(invalid).is_err(),
+                "accepted {invalid}"
+            );
         }
     }
 }

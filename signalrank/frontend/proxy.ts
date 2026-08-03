@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 
-export default auth((request) => {
-  const { pathname, search } = request.nextUrl;
-  const desktopMode =
-    process.env.SIGNALRANK_MODE === "desktop" ||
-    process.env.NEXT_PUBLIC_SIGNALRANK_MODE === "desktop";
-  if (desktopMode || request.auth) return NextResponse.next();
+const desktopMode =
+  process.env.SIGNALRANK_MODE === "desktop" ||
+  process.env.NEXT_PUBLIC_SIGNALRANK_MODE === "desktop";
 
-  const destination = new URL(
-    "/login",
-    request.nextUrl.origin,
-  );
+const authenticatedProxy = auth((request) => {
+  if (request.auth) return NextResponse.next();
+
+  const { pathname, search } = request.nextUrl;
+  const destination = new URL("/login", request.nextUrl.origin);
   destination.searchParams.set("callbackUrl", `${pathname}${search}`);
   return NextResponse.redirect(destination);
 });
+
+export default desktopMode ? () => NextResponse.next() : authenticatedProxy;
 
 export const config = {
   matcher: [
