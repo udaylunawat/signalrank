@@ -35,7 +35,7 @@ jobs:
           enable-cache: true
       - name: Install backend dependencies
         working-directory: signalrank/backend
-        run: uv sync --dev
+        run: uv sync --extra dev
       - name: Validate migrations
         working-directory: signalrank/backend
         env:
