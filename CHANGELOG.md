@@ -4,6 +4,21 @@ All notable changes to SignalRank are documented here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-08-03
+
+### Release highlights
+
+- Delivered the local-first Tauri desktop workflow with bundled Next.js and
+  FastAPI sidecars, local SQLite persistence, local scraping and ranking, and
+  direct user-supplied OpenRouter access.
+- Made onboarding and ranking role-agnostic with editable preferences,
+  deterministic resume fallbacks, explainable match signals, and company
+  reputation context.
+- Added packaged lifecycle, recovery, deterministic E2E, release, and artifact
+  scanning coverage for the desktop and SaaS paths.
+- Reduced desktop startup, ranking memory, frontend, and packaging overhead for
+  more reliable repeat builds and local operation.
+
 ### Added
 
 - Resume- and role-agnostic onboarding for PDF, DOCX, and TXT resumes.
