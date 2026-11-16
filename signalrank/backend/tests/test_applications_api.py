@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy import select
 
-from api.models import Application, JobRaw, JobResult, Run, User
+from api.models import Application, GenerationQueue, JobRaw, JobResult, Run, User
 
 
 @pytest.fixture
@@ -165,3 +165,79 @@ async def test_list_applications_normalizes_legacy_percent_scores(client, auth_t
     app = next(a for a in response.json()["applications"] if a["id"] == legacy_app.id)
     assert app["system_score"] == pytest.approx(0.7516)
     assert app["resume_match_pct"] == pytest.approx(0.82)
+
+
+
+async def test_saving_job_does_not_queue_background_enrichment(client, auth_token, db):
+    user = (await db.execute(select(User).where(User.email == "appuser@test.com"))).scalar_one()
+    job = JobRaw(
+        job_url="https://example.com/jobs/save-only",
+        title="Data Engineer",
+        company="Save Only Inc",
+        location="Pune",
+    )
+    db.add(job)
+    await db.commit()
+
+    response = await client.post(
+        "/api/applications",
+        json={"job_id": job.id, "company": job.company, "title": job.title},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    assert response.status_code == 201
+    queued = (await db.execute(
+        select(GenerationQueue).where(GenerationQueue.user_id == user.id)
+    )).scalars().all()
+    assert queued == []
+
+
+async def test_patch_explicit_null_clears_tracker_fields(client, auth_token):
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    response = await client.post(
+        "/api/applications",
+        json={
+            "company": "Tracker Inc",
+            "title": "Engineer",
+            "notes": "Call recruiter",
+            "priority": "P1",
+            "location_group": "Pune",
+            "interview_date": "2026-12-10T09:30:00",
+            "offer_lpa": 40,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201
+    app_id = response.json()["id"]
+
+    updated = await client.patch(
+        f"/api/applications/{app_id}",
+        json={
+            "notes": None,
+            "priority": None,
+            "location_group": None,
+            "interview_date": None,
+            "offer_lpa": None,
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    listed = (await client.get("/api/applications", headers=headers)).json()["applications"]
+    app = next(item for item in listed if item["id"] == app_id)
+    for field in ("notes", "priority", "location_group", "interview_date", "offer_lpa"):
+        assert app[field] is None
+
+
+async def test_patch_rejects_invalid_interview_date(client, auth_token):
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    response = await client.post(
+        "/api/applications",
+        json={"company": "Calendar Inc", "title": "Engineer"},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    patched = await client.patch(
+        f"/api/applications/{response.json()['id']}",
+        json={"interview_date": "not-a-date"},
+        headers=headers,
+    )
+    assert patched.status_code == 422

@@ -60,6 +60,17 @@ DEFAULT_JOBS_CACHE_PARAMS = {
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
+
+def _job_search_clause(search: str):
+    """Search the same fields for both single-run and multi-run views."""
+    pattern = f"%{search}%"
+    return or_(
+        JobRaw.title.ilike(pattern),
+        JobRaw.company.ilike(pattern),
+        JobRaw.location.ilike(pattern),
+    )
+
+
 _LEGACY_TIER_MAP = {
     "ss": "tier_ss",
     "s": "tier_s",
@@ -661,10 +672,7 @@ async def _build_jobs_payload_multi_run(
             )
         )
     if search:
-        pattern = f"%{search}%"
-        base_filters.append(
-            or_(JobRaw.title.ilike(pattern), JobRaw.company.ilike(pattern))
-        )
+        base_filters.append(_job_search_clause(search))
 
     if min_score > 0:
         base_filters.append(JobResult.final_score >= min_score)
@@ -872,10 +880,7 @@ async def _build_jobs_payload(
             )
         )
     if search:
-        pattern = f"%{search}%"
-        base_filters.append(
-            or_(JobRaw.title.ilike(pattern), JobRaw.company.ilike(pattern))
-        )
+        base_filters.append(_job_search_clause(search))
 
     if min_score > 0:
         base_filters.append(JobResult.final_score >= min_score)

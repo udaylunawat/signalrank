@@ -966,3 +966,41 @@ async def test_profile_fresh_preview_returns_rows(client, auth_token, db: AsyncS
     assert payload["companies_exported"] == 2
     assert payload["scraped_jobs"] == 10
     assert payload["rows"][0]["company"] == "Acme"
+
+
+
+async def test_job_search_includes_location(client, auth_token, db: AsyncSession):
+    profile = await client.get(
+        "/api/profile", headers={"Authorization": f"Bearer {auth_token}"}
+    )
+    user_id = profile.json()["user_id"]
+    run = Run(user_id=user_id, status="success")
+    job = JobRaw(
+        job_url="https://example.com/jobs/location-search",
+        title="Platform Engineer",
+        company="Location Search Corp",
+        location="Vadodara, Gujarat",
+        site="manual",
+    )
+    db.add_all([run, job])
+    await db.flush()
+    db.add(
+        JobResult(
+            run_id=run.id,
+            user_id=user_id,
+            job_id=job.id,
+            final_score=82,
+            company_tier="tier_a",
+        )
+    )
+    await db.commit()
+
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    for query in ("search=Vadodara", "search=Vadodara&tiers=tier_a"):
+        response = await client.get(f"/api/jobs?{query}", headers=headers)
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()["jobs"]] == [job.id]
+
+    unrelated = await client.get("/api/jobs?search=Nagpur", headers=headers)
+    assert unrelated.status_code == 200
+    assert unrelated.json()["jobs"] == []

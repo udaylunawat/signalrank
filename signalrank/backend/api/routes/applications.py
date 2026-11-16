@@ -1,6 +1,3 @@
-import asyncio
-import logging
-import random
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,26 +7,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.database import AsyncSessionLocal, get_db
+from api.database import get_db
 from api.deps import get_current_user
-from api.deps_hunter import get_hunter_client
-from api.deps_llm import get_llm_client
 from api.stats_cache import get_cached_stats, invalidate_stats_cache, set_cached_stats
-from api.models import Application, GenerationQueue, JobRaw, JobResult, Profile, Recruiter, User
-from api.sql_compat import conflict_kwargs, dialect_insert
-from batch.recruiter_finder import find_recruiters
+from api.models import Application, JobRaw, JobResult, Profile, Recruiter, User
 
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
-
-_background_tasks: set[asyncio.Task] = set()
-
-
-def _on_task_done(task: asyncio.Task) -> None:
-    _background_tasks.discard(task)
-    if not task.cancelled() and task.exception():
-        logger.error("Background task failed: %s", task.exception(), exc_info=task.exception())
 
 VALID_STATUSES = {"interested", "applied", "messaged_recruiter", "phone_screen", "interview", "offer", "rejected", "archived"}
 
@@ -166,41 +150,6 @@ async def list_applications(
     }
 
 
-async def _auto_find_recruiters(company: str, session_factory, llm, hunter):
-    """Background: find recruiters for a company if none exist yet."""
-    async with session_factory() as db:
-        existing = await db.execute(
-            select(Recruiter).where(Recruiter.company == company).limit(1)
-        )
-        if existing.scalar_one_or_none():
-            logger.info("Recruiters already exist for %s, skipping auto-find", company)
-            return
-
-        try:
-            found = await find_recruiters(company=company, max_results=10, db=db, llm=llm, hunter=hunter)
-            for rec in found:
-                stmt = (
-                    dialect_insert(db, Recruiter)
-                    .values(
-                        company=company,
-                        name=rec.get("name"),
-                        title=rec.get("title"),
-                        linkedin_url=rec["linkedin_url"],
-                        domain=rec.get("domain"),
-                        email=rec.get("email"),
-                        confidence=rec.get("confidence"),
-                        email_source=rec.get("email_source"),
-                        email_verified=rec.get("email_verified"),
-                    )
-                    .on_conflict_do_nothing(**conflict_kwargs(db, constraint="uq_recruiter_company_linkedin"))
-                )
-                await db.execute(stmt)
-            await db.commit()
-            logger.info("Auto-find: saved %d recruiters for %s", len(found), company)
-        except Exception as exc:
-            logger.warning("Auto-find recruiters failed for %s: %s", company, exc)
-
-
 @router.post("", status_code=201)
 async def create_application(
     body: ApplicationCreate,
@@ -232,24 +181,7 @@ async def create_application(
         await db.rollback()
         raise HTTPException(status_code=409, detail="Application already exists for this job")
     await db.refresh(app)
-    if app.job_id:
-        try:
-            await db.execute(
-                dialect_insert(db, GenerationQueue)
-                .values(user_id=current_user.id, job_id=app.job_id)
-                .on_conflict_do_nothing(**conflict_kwargs(db, constraint="uq_generation_queue_user_job"))
-            )
-            await db.commit()
-        except Exception:
-            logger.warning("Failed to enqueue resume generation for job=%s", app.job_id, exc_info=True)
-    if app.company:
-        llm = get_llm_client()
-        hunter = get_hunter_client()
-        bg = asyncio.create_task(
-            _auto_find_recruiters(app.company, AsyncSessionLocal, llm, hunter)
-        )
-        _background_tasks.add(bg)
-        bg.add_done_callback(_on_task_done)
+    # Saving a job does not implicitly launch costly enrichment.
     invalidate_stats_cache(f"application_stats:{current_user.id}")
     invalidate_stats_cache(f"tracked_job_ids:{current_user.id}")
     return {"id": app.id, "status": app.status}
@@ -274,17 +206,22 @@ async def update_application(
         app.status = body.status
         if body.status == "applied" and not app.applied_at:
             app.applied_at = datetime.now(timezone.utc)
-    if body.notes is not None:
+    if "notes" in body.model_fields_set:
         app.notes = body.notes
-    if body.priority is not None:
-        if body.priority not in VALID_PRIORITIES:
+    if "priority" in body.model_fields_set:
+        if body.priority is not None and body.priority not in VALID_PRIORITIES:
             raise HTTPException(status_code=422, detail=f"Invalid priority: {body.priority}")
         app.priority = body.priority
-    if body.location_group is not None:
+    if "location_group" in body.model_fields_set:
         app.location_group = body.location_group
-    if body.interview_date is not None:
-        app.interview_date = datetime.fromisoformat(body.interview_date)
-    if body.offer_lpa is not None:
+    if "interview_date" in body.model_fields_set:
+        try:
+            app.interview_date = (
+                datetime.fromisoformat(body.interview_date) if body.interview_date else None
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid interview date") from exc
+    if "offer_lpa" in body.model_fields_set:
         app.offer_lpa = body.offer_lpa
     await db.commit()
     invalidate_stats_cache(f"application_stats:{current_user.id}")
