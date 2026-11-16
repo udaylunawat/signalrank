@@ -18,6 +18,7 @@ from api.deps import get_current_user, get_user_profile
 from api.deps_llm import get_llm_client
 from api.helpers import VALID_TEMPLATES, get_resume_template
 from api.models import JobRaw, Profile, TailoredResume, User
+from api.sql_compat import conflict_kwargs, dialect_insert
 from api.rate_limits import enforce_user_rate_limit
 from api.routes.profile import ResumeEditorInput
 from domain.resume_editor import editor_to_tailored_content, merge_resume_editor, parse_resume_editor
@@ -112,14 +113,6 @@ async def tailor(
     if not job.title or not job.description:
         raise HTTPException(status_code=422, detail="Job is missing title or description")
 
-    existing_res = await db.execute(
-        select(TailoredResume).where(
-            TailoredResume.user_id == profile.user_id,
-            TailoredResume.job_id == body.job_id,
-        )
-    )
-    existing = existing_res.scalar_one_or_none()
-
     content = await tailor_resume(
         resume_text=profile.resume_text,
         job_title=job.title,
@@ -144,21 +137,29 @@ async def tailor(
         "experiences": content.experiences,
         "education": content.education,
         "projects": content.projects,
+        "certifications": content.certifications,
     }
 
-    if existing:
-        existing.content_json = content_dict
-        existing.template = selected_template
-        existing.pdf_path = None
-    else:
-        db.add(
-            TailoredResume(
-                user_id=profile.user_id,
-                job_id=body.job_id,
-                content_json=content_dict,
-                template=selected_template,
-            )
-        )
+    # Concurrent requests for one user/job must refresh the same row, not race
+    # between SELECT and INSERT. Replacing content also replaces stale PDF bytes.
+    statement = dialect_insert(db, TailoredResume).values(
+        user_id=profile.user_id,
+        job_id=body.job_id,
+        content_json=content_dict,
+        template=selected_template,
+        pdf_path=None,
+        pdf_bytes=pdf_bytes,
+    )
+    statement = statement.on_conflict_do_update(
+        **conflict_kwargs(db, constraint="uq_tailored_resume_user_job"),
+        set_={
+            "content_json": statement.excluded.content_json,
+            "template": statement.excluded.template,
+            "pdf_path": None,
+            "pdf_bytes": statement.excluded.pdf_bytes,
+        },
+    )
+    await db.execute(statement)
     await db.commit()
 
     return {

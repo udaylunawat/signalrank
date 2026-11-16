@@ -8,6 +8,7 @@ import { LogOut, Terminal, Sun, Moon, Menu, X } from "lucide-react";
 import { useTheme } from "./theme-provider";
 
 const NAV_LINKS = [
+  { href: "/inbox", label: "Inbox" },
   { href: "/dashboard", label: "Matches" },
   { href: "/tracker", label: "Tracker" },
   { href: "/settings", label: "Resume" },

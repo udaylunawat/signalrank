@@ -292,6 +292,8 @@ export interface Application {
   priority: "P1" | "P2" | "P3" | null;
   location_group: string | null;
   interview_date: string | null;
+  next_action: string | null;
+  next_action_due_date: string | null;
   offer_lpa: number | null;
   system_score: number | null;
   resume_match_pct: number | null;
@@ -300,6 +302,43 @@ export interface Application {
   is_contract: boolean | null;
   location: string | null;
   recruiter: ApplicationRecruiter | null;
+}
+
+export type InboxBucket = "new" | "reviewed" | "due" | "snoozed" | "dismissed" | "saved";
+export type ReviewDecision = "reviewed" | "dismissed" | "snoozed" | "unreviewed";
+
+export interface InboxSummary {
+  new: number;
+  reviewed: number;
+  due: number;
+  snoozed: number;
+  dismissed: number;
+  saved: number;
+  followups_due: number;
+  upcoming_interviews: number;
+  review_complete: boolean;
+  min_score: number;
+}
+
+export interface InboxJob {
+  id: string;
+  title: string | null;
+  company: string | null;
+  location: string | null;
+  job_url: string;
+  site: string | null;
+  score: number;
+  review_state: ReviewDecision;
+  snoozed_until: string | null;
+  is_saved: boolean;
+}
+
+export interface InboxResponse {
+  jobs: InboxJob[];
+  total: number;
+  bucket: InboxBucket;
+  page: number;
+  limit: number;
 }
 
 export interface TrackerStats {

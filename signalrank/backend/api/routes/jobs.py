@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Literal
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from api.models import (
     JobPreferenceMemory,
     JobRaw,
     JobResult,
+    JobReviewState,
     Profile,
     Run,
     User,
@@ -69,6 +71,30 @@ def _job_search_clause(search: str):
         JobRaw.company.ilike(pattern),
         JobRaw.location.ilike(pattern),
     )
+
+
+def _review_local_today(request: Request) -> date:
+    timezone_name = request.headers.get("X-User-Timezone")
+    if timezone_name:
+        try:
+            return datetime.now(ZoneInfo(timezone_name)).date()
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    return datetime.now(timezone.utc).date()
+
+
+def _not_hidden_by_review(user_id: str, today: date):
+    """Dismissed and future-snoozed jobs stay hidden across reloads."""
+    return ~select(JobReviewState.id).where(
+        JobReviewState.user_id == user_id,
+        JobReviewState.job_id == JobResult.job_id,
+        or_(
+            JobReviewState.state == "dismissed",
+            (JobReviewState.state == "snoozed") &
+            (JobReviewState.snoozed_until > today),
+        ),
+    ).exists()
+
 
 
 _LEGACY_TIER_MAP = {
@@ -662,7 +688,7 @@ async def _build_jobs_payload_multi_run(
     run_ids = [run.id for run in runs]
     run_total = sum(run.job_count or 0 for run in runs)
 
-    base_filters = [JobResult.user_id == current_user.id, JobResult.run_id.in_(run_ids)]
+    base_filters = [JobResult.user_id == current_user.id, JobResult.run_id.in_(run_ids), _not_hidden_by_review(current_user.id, _review_local_today(request))]
 
     if not show_archived:
         base_filters.append(
@@ -868,7 +894,7 @@ async def _build_jobs_payload(
     )
     preference_active = has_explicit_preferences(preference_context.state)
 
-    base_filters = [JobResult.user_id == current_user.id, JobResult.run_id == run.id]
+    base_filters = [JobResult.user_id == current_user.id, JobResult.run_id == run.id, _not_hidden_by_review(current_user.id, _review_local_today(request))]
     run_total = run.job_count or 0
     cached_summary = _extract_cached_run_summary(run)
 
@@ -1113,7 +1139,12 @@ async def list_jobs(
     preference_context, memory = await _get_preference_context(
         db, user_id=current_user.id
     )
-    use_cache = not has_explicit_preferences(preference_context.state)
+    has_review_decisions = (await db.scalar(
+        select(JobReviewState.id).where(JobReviewState.user_id == current_user.id).limit(1)
+    )) is not None
+    # A review decision changes which jobs qualify for a page: do not reuse
+    # either in-memory or persisted default search results for these users.
+    use_cache = not has_explicit_preferences(preference_context.state) and not has_review_decisions
 
     representative_run = runs_to_use[0] if runs_to_use else None
     cache_key = None

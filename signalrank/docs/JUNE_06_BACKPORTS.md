@@ -45,3 +45,29 @@ These are **adaptations** of later workflow improvements, not literal merged com
 4. Add next action and due date to the existing full-featured tracker without discarding notes, priority, interviews, offer data or recruiter management.
 5. Compare later OpenRouter/score-fallback and bounded-memory changes against June implementations, port only test-supported differences.
 6. Resolve dependency vulnerabilities; do not apply blind major-version upgrades.
+
+
+## November 17: durable daily workflow (next development phase)
+
+The June 6 appearance and existing tracker features remain intact. This phase adds:
+
+- A new `/inbox` screen and navigation entry, with score threshold, persisted user-specific review states (new, reviewed/undecided, dismissed, snoozed, resurfaced/due, saved), bulk review for the current page, and individual restore/snooze actions.
+- Review decisions are stored in `job_review_states`, unique per user and job, rather than transient browser state. Dismissed and future-snoozed items are excluded from both existing Matches queries; expired snoozes resurface automatically. The Matches cached result is bypassed for users with review records.
+- The daily inbox summary provides follow-ups due and interviews scheduled for the coming seven days. The dashboard now links prominently to the inbox, ahead of operational scan diagnostics.
+- Existing tracker cards now include a next-action description and date; overdue tasks appear in a needs-attention strip. Priority, notes, interviews, compensation and recruiter management remain available.
+- New Alembic revision `7d0e20261117` adds the review table and application scheduling fields for PostgreSQL. The desktop SQLite compatibility startup path adds missing columns and index without dropping existing application rows.
+- Adapted later commit `b2719eb`: resume drafts use a dialect-aware atomic UPSERT keyed on user/job. A newly generated PDF replaces outdated stored PDF bytes; certifications persist in the structured content. Concurrent writes do not race at SELECT-then-INSERT.
+
+### Tests and operating constraints
+
+`uv run --python 3.12 pytest -q tests/test_inbox_sqlite_api.py tests/test_desktop_inbox_upgrade.py tests/test_resume_upsert_sqlite.py` runs API-level regression tests against *disposable* SQLite databases. It verifies user-scoped review isolation, persistent dismissal in Matches, snooze resurfacing, bulk review, tracked follow-ups, safe migration of an existing desktop application row, and idempotent tailored-resume regeneration.
+
+Run the existing targeted scoring, intent, desktop and previous backport unit suites as well, plus `npm run build` and `npm run lint` for the June frontend. Full targeted phase gate: **126 backend tests passed**, frontend build and ESLint passed, essential Ruff rules passed. Offline Alembic SQL generation through new head passed (614 lines; includes review state table and follow-up columns). PostgreSQL/pgvector migrations and the full DB-backed integration suite remain unverified in the WebCodex environment because no PostgreSQL instance or container runtime is installed. Real browser interaction and screenshots remain unverified because browser control was denied and a local browser binary is not installed.
+
+### Deferred work and known boundaries
+
+- **No real push notifications or background reminders yet.** Overdue tasks are visible when the user opens the dashboard, inbox or tracker.
+- **"New" means not yet reviewed**, rather than strict first-seen-since-last-visit, until a durable last-visit cursor is implemented. The user can choose a 65+ score threshold or all scored jobs.
+- The user-owned jobs review query uses existing latest JobResult per user; this preserves rerank compatibility, but no parallel event history of review actions is recorded.
+- Later ranking-memory and durable-run commit `1487a73` / `d1aec39` use significantly different schema (e.g. active jobs/enrichment or SaaS ingestion), so those changes were *reviewed but not cherry-picked*. Detailed benchmarking is required before modifying June ranking.
+- A full PostgreSQL integration pass, browser E2E on desktop/mobile, and production migration smoke test should precede deployment. Never apply migrations against a user's existing production database without a backup.

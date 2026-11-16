@@ -1,5 +1,5 @@
 import { adminApi, devApi } from "@/lib/api-client/admin";
-import { applicationsApi, ingestApi, jobsApi, recruitersApi } from "@/lib/api-client/jobs";
+import { applicationsApi, inboxApi, ingestApi, jobsApi, recruitersApi } from "@/lib/api-client/jobs";
 import { resumeApi } from "@/lib/api-client/resume";
 import { runsApi } from "@/lib/api-client/runs";
 import { authApi, desktopApi, onboardingApi, profileApi } from "@/lib/api-client/user";
@@ -11,6 +11,7 @@ export const api = {
   desktop: desktopApi,
   profile: profileApi,
   jobs: jobsApi,
+  inbox: inboxApi,
   runs: runsApi,
   applications: applicationsApi,
   recruiters: recruitersApi,

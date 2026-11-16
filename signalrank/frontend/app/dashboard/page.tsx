@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useToast } from "@/components/toast";
+import { api } from "@/lib/api";
+import type { InboxSummary } from "@/types";
 import RunProgress from "@/components/run-progress";
 import { JobCardSkeleton, StatCardSkeleton } from "@/components/skeleton";
 import { RefreshCw, ExternalLink, TrendingUp, Layers, Clock, BarChart2, Plus, AlertCircle, ArrowRight, BriefcaseBusiness, Sparkles, Radar, History } from "lucide-react";
@@ -22,6 +24,17 @@ export default function DashboardPage() {
   const { toast } = useToast();
 
   const [addJobOpen, setAddJobOpen] = useState(false);
+  const [reviewSummary, setReviewSummary] = useState<InboxSummary | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let current = true;
+    const now = new Date();
+    const localToday = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+    api.inbox.summary(token, 65, localToday)
+      .then((result) => { if (current) setReviewSummary(result); })
+      .catch(() => { if (current) setReviewSummary(null); });
+    return () => { current = false; };
+  }, [token]);
   const {
     analytics,
     handleRunComplete,
@@ -119,6 +132,28 @@ export default function DashboardPage() {
             </Link>
           </div>
         )}
+
+        {/* Make the daily actions visible before operational diagnostics. */}
+        <Link href="/inbox" className="block border border-primary/30 bg-card px-4 py-4 hover:border-primary/60 transition-colors">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="section-label mb-1">review today</div>
+              <div className="text-base font-semibold text-foreground">
+                {reviewSummary
+                  ? `${reviewSummary.new} new roles · ${reviewSummary.followups_due} follow-ups due · ${reviewSummary.upcoming_interviews} upcoming interviews`
+                  : "Open your daily review inbox"}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {reviewSummary?.review_complete
+                  ? "Current matches reviewed. Return when the next scan brings new roles."
+                  : `${reviewSummary?.due ?? 0} snoozed roles ready to revisit.`}
+              </p>
+            </div>
+            <span className="inline-flex items-center gap-2 text-xs uppercase tracking-wider text-primary">
+              Review inbox <ArrowRight size={13} />
+            </span>
+          </div>
+        </Link>
 
         <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr] gap-3">
           <div className="stat-card border border-border bg-card p-5 space-y-4">

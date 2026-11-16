@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -167,6 +168,8 @@ class Application(Base):
     priority: Mapped[str | None] = mapped_column(String(10))
     location_group: Mapped[str | None] = mapped_column(String(100))
     interview_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_action: Mapped[str | None] = mapped_column(String(255))
+    next_action_due_date: Mapped[date | None] = mapped_column(Date)
     offer_lpa: Mapped[float | None] = mapped_column(Float)
     system_score: Mapped[float | None] = mapped_column(Float)
     resume_match_pct: Mapped[float | None] = mapped_column(Float)
@@ -176,7 +179,33 @@ class Application(Base):
     job: Mapped["JobRaw | None"] = relationship()
     recruiter: Mapped["Recruiter | None"] = relationship()
 
-    __table_args__ = (UniqueConstraint("user_id", "job_id", name="uq_application_user_job"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "job_id", name="uq_application_user_job"),
+        Index("ix_applications_user_next_due", "user_id", "next_action_due_date"),
+    )
+
+
+class JobReviewState(Base):
+    """Durable review decisions scoped to a user's matching job."""
+
+    __tablename__ = "job_review_states"
+    __table_args__ = (
+        UniqueConstraint("user_id", "job_id", name="uq_job_review_user_job"),
+        Index("ix_job_review_user_state", "user_id", "state", "snoozed_until"),
+    )
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=gen_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    job_id: Mapped[str] = mapped_column(
+        ForeignKey("jobs_raw.id", ondelete="CASCADE"), nullable=False
+    )
+    state: Mapped[str] = mapped_column(String(20), nullable=False)
+    snoozed_until: Mapped[date | None] = mapped_column(Date)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class JobPreferenceMemory(Base):

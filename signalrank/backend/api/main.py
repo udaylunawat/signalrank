@@ -25,7 +25,7 @@ from api.config import (
 from api.database import AsyncSessionLocal, _parse_url, ensure_runtime_schema_compatibility
 from api.deps_llm import get_llm_client
 from api.logging_setup import configure_logging
-from api.routes import admin, applications, auth, dev, ingest, jobs, onboarding, profile, recruiters, resume, runs
+from api.routes import admin, applications, auth, dev, inbox, ingest, jobs, onboarding, profile, recruiters, resume, runs
 from api.routes import desktop
 
 configure_logging()
@@ -228,6 +228,7 @@ app.include_router(dev.router)
 app.include_router(profile.router)
 app.include_router(runs.router)
 app.include_router(jobs.router)
+app.include_router(inbox.router)
 app.include_router(applications.router)
 app.include_router(onboarding.router)
 app.include_router(resume.router)

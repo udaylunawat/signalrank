@@ -8,6 +8,10 @@ import type {
   ProfileFreshRequest,
   ProfileFreshResponse,
   TrackerStats,
+  InboxBucket,
+  InboxResponse,
+  InboxSummary,
+  ReviewDecision,
 } from "@/types";
 
 import { request } from "./core";
@@ -127,6 +131,39 @@ export const jobsApi = {
         sources: data.sources ?? [],
         companies: data.companies ?? [],
       }),
+    }),
+};
+
+export const inboxApi = {
+  summary: (token: string, minScore = 65, today?: string) =>
+    request<InboxSummary>(
+      `/api/inbox/summary?min_score=${minScore}${today ? `&today=${today}` : ""}`,
+      { token },
+    ),
+  list: (token: string, bucket: InboxBucket, page = 1, minScore = 65, today?: string) =>
+    request<InboxResponse>(
+      `/api/inbox?bucket=${bucket}&page=${page}&min_score=${minScore}${today ? `&today=${today}` : ""}`,
+      { token },
+    ),
+  update: (
+    token: string, jobId: string, state: ReviewDecision, snoozedUntil?: string
+  ) =>
+    request<{ job_id: string; state: ReviewDecision }>(
+      `/api/inbox/${jobId}`,
+      {
+        token,
+        method: "PUT",
+        body: JSON.stringify({
+          state,
+          ...(snoozedUntil ? { snoozed_until: snoozedUntil } : {}),
+        }),
+      },
+    ),
+  markPageReviewed: (token: string, jobIds: string[]) =>
+    request<{ reviewed: number }>("/api/inbox/mark-page-reviewed", {
+      token,
+      method: "POST",
+      body: JSON.stringify({ job_ids: jobIds }),
     }),
 };
 

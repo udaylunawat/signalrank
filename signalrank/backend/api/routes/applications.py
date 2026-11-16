@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -36,6 +36,8 @@ class ApplicationCreate(BaseModel):
     priority: str | None = None
     location_group: str | None = None
     interview_date: str | None = None
+    next_action: str | None = None
+    next_action_due_date: date | None = None
     offer_lpa: float | None = None
     system_score: float | None = None
     resume_match_pct: float | None = None
@@ -48,6 +50,8 @@ class ApplicationUpdate(BaseModel):
     priority: str | None = None
     location_group: str | None = None
     interview_date: str | None = None
+    next_action: str | None = None
+    next_action_due_date: date | None = None
     offer_lpa: float | None = None
 
 
@@ -77,6 +81,8 @@ def _serialize_app(a: Application, job_result: JobResult | None = None) -> dict:
         "priority": a.priority,
         "location_group": a.location_group,
         "interview_date": str(a.interview_date) if a.interview_date else None,
+        "next_action": a.next_action,
+        "next_action_due_date": a.next_action_due_date.isoformat() if a.next_action_due_date else None,
         "offer_lpa": a.offer_lpa,
         "system_score": _normalize_score_fraction(a.system_score),
         "resume_match_pct": _normalize_score_fraction(a.resume_match_pct),
@@ -170,6 +176,8 @@ async def create_application(
         priority=body.priority,
         location_group=body.location_group,
         interview_date=datetime.fromisoformat(body.interview_date) if body.interview_date else None,
+        next_action=body.next_action.strip() if body.next_action else None,
+        next_action_due_date=body.next_action_due_date,
         offer_lpa=body.offer_lpa,
         system_score=_normalize_score_fraction(body.system_score),
         resume_match_pct=_normalize_score_fraction(body.resume_match_pct),
@@ -221,6 +229,10 @@ async def update_application(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="Invalid interview date") from exc
+    if "next_action" in body.model_fields_set:
+        app.next_action = body.next_action.strip() if body.next_action else None
+    if "next_action_due_date" in body.model_fields_set:
+        app.next_action_due_date = body.next_action_due_date
     if "offer_lpa" in body.model_fields_set:
         app.offer_lpa = body.offer_lpa
     await db.commit()

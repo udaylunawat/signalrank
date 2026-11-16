@@ -171,6 +171,19 @@ async def ensure_runtime_schema_compatibility(bind=None) -> None:
         if conn.dialect.name == "sqlite":
             await conn.execute(text("PRAGMA foreign_keys=ON"))
             await conn.run_sync(Base.metadata.create_all)
+            # Existing desktop databases need additive upgrades: create_all only
+            # creates missing tables and will not add columns to applications.
+            columns = {
+                row[1] for row in (await conn.execute(text("PRAGMA table_info(applications)"))).all()
+            }
+            if "next_action" not in columns:
+                await conn.execute(text("ALTER TABLE applications ADD COLUMN next_action VARCHAR(255)"))
+            if "next_action_due_date" not in columns:
+                await conn.execute(text("ALTER TABLE applications ADD COLUMN next_action_due_date DATE"))
+            await conn.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_applications_user_next_due "
+                     "ON applications (user_id, next_action_due_date)")
+            )
             _schema_compat_checked = True
             return
 

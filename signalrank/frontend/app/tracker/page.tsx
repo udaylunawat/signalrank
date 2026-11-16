@@ -358,6 +358,17 @@ export default function TrackerPage() {
     }
   }
 
+  const localNow = new Date();
+  const todayKey = [localNow.getFullYear(), String(localNow.getMonth() + 1).padStart(2, "0"), String(localNow.getDate()).padStart(2, "0")].join("-");
+  const dueApps = applications
+    .filter((a) =>
+      a.next_action_due_date &&
+      a.next_action_due_date <= todayKey &&
+      a.status !== "rejected" &&
+      a.status !== "archived"
+    )
+    .sort((a, b) => (a.next_action_due_date ?? "").localeCompare(b.next_action_due_date ?? ""));
+
   const filteredApps = priorityFilter === "all"
     ? applications
     : priorityFilter === "p1"
@@ -410,6 +421,26 @@ export default function TrackerPage() {
           </button>
           </div>
         </div>
+
+        {/* Explicit next actions replace generic five-day reminders for planned work. */}
+        {dueApps.length > 0 && (
+          <section className="border border-[var(--terminal-yellow)]/40 bg-card p-4 space-y-3">
+            <div className="text-xs font-semibold uppercase tracking-wider text-[var(--terminal-yellow)]">
+              Needs attention · {dueApps.length} follow-up{dueApps.length !== 1 ? "s" : ""} due
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {dueApps.slice(0, 6).map((app) => (
+                <a key={app.id} href={`#tracker-${app.id}`}
+                  className="border border-border px-3 py-2 text-xs hover:border-primary/40 flex flex-col gap-1">
+                  <span className="text-foreground font-medium truncate">{app.title} · {app.company}</span>
+                  <span className="text-muted-foreground truncate">
+                    {app.next_action || "Next action"} · {app.next_action_due_date}
+                  </span>
+                </a>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Import dropdown */}
         {showImport && (
@@ -561,7 +592,8 @@ export default function TrackerPage() {
                     return (
                     <div
                       key={app.id}
-                      className={`border card-hover bg-card p-3 space-y-2 ${needsFollowUp ? "border-[var(--terminal-yellow)]/50" : style.border}`}
+                      id={`tracker-${app.id}`}
+                      className={`scroll-mt-20 border card-hover bg-card p-3 space-y-2 ${needsFollowUp || (app.next_action_due_date && app.next_action_due_date <= todayKey) ? "border-[var(--terminal-yellow)]/50" : style.border}`}
                       style={needsFollowUp ? { boxShadow: "0 0 8px color-mix(in srgb, var(--terminal-yellow) 15%, transparent)" } : {}}
                     >
                       {/* Title + company + priority */}
@@ -661,6 +693,42 @@ export default function TrackerPage() {
                           <option key={s} value={s}>{s.replace("_", " ")}</option>
                         ))}
                       </select>
+
+                      {/* Next action and due date */}
+                      <div className="space-y-1.5 border-t border-border/60 pt-2">
+                        <label className="text-[10px] uppercase tracking-wider text-muted-foreground block">
+                          Next action
+                        </label>
+                        <input
+                          type="text"
+                          aria-label={`Next action for ${app.title}`}
+                          defaultValue={app.next_action ?? ""}
+                          maxLength={255}
+                          placeholder="e.g. Follow up with recruiter"
+                          onBlur={(event) => {
+                            const next = event.currentTarget.value.trim();
+                            if (next !== (app.next_action ?? "")) {
+                              updateField(app.id, "next_action", next || null);
+                            }
+                          }}
+                          className="w-full bg-input border border-border px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+                        />
+                        <div className="flex items-center gap-2">
+                          <Calendar size={11} className="text-muted-foreground shrink-0" />
+                          <input
+                            type="date"
+                            aria-label={`Next action due date for ${app.title}`}
+                            value={app.next_action_due_date ?? ""}
+                            onChange={(event) => updateField(app.id, "next_action_due_date", event.target.value || null)}
+                            className="min-w-0 flex-1 bg-input border border-border px-1.5 py-1 text-xs text-foreground focus:outline-none focus:border-primary"
+                          />
+                        </div>
+                        {app.next_action_due_date && app.next_action_due_date <= todayKey && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--terminal-yellow)]">
+                            Due now
+                          </span>
+                        )}
+                      </div>
 
                       {/* Interview date */}
                       {(app.status === "interview" || app.status === "phone_screen" || app.interview_date) && (
