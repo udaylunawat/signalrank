@@ -20,6 +20,10 @@ The core product stays narrow at the surface. The system is hardened for authent
   - Upload resume
   - Review inferred profile inputs
   - Confirm profile and unlock refresh
+- `/inbox`
+  - Primary daily review queue with user-scoped persisted review decisions
+  - Review, dismiss, snooze, restore and save; snoozed jobs resurface when due
+  - The current “new” filter means *unreviewed*, not first-seen-since-last-visit
 - `/dashboard`
   - Lightweight command center
   - Show latest run, top matches, and next action
@@ -27,8 +31,8 @@ The core product stays narrow at the surface. The system is hardened for authent
   - Primary decision workspace
   - Filter, sort, inspect, track, archive
 - `/tracker`
-  - Durable application workflow state
-  - Canonical states: `interested`, `applied`, `interviewing`, `offer`, `rejected`, `archived`
+  - Durable application workflow state, priorities, notes, recruiter details, next action and due date, interview date and offers
+  - Current backend statuses: `interested`, `applied`, `messaged_recruiter`, `phone_screen`, `interview`, `offer`, `rejected`, `archived`
 - `/settings`
   - Profile, resume, roles, locations, and core search preferences
 
@@ -44,7 +48,7 @@ These remain supported only as secondary capabilities and are not part of the ca
 
 ## Domain Boundaries
 
-SignalRank has four primary domains:
+SignalRank has four primary domains (with review state inside discovery/decision workflows):
 
 - Identity and profile
 - Run orchestration
@@ -62,6 +66,7 @@ Canonical API families:
 - `/api/profile`
 - `/api/runs`
 - `/api/jobs`
+- `/api/inbox` (including review summary and user-scoped review updates)
 - `/api/applications`
 
 Canonical run response fields:

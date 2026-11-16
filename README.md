@@ -41,6 +41,20 @@ runs on [http://localhost:8000](http://localhost:8000).
 
 For manual setup and architecture details, see [signalrank/README.md](signalrank/README.md).
 
+## June 6 Development Branch
+
+The ongoing June 6 experience is maintained on `feature/june-06-backend-hardening`.
+The branch preserves the original tracker while adding a persistent review inbox,
+follow-up scheduling, and targeted backend fixes.
+
+- [Development roadmap and acceptance gates](signalrank/docs/JUNE_06_ROADMAP.md)
+- [Implemented backports and validation](signalrank/docs/JUNE_06_BACKPORTS.md)
+- [Research and benchmark documentation](docs/README.md)
+
+**Deployment gate:** The published branch has not yet passed PostgreSQL/pgvector
+migration testing or verified real-browser end-to-end testing. See the roadmap
+before applying migrations to an existing database.
+
 ## Configuration
 
 Copy the example env files and fill in local values:

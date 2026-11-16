@@ -37,7 +37,9 @@ These are **adaptations** of later workflow improvements, not literal merged com
 - Existing generated resumes, recruiter records and saved application data are not deleted.
 - The June UI and frontend dependencies are retained. No attempt was made to replace it with the July overview/matches/tracker redesign.
 
-## Next work on this branch
+For prioritized active work and acceptance criteria, see [JUNE_06_ROADMAP.md](JUNE_06_ROADMAP.md).
+
+## Original next-work list (partly delivered in November 2026)
 
 1. Establish isolated PostgreSQL + pgvector and run database-backed tests, API smoke tests, and end-to-end refresh tests using disposable data.
 2. Audit resume-generation entry points and expose generation explicitly in the June UI if save-only should be enforced across all paths.

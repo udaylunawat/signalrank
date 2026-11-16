@@ -2,7 +2,11 @@
 
 > AI-powered job discovery and ranking — surfaces roles that actually match your profile, not just keywords.
 
-Canonical product spec: [docs/spec.md](/Users/examplecandidate/Projects/job_ranker/signalrank/docs/spec.md)
+Canonical product spec: [docs/spec.md](docs/spec.md)
+
+June branch: [development roadmap](docs/JUNE_06_ROADMAP.md) ·
+[backports and validation](docs/JUNE_06_BACKPORTS.md) ·
+[competitive research](../docs/README.md)
 
 SignalRank scrapes job boards, embeds your resume, infers target roles from it, and ranks every listing against your skills, seniority, preferred companies, and location — so your job search feed looks like a curated shortlist, not a firehose.
 
@@ -29,7 +33,7 @@ flowchart TD
     end
 
     subgraph Worker["Background Workers (asyncio)"]
-        QUEUE["In-memory Queue"]
+        QUEUE["DB-owned run queue\n(leases / recovery)"]
         SCRAPER["Scraper\nbatch/scraper.py"]
         RANKER["Ranker\nbatch/ranker.py"]
         RESWORKER["Resume Worker\nbatch/resume_worker.py"]
@@ -116,7 +120,7 @@ flowchart TD
 | **Job Tracker** | Track applications, add recruiter contacts, generate cold-email drafts |
 | **Job Ingest** | Paste a URL or raw JD → LLM extracts title/company/location → validation card → add to tracker as "interested" with auto-priority |
 | **Resume Tailoring** | LLM-powered resume tailoring per job; Typst PDF with Awesome-CV-inspired layout |
-| **Background Resume Generation** | On boot and on track: resumes auto-generated for tracked jobs; cached in DB with configurable worker concurrency |
+| **Background Resume Generation** | Explicit or optional background generation with DB caching and configurable worker concurrency. Saving an application via the API does not itself enqueue generation |
 | **Template Switching** | Switch PDF template (classic/modern/minimal) without LLM re-call — re-renders from cache |
 | **Jobs Page Pagination** | Page-size picker (50 / 100 / 200 / All); fetches up to 5000 jobs |
 | **Onboarding** | Guided flow to distil resume → profile → preferences |
