@@ -135,6 +135,14 @@ export const jobsApi = {
 };
 
 export const inboxApi = {
+  visit: (token: string, visitId: string) =>
+    request<{ last_visited_at: string; previous_visited_at: string | null }>(
+      "/api/inbox/visit", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ client_visit_id: visitId }),
+      },
+    ),
   summary: (token: string, minScore = 65, today?: string) =>
     request<InboxSummary>(
       `/api/inbox/summary?min_score=${minScore}${today ? `&today=${today}` : ""}`,

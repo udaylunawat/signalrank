@@ -73,3 +73,12 @@ Run the existing targeted scoring, intent, desktop and previous backport unit su
 - The user-owned jobs review query uses existing latest JobResult per user; this preserves rerank compatibility, but no parallel event history of review actions is recorded.
 - Later ranking-memory and durable-run commit `1487a73` / `d1aec39` use significantly different schema (e.g. active jobs/enrichment or SaaS ingestion), so those changes were *reviewed but not cherry-picked*. Detailed benchmarking is required before modifying June ranking.
 - A full PostgreSQL integration pass, browser E2E on desktop/mobile, and production migration smoke test should precede deployment. Never apply migrations against a user's existing production database without a backup.
+
+
+## November 17: first-match timestamps and visit window
+
+- The new `job_results.first_seen_at` records a user's first match with a posting and is intentionally **not reset by subsequent reranks**. SQLite desktop startup safely backfills this field on existing rows. PostgreSQL Alembic revision `8e0e20261117` backfills legacy rows from the latest known run date (or the job ingestion date); an exact historical first-seen time cannot be reconstructed from previously overwritten results.
+- The `user_inbox_visits` table stores an authenticated user's last and previous review visits. `POST /api/inbox/visit` atomically advances the window with an idempotent page-visit ID. The frontend distinguishes **New since last visit** from the existing **Unreviewed** backlog. New arrivals during the current visit appear in the next visit window.
+- The new `since_visit` inbox bucket includes only unreviewed postings first matched after the previous visit and by the current visit. Saved, reviewed, dismissed and snoozed jobs remain excluded from it as intended; the backlog remains separately accessible.
+- Disposable SQLite regression coverage verifies duplicate visit IDs, visit rotation, new jobs appearing, cross-user isolation, reviewed/dismissed exclusions, rerank preserving first-seen timestamps, and additive desktop upgrades.
+- Validation for this update: **130 targeted backend tests passed**, frontend production build and lint passed, changed-file Ruff rules passed, and Alembic `upgrade head --sql` generated 642 lines including the new revision. **PostgreSQL migration execution and browser E2E were not run**; this branch is not approved for production deployment on this evidence alone.

@@ -11,11 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.database import get_db
 from api.deps import get_current_user
-from api.models import Application, JobRaw, JobResult, JobReviewState, User
+from api.models import Application, JobRaw, JobResult, JobReviewState, User, UserInboxVisit
 from api.stats_cache import invalidate_stats_cache
+from api.sql_compat import dialect_insert, conflict_kwargs
 
 router = APIRouter(prefix="/api/inbox", tags=["inbox"])
-InboxBucket = Literal["new", "reviewed", "due", "snoozed", "dismissed", "saved"]
+InboxBucket = Literal["new", "since_visit", "reviewed", "due", "snoozed", "dismissed", "saved"]
 ReviewDecision = Literal["reviewed", "dismissed", "snoozed", "unreviewed"]
 CLOSED_APPLICATION_STATUSES = ("rejected", "archived")
 
@@ -36,6 +37,63 @@ class ReviewUpdate(BaseModel):
 
 class BatchReview(BaseModel):
     job_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class VisitRequest(BaseModel):
+    # Stable across React effect replays within the same page instance.
+    client_visit_id: str = Field(min_length=8, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+
+
+def since_visit_filter(today: date):
+    """First matched during the active visit window; not every unreviewed job."""
+    return and_(
+        inbox_bucket(today) == "new",
+        (
+            UserInboxVisit.previous_visited_at.is_(None)
+            | (JobResult.first_seen_at > UserInboxVisit.previous_visited_at)
+        ),
+        (
+            UserInboxVisit.user_id.is_(None)
+            | (JobResult.first_seen_at <= UserInboxVisit.last_visited_at)
+        ),
+    )
+
+
+@router.post("/visit")
+async def check_inbox_visit(
+    body: VisitRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    stmt = dialect_insert(db, UserInboxVisit).values(
+        user_id=current_user.id,
+        previous_visited_at=None,
+        last_visited_at=now,
+        client_visit_id=body.client_visit_id,
+    )
+    # The per-user primary key also serializes competing check-ins. Replayed
+    # POSTs with the same visit ID leave the cursor unchanged.
+    stmt = stmt.on_conflict_do_update(
+        **conflict_kwargs(db, index_elements=[UserInboxVisit.user_id]),
+        set_={
+            "previous_visited_at": UserInboxVisit.last_visited_at,
+            "last_visited_at": stmt.excluded.last_visited_at,
+            "client_visit_id": stmt.excluded.client_visit_id,
+        },
+        where=UserInboxVisit.client_visit_id != stmt.excluded.client_visit_id,
+    )
+    await db.execute(stmt)
+    await db.commit()
+    visit = await db.scalar(
+        select(UserInboxVisit).where(UserInboxVisit.user_id == current_user.id)
+    )
+    return {
+        "last_visited_at": visit.last_visited_at.isoformat(),
+        "previous_visited_at": (
+            visit.previous_visited_at.isoformat() if visit.previous_visited_at else None
+        ),
+    }
 
 
 def inbox_bucket(today: date):
@@ -64,6 +122,7 @@ def matching_jobs_query(user_id: str, min_score: int):
             Application,
             and_(Application.job_id == JobResult.job_id, Application.user_id == user_id),
         )
+        .outerjoin(UserInboxVisit, UserInboxVisit.user_id == user_id)
         .where(
             JobResult.user_id == user_id,
             JobResult.final_score >= min_score,
@@ -82,6 +141,10 @@ async def _counts(db: AsyncSession, user_id: str, today: date, min_score: int):
     for name, count in rows:
         if name in counts:
             counts[name] = count
+    counts["since_visit"] = await db.scalar(
+        matching_jobs_query(user_id, min_score).with_only_columns(func.count())
+        .where(since_visit_filter(today))
+    ) or 0
     return counts
 
 
@@ -129,7 +192,8 @@ async def list_inbox(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    base = matching_jobs_query(current_user.id, min_score).where(inbox_bucket(today) == bucket)
+    bucket_clause = since_visit_filter(today) if bucket == "since_visit" else inbox_bucket(today) == bucket
+    base = matching_jobs_query(current_user.id, min_score).where(bucket_clause)
     total = await db.scalar(base.with_only_columns(func.count()).order_by(None))
     rows = (
         await db.execute(

@@ -1,9 +1,11 @@
 """Isolated SQLite API regression coverage; never touches a personal database."""
 
+import asyncio
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -177,3 +179,71 @@ async def test_invalid_inbox_actions_and_dates_are_rejected(sqlite_api):
     ):
         response = await client.put(f"/api/inbox/{shared_id}", json=payload, headers=alice)
         assert response.status_code == 422, (payload, response.text)
+
+@pytest.mark.asyncio
+async def test_new_since_visit_is_different_from_unreviewed_and_user_scoped(sqlite_api):
+    client, alice, bob, _, _ = sqlite_api
+    endpoint = "/api/inbox/visit"
+    first_id = "first-visit-alice-20261117"
+    second_id = "second-visit-alice-20261117"
+    first = await client.post(endpoint, headers=alice, json={"client_visit_id": first_id})
+    assert first.status_code == 200, first.text
+    assert first.json()["previous_visited_at"] is None
+    assert (await client.get("/api/inbox/summary", headers=alice)).json()["since_visit"] == 2
+
+    replay = await client.post(endpoint, headers=alice, json={"client_visit_id": first_id})
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == first.json(), "React effect replay must not rotate the window"
+
+    await asyncio.sleep(0.02)
+    second = await client.post(endpoint, headers=alice, json={"client_visit_id": second_id})
+    assert second.status_code == 200, second.text
+    assert second.json()["previous_visited_at"] == first.json()["last_visited_at"]
+    summary = (await client.get("/api/inbox/summary", headers=alice)).json()
+    assert summary["new"] == 2, "Older unreviewed roles stay in the backlog"
+    assert summary["since_visit"] == 0
+    assert (await client.get("/api/inbox?bucket=since_visit", headers=alice)).json()["jobs"] == []
+
+    # Simulate a newly matched job arriving after Alice's second visit.
+    await asyncio.sleep(0.02)
+    generator = app.dependency_overrides[get_db]()
+    db = await anext(generator)
+    try:
+        user = await db.scalar(select(User).where(User.email == "alice-inbox@example.test"))
+        run = await db.scalar(select(Run).where(Run.user_id == user.id))
+        new_job = JobRaw(
+            job_url="https://example.test/arrived-after-last-visit",
+            title="Platform Engineer", company="Example", location="Pune", site="manual",
+        )
+        db.add(new_job)
+        await db.flush()
+        db.add(JobResult(run_id=run.id, user_id=user.id, job_id=new_job.id, final_score=96))
+        await db.commit()
+        new_job_id = new_job.id
+    finally:
+        await generator.aclose()
+
+    assert (await client.get("/api/inbox/summary", headers=alice)).json()["since_visit"] == 0
+    await asyncio.sleep(0.02)
+    third = await client.post(endpoint, headers=alice, json={"client_visit_id": "third-visit-alice-20261117"})
+    assert third.status_code == 200, third.text
+    next_summary = (await client.get("/api/inbox/summary", headers=alice)).json()
+    assert next_summary["new"] == 3
+    assert next_summary["since_visit"] == 1
+    assert [j["id"] for j in (await client.get("/api/inbox?bucket=since_visit", headers=alice)).json()["jobs"]] == [new_job_id]
+
+    assert (await client.put(f"/api/inbox/{new_job_id}", json={"state": "dismissed"}, headers=alice)).status_code == 200
+    assert (await client.get("/api/inbox/summary", headers=alice)).json()["since_visit"] == 0
+    bob_first = await client.post(endpoint, headers=bob, json={"client_visit_id": "first-visit-bob-20261117"})
+    assert bob_first.status_code == 200, bob_first.text
+    assert bob_first.json()["previous_visited_at"] is None
+    bob_summary = (await client.get("/api/inbox/summary", headers=bob)).json()
+    assert bob_summary["new"] == 1 and bob_summary["since_visit"] == 1
+
+
+@pytest.mark.asyncio
+async def test_visit_rejects_invalid_ids(sqlite_api):
+    client, alice, _, _, _ = sqlite_api
+    for invalid in ("short", "contains spaces and !", "a" * 81):
+        res = await client.post("/api/inbox/visit", headers=alice, json={"client_visit_id": invalid})
+        assert res.status_code == 422, (invalid, res.text)

@@ -43,7 +43,7 @@ The selected backend suite has **126 passing tests**; frontend production build 
 
 ### P1 — Complete the daily inbox
 
-- [ ] Model **first seen since last visit** distinctly from **unreviewed**; current `new` label means *not yet reviewed*. Use a durable per-user cursor and predictable time zone.
+- [x] Model **first seen since last visit** distinctly from **unreviewed** using a per-user visit cursor and preserved first-match timestamps. **Pending:** PostgreSQL migration and real-browser verification.
 - [ ] Distinguish reviewed-but-undecided from deliberately dismissed; preserve decisions across reranks and new sources.
 - [ ] Add an end-of-session “reviewed today's batch” state and a clear next task.
 - [ ] Support quick dismiss reasons, undo, snooze presets, due-date resurfacing and keyboard shortcuts where accessible.

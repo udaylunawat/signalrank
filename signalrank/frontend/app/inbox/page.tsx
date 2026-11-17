@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Archive, Check, Clock3, ExternalLink, Inbox, Loader2, RotateCcw, Save } from "lucide-react";
@@ -10,7 +10,8 @@ import { api } from "@/lib/api";
 import type { InboxBucket, InboxJob, InboxSummary, ReviewDecision } from "@/types";
 
 const TABS: { bucket: InboxBucket; label: string }[] = [
-  { bucket: "new", label: "New to review" },
+  { bucket: "since_visit", label: "New since last visit" },
+  { bucket: "new", label: "Unreviewed" },
   { bucket: "due", label: "Resurfaced" },
   { bucket: "reviewed", label: "Undecided" },
   { bucket: "snoozed", label: "Snoozed" },
@@ -35,7 +36,9 @@ export default function InboxPage() {
   const { data: session, status } = useSession();
   const token = (session as { accessToken?: string })?.accessToken ?? "";
   const { toast } = useToast();
-  const [bucket, setBucket] = useState<InboxBucket>("new");
+  const [bucket, setBucket] = useState<InboxBucket>("since_visit");
+  const [visitReady, setVisitReady] = useState(false);
+  const visitId = useRef<string | null>(null);
   const [page, setPage] = useState(1);
   const [minScore, setMinScore] = useState(65);
   const [summary, setSummary] = useState<InboxSummary | null>(null);
@@ -47,12 +50,21 @@ export default function InboxPage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
     let current = true;
-    setLoading(true);
+    // The visit ID stays stable even if React replays this effect in dev mode.
+    if (!visitId.current) visitId.current = crypto.randomUUID();
+    api.inbox.visit(token, visitId.current)
+      .then(() => { if (current) setVisitReady(true); })
+      .catch((error: unknown) => {
+        if (current) toast(error instanceof Error ? error.message : "Unable to initialize visit", "error");
+      });
+    return () => { current = false; };
+  }, [token, toast]);
+
+  useEffect(() => {
+    if (!token || !visitReady) return;
+    let current = true;
     const today = localDate();
     Promise.all([
       api.inbox.summary(token, minScore, today),
@@ -71,7 +83,7 @@ export default function InboxPage() {
         if (current) setLoading(false);
       });
     return () => { current = false; };
-  }, [token, minScore, bucket, page, refreshKey, toast]);
+  }, [token, visitReady, minScore, bucket, page, refreshKey, toast]);
 
   function refresh() {
     setPage(1);
@@ -146,7 +158,7 @@ export default function InboxPage() {
             <div className="section-label mb-1">daily workflow</div>
             <h1 className="text-2xl font-bold text-foreground tracking-tight">Review Inbox</h1>
             <p className="text-xs text-muted-foreground mt-2">
-              Decisions persist across refreshes. Snoozed roles return automatically when due.
+              New since last visit is separate from your unreviewed backlog. Decisions survive refreshes.
             </p>
           </div>
           <div className="flex gap-2 items-center">
@@ -168,8 +180,8 @@ export default function InboxPage() {
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {[
-            { label: "New to review", count: summary?.new, href: "new" as InboxBucket },
-            { label: "Resurfaced", count: summary?.due, href: "due" as InboxBucket },
+            { label: "New since visit", count: summary?.since_visit, href: "since_visit" as InboxBucket },
+            { label: "Unreviewed backlog", count: summary?.new, href: "new" as InboxBucket },
             { label: "Follow-ups due", count: summary?.followups_due, href: null },
             { label: "Interviews / 7d", count: summary?.upcoming_interviews, href: null },
           ].map((stat) => (
@@ -208,7 +220,7 @@ export default function InboxPage() {
 
         <div className="flex items-center justify-between gap-3">
           <div className="text-xs text-muted-foreground">{loading ? "Loading..." : `${total} jobs in this queue`}</div>
-          {bucket === "new" && jobs.length > 0 && (
+          {(bucket === "new" || bucket === "since_visit") && jobs.length > 0 && (
             <button onClick={markPageReviewed} disabled={!!busyId}
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-primary/40 text-primary hover:bg-primary/10 disabled:opacity-40">
               <Check size={13} /> Mark this page reviewed
@@ -216,7 +228,7 @@ export default function InboxPage() {
           )}
         </div>
 
-        {loading ? (
+        {(!visitReady || loading) ? (
           <div className="flex items-center gap-2 border border-border bg-card p-8 text-muted-foreground text-xs">
             <Loader2 size={16} className="animate-spin" /> Fetching your review queue...
           </div>
@@ -224,10 +236,10 @@ export default function InboxPage() {
           <div className="border border-dashed border-border bg-card px-6 py-14 text-center space-y-3">
             <Inbox size={26} className="mx-auto text-primary" />
             <h2 className="font-semibold text-foreground">
-              {bucket === "new" && summary?.review_complete ? "Today's review is complete" : "No jobs in this queue"}
+              {bucket === "new" && summary?.review_complete ? "Backlog is clear" : bucket === "since_visit" ? "No new matches since your previous visit" : "No jobs in this queue"}
             </h2>
             <p className="text-xs text-muted-foreground">
-              {bucket === "new" ? "New matches will appear here after the next ranking run." : "You can return to new matches or revisit past decisions."}
+              {bucket === "since_visit" ? "All older unreviewed roles remain available in the Unreviewed tab." : bucket === "new" ? "New matches will appear here after the next ranking run." : "You can return to your unreviewed backlog or revisit past decisions."}
             </p>
             <Link href="/dashboard" className="inline-block text-xs text-primary underline underline-offset-4">
               Open command center

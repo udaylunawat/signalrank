@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -132,6 +132,11 @@ class JobResult(Base):
     location_score: Mapped[float | None] = mapped_column(Float)
     recency_score: Mapped[float | None] = mapped_column(Float)
     final_score: Mapped[float | None] = mapped_column(Float)
+    # First time this user was matched with this job, preserved on reranks.
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(), nullable=False,
+    )
     title_relevance_score: Mapped[float | None] = mapped_column(Float)
     fit_band: Mapped[str | None] = mapped_column(String(50))
     confidence_band: Mapped[str | None] = mapped_column(String(50))
@@ -146,6 +151,7 @@ class JobResult(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "job_id", name="uq_job_results_user_job"),
         Index("ix_job_results_user_score", "user_id", "final_score"),
+        Index("ix_job_results_user_first_seen", "user_id", "first_seen_at"),
         Index("ix_jr_user_archived", "user_id", "archived_by_llm"),
         Index("ix_jr_user_tier", "user_id", "company_tier"),
     )
@@ -206,6 +212,19 @@ class JobReviewState(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class UserInboxVisit(Base):
+    """Stable visit window: two different page visits advance the cursor once."""
+
+    __tablename__ = "user_inbox_visits"
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True,
+    )
+    previous_visited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_visited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    client_visit_id: Mapped[str] = mapped_column(String(80), nullable=False)
 
 
 class JobPreferenceMemory(Base):

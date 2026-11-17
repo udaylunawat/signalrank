@@ -304,10 +304,11 @@ export interface Application {
   recruiter: ApplicationRecruiter | null;
 }
 
-export type InboxBucket = "new" | "reviewed" | "due" | "snoozed" | "dismissed" | "saved";
+export type InboxBucket = "new" | "since_visit" | "reviewed" | "due" | "snoozed" | "dismissed" | "saved";
 export type ReviewDecision = "reviewed" | "dismissed" | "snoozed" | "unreviewed";
 
 export interface InboxSummary {
+  since_visit: number;
   new: number;
   reviewed: number;
   due: number;

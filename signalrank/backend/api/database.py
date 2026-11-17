@@ -184,6 +184,25 @@ async def ensure_runtime_schema_compatibility(bind=None) -> None:
                 text("CREATE INDEX IF NOT EXISTS ix_applications_user_next_due "
                      "ON applications (user_id, next_action_due_date)")
             )
+            # Preserve the first match timestamp on all later reranks. Legacy
+            # SQLite desktop databases do not receive Alembic migrations.
+            result_columns = {
+                row[1] for row in (await conn.execute(text("PRAGMA table_info(job_results)"))).all()
+            }
+            if "first_seen_at" not in result_columns:
+                await conn.execute(
+                    text("ALTER TABLE job_results ADD COLUMN first_seen_at DATETIME")
+                )
+                await conn.execute(text(
+                    "UPDATE job_results SET first_seen_at = "
+                    "COALESCE((SELECT started_at FROM runs WHERE runs.id = job_results.run_id), "
+                    "(SELECT ingested_at FROM jobs_raw WHERE jobs_raw.id = job_results.job_id), "
+                    "CURRENT_TIMESTAMP) WHERE first_seen_at IS NULL"
+                ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_job_results_user_first_seen "
+                "ON job_results (user_id, first_seen_at)"
+            ))
             _schema_compat_checked = True
             return
 
