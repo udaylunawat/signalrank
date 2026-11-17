@@ -1,0 +1,61 @@
+{
+  "dataset": "synthetic-adversarial-identity-fixture",
+  "evidence": "Offline POC; legacy key functions approximated from source, not an executed SignalRank backend.",
+  "results": {
+    "ATS-aware identity (new isolated POC)": {
+      "correct_pairs": 30,
+      "false_merges": 0,
+      "gold_duplicate_pairs": 30,
+      "input_listings": 150,
+      "missed_duplicate_pairs": 0,
+      "pair_f1": 1.0,
+      "pair_precision": 1.0,
+      "pair_recall": 1.0,
+      "predicted_duplicate_pairs": 30,
+      "predicted_groups": 120,
+      "real_openings_in_synthetic_gold": 120
+    },
+    "Company+title (approx June final matches)": {
+      "correct_pairs": 30,
+      "false_merges": 64,
+      "gold_duplicate_pairs": 30,
+      "input_listings": 150,
+      "missed_duplicate_pairs": 0,
+      "pair_f1": 0.4839,
+      "pair_precision": 0.3191,
+      "pair_recall": 1.0,
+      "predicted_duplicate_pairs": 94,
+      "predicted_groups": 104,
+      "real_openings_in_synthetic_gold": 120
+    },
+    "Company+title+location (approx June pre-embed)": {
+      "correct_pairs": 30,
+      "false_merges": 32,
+      "gold_duplicate_pairs": 30,
+      "input_listings": 150,
+      "missed_duplicate_pairs": 0,
+      "pair_f1": 0.6522,
+      "pair_precision": 0.4839,
+      "pair_recall": 1.0,
+      "predicted_duplicate_pairs": 62,
+      "predicted_groups": 112,
+      "real_openings_in_synthetic_gold": 120
+    },
+    "URL-only (approx June ingest)": {
+      "correct_pairs": 0,
+      "false_merges": 0,
+      "gold_duplicate_pairs": 30,
+      "input_listings": 150,
+      "missed_duplicate_pairs": 30,
+      "pair_f1": 0.0,
+      "pair_precision": null,
+      "pair_recall": 0.0,
+      "predicted_duplicate_pairs": 0,
+      "predicted_groups": 150,
+      "real_openings_in_synthetic_gold": 120
+    }
+  },
+  "source_baseline_commit": "97adf1b5930a02b70ed56ea1872ab75071b0dbee",
+  "source_branch": "feature/june-06-backend-hardening",
+  "test_scope": "synthetic-only, source-inspired key approximations, no runtime apps"
+}

@@ -12,6 +12,7 @@ Prepared 2026-11-17. This directory contains a **static code-level architecture 
 4. [Benchmark protocol and result ledger](04-benchmark-results.md)
 5. [Reuse versus replace decision](05-reuse-vs-replace.md)
 6. [Prioritized development roadmap](06-roadmap.md)
+7. [Offline POC 1 — ATS posting identity and synthetic comparison](poc/README.md)
 
 ## Evidence and limitations
 

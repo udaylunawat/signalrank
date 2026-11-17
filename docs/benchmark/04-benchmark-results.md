@@ -19,6 +19,12 @@
 
 Never populate this table from README statements, Github stars, simulated scores or screenshots of mocked apps.
 
+## Isolated identity POC (synthetic-only, not production SignalRank)
+
+An independent research prototype under [`poc/`](poc/README.md) was run against the purpose-built 150-listing fixture. **22 POC unit tests passed.** URL-only grouping missed 30 duplicate pairs. The company+title and company+title+location source-inspired heuristics made respectively 64 and 32 false pairwise merges. The ATS-aware identity POC identified all 30 deliberately aliased pairs without false merges **on this synthetic corpus**.
+
+These baselines approximate specific June key policies; they do **not** execute the actual SignalRank backend. They are not evidence of cross-competitor superiority, real source success or real-world accuracy. The competitive scoreboard above remains **NOT RUN** until the required independent evaluations.
+
 ## A. Fixed-input ranking benchmark (systems comparable on identical inputs)
 
 1. Generate the offline **synthetic** job set using `fixtures/generate_jobset.py`: `python3 docs/benchmark/fixtures/generate_jobset.py`. It writes `jobs-public.jsonl`, `gold.jsonl`, and `profile.json` to `docs/benchmark/fixtures/`. Records use `example.invalid`, and no network request should be made.
